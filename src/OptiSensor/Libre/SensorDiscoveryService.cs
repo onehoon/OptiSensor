@@ -1,8 +1,14 @@
 namespace OptiSensor.Libre;
 
-internal sealed class SensorDiscoveryService
+internal sealed class SensorDiscoveryService : IDisposable
 {
     private readonly LibreSensorReader _sensorReader;
+    private bool _opened;
+
+    public SensorDiscoveryService()
+        : this(new LibreSensorReader())
+    {
+    }
 
     public SensorDiscoveryService(LibreSensorReader sensorReader)
     {
@@ -11,6 +17,21 @@ internal sealed class SensorDiscoveryService
 
     public LibreSensorSnapshot Discover()
     {
+        EnsureOpen();
         return _sensorReader.ReadSnapshot();
+    }
+
+    public void Dispose()
+    {
+        _sensorReader.Dispose();
+    }
+
+    private void EnsureOpen()
+    {
+        if (_opened)
+            return;
+
+        _sensorReader.Open();
+        _opened = true;
     }
 }

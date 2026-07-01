@@ -22,7 +22,7 @@ internal static class SensorClassifier
         if (hardware.HardwareType is HardwareType.Battery)
             return TryClassifyBattery(sensor, out category, out unit);
 
-        return TryClassifyGeneric(sensor, out category, out unit);
+        return TryClassifyGenericHardware(sensor, out category, out unit);
     }
 
     public static bool IsGpuHardware(string hardwareType)
@@ -32,42 +32,32 @@ internal static class SensorClassifier
 
     private static bool TryClassifyGpu(ISensor sensor, out OptiSensorCategory category, out string unit)
     {
-        if (TryClassifyGeneric(sensor, out category, out unit))
+        switch (sensor.SensorType)
         {
-            if (sensor.SensorType is SensorType.Temperature or SensorType.Load)
+            case SensorType.Temperature:
                 category = OptiSensorCategory.Gpu;
-
-            return true;
+                unit = "C";
+                return true;
+            case SensorType.Load:
+                category = OptiSensorCategory.Gpu;
+                unit = "%";
+                return true;
+            case SensorType.Power:
+                category = OptiSensorCategory.Power;
+                unit = "W";
+                return true;
+            case SensorType.Fan:
+                category = OptiSensorCategory.Fan;
+                unit = "RPM";
+                return true;
+            default:
+                category = default;
+                unit = string.Empty;
+                return false;
         }
-
-        return false;
     }
 
     private static bool TryClassifyCpu(ISensor sensor, out OptiSensorCategory category, out string unit)
-    {
-        if (TryClassifyGeneric(sensor, out category, out unit))
-        {
-            if (sensor.SensorType is SensorType.Temperature or SensorType.Load)
-                category = OptiSensorCategory.Cpu;
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryClassifyBattery(ISensor sensor, out OptiSensorCategory category, out string unit)
-    {
-        if (TryClassifyGeneric(sensor, out category, out unit))
-        {
-            category = OptiSensorCategory.Battery;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryClassifyGeneric(ISensor sensor, out OptiSensorCategory category, out string unit)
     {
         switch (sensor.SensorType)
         {
@@ -84,13 +74,43 @@ internal static class SensorClassifier
                 unit = "W";
                 return true;
             case SensorType.Fan:
-            case SensorType.Control:
                 category = OptiSensorCategory.Fan;
-                unit = sensor.SensorType == SensorType.Fan ? "RPM" : "%";
+                unit = "RPM";
                 return true;
+            default:
+                category = default;
+                unit = string.Empty;
+                return false;
+        }
+    }
+
+    private static bool TryClassifyBattery(ISensor sensor, out OptiSensorCategory category, out string unit)
+    {
+        switch (sensor.SensorType)
+        {
             case SensorType.Level:
+            case SensorType.Temperature:
                 category = OptiSensorCategory.Battery;
-                unit = "%";
+                unit = sensor.SensorType == SensorType.Temperature ? "C" : "%";
+                return true;
+            case SensorType.Power:
+                category = OptiSensorCategory.Power;
+                unit = "W";
+                return true;
+            default:
+                category = default;
+                unit = string.Empty;
+                return false;
+        }
+    }
+
+    private static bool TryClassifyGenericHardware(ISensor sensor, out OptiSensorCategory category, out string unit)
+    {
+        switch (sensor.SensorType)
+        {
+            case SensorType.Fan:
+                category = OptiSensorCategory.Fan;
+                unit = "RPM";
                 return true;
             default:
                 category = default;

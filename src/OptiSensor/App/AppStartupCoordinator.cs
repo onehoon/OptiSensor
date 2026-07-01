@@ -36,7 +36,7 @@ internal sealed class AppStartupCoordinator
         if (options.Once)
         {
             ConsoleBridge.AttachForCliMode();
-            CliCommands.RunOnce(ApplicationHost.CreatePublishRunner);
+            CliCommands.RunOnce(() => ApplicationHost.CreatePublishRunner());
             _application.Shutdown(0);
             return null;
         }
@@ -44,7 +44,7 @@ internal sealed class AppStartupCoordinator
         if (options.Watch)
         {
             ConsoleBridge.AttachForCliMode();
-            CliCommands.RunWatch(ApplicationHost.CreatePublishRunner);
+            CliCommands.RunWatch(() => ApplicationHost.CreatePublishRunner());
             _application.Shutdown(0);
             return null;
         }

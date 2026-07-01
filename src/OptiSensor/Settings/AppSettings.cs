@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using OptiSensor.Install;
+using OptiSensor.Models;
 
 namespace OptiSensor.Settings;
 
@@ -21,8 +22,15 @@ internal sealed class AppSettings
     [JsonPropertyName("publishIntervalMs")]
     public int PublishIntervalMs { get; set; } = 1000;
 
+    [JsonPropertyName("selectedSensors")]
+    public List<SelectedOverlaySensor> SelectedSensors { get; set; } = [];
+
     [JsonIgnore]
     public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 10000);
+
+    [JsonIgnore]
+    public IReadOnlyList<SelectedOverlaySensor> EnabledSelectedSensors =>
+        SelectedSensors.Where(sensor => sensor.Enabled).OrderBy(sensor => sensor.Order).ToArray();
 
     public static AppSettings LoadOrCreate()
     {
@@ -36,7 +44,9 @@ internal sealed class AppSettings
 
     internal static AppSettings Deserialize(string json)
     {
-        return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        settings.SelectedSensors ??= [];
+        return settings;
     }
 
     internal static string Serialize(AppSettings settings)

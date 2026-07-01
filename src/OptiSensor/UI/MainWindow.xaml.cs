@@ -63,6 +63,8 @@ public partial class MainWindow : Window
         LastOverlayTextBlock.Text = _publishService.LastOverlayLine ?? "No GPU sensor values available.";
         StartupTextBlock.Text = $"Start with Windows: {(_settings.StartWithWindows ? "Enabled" : "Disabled")}";
         PublishIntervalTextBlock.Text = $"Publish interval: {_settings.ClampedPublishIntervalMs} ms";
+        DetectedSensorCountTextBlock.Text = $"Detected sensors: {_publishService.LastDetectedSensorCount}";
+        SelectedSensorCountTextBlock.Text = $"Selected sensors: {_settings.SelectedSensors.Count}";
     }
 
     private void HideToTray_Click(object sender, RoutedEventArgs e)

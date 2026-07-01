@@ -37,12 +37,12 @@ internal static class CliCommands
 
         while (true)
         {
-            var overlayLine = runner.PublishOnce();
+            var result = runner.PublishOnce();
 
             if (showConsoleUpdates || runOnce)
             {
                 TryClearConsole();
-                Console.WriteLine(overlayLine ?? "No GPU sensor values available.");
+                Console.WriteLine(result.OverlayLine ?? "No GPU sensor values available.");
             }
 
             if (runOnce)

@@ -32,10 +32,12 @@
                        TextWrapping="Wrap"/>
         </GroupBox>
 
-        <GroupBox Grid.Row="3" Header="Startup" Margin="0,0,0,10">
+        <GroupBox Grid.Row="3" Header="Runtime" Margin="0,0,0,10">
             <StackPanel Margin="8">
                 <TextBlock x:Name="StartupTextBlock"/>
                 <TextBlock x:Name="PublishIntervalTextBlock" Margin="0,4,0,0"/>
+                <TextBlock x:Name="DetectedSensorCountTextBlock" Margin="0,4,0,0"/>
+                <TextBlock x:Name="SelectedSensorCountTextBlock" Margin="0,4,0,0"/>
             </StackPanel>
         </GroupBox>
 
