@@ -1,4 +1,4 @@
-name: Build OptiSensor OptiScaler Package
+name: Build OptiSensor Package
 
 on:
   workflow_dispatch:
