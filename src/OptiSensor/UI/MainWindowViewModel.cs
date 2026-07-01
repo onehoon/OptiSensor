@@ -10,6 +10,8 @@ namespace OptiSensor.UI;
 
 internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 {
+    private const string UngroupedGroupId = "ungrouped";
+    private const string UngroupedGroupName = "Ungrouped";
     private readonly AppSettings _settings;
     private readonly OverlayLineBuilder _overlayLineBuilder = new();
     private readonly SensorDiscoveryService _sensorDiscoveryService = new();
@@ -33,12 +35,16 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         foreach (var group in _settings.GetOverlayGroupsSnapshot())
             OverlayGroups.Add(new OverlayGroupViewModel(group, SyncOverlayGroupsToSettings, MoveSensorToGroup));
 
-        if (OverlayGroups.Count == 0)
-            OverlayGroups.Add(CreateGroup("GPU", 0));
+        EnsureUngroupedGroup();
 
-        SelectedOverlayGroup = OverlayGroups.OrderBy(group => group.Order).FirstOrDefault();
+        if (VisibleOverlayGroups.Count == 0)
+            OverlayGroups.Add(CreateGroup("GPU", OverlayGroups.Count));
+
+        SelectedOverlayGroup = VisibleOverlayGroups.OrderBy(group => group.Order).FirstOrDefault();
         ReorderOverlayGroups(markChanged: false);
-        ReorderSelectedSensors(markChanged: false);
+        foreach (var group in OverlayGroups)
+            ReorderSensors(group.Sensors, markChanged: false);
+        RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings(markUnsaved: false);
         HasUnsavedChanges = false;
     }
@@ -48,12 +54,18 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<DetectedSensorViewModel> DetectedSensors { get; } = [];
     public ObservableCollection<SensorCategoryFilterViewModel> SensorCategoryFilters { get; } = [];
     public ObservableCollection<OverlayGroupViewModel> OverlayGroups { get; } = [];
+    public ObservableCollection<SelectedOverlaySensorViewModel> AllSelectedSensors { get; } = [];
+    public ObservableCollection<SelectedOverlaySensorViewModel> VisibleSelectedSensors { get; } = [];
+    public IReadOnlyList<OverlayGroupViewModel> VisibleOverlayGroups =>
+        OverlayGroups.Where(group => !string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase)).ToArray();
+    public IReadOnlyList<OverlayGroupViewModel> GroupSelectionGroups =>
+        OverlayGroups.OrderBy(group => group.Order).ToArray();
     public ObservableCollection<SelectedOverlaySensorViewModel> SelectedSensors => SelectedOverlayGroup?.Sensors ?? _emptySelectedSensors;
 
     public int DetectedSensorCount => DetectedSensors.Count;
     public int EnabledSelectedSensorCount => OverlayGroups.Where(group => group.Enabled).Sum(group => group.Sensors.Count(sensor => sensor.Enabled));
     public int TotalSelectedSensorCount => OverlayGroups.Sum(group => group.Sensors.Count);
-    public int OverlayGroupCount => OverlayGroups.Count;
+    public int OverlayGroupCount => VisibleOverlayGroups.Count;
     public string SettingsStateText => HasUnsavedChanges ? "Unsaved changes" : "Saved";
 
     public OverlayGroupViewModel? SelectedOverlayGroup
@@ -67,6 +79,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             _selectedOverlayGroup = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedSensors));
+            RebuildVisibleSelectedSensors();
             SyncDetectedSensorSelectionStates();
             OnCountsChanged();
         }
@@ -124,10 +137,10 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public bool AddDetectedSensor(DetectedSensorViewModel detectedSensor)
     {
-        if (SelectedSensors.Any(sensor => string.Equals(sensor.SensorId, detectedSensor.SensorId, StringComparison.OrdinalIgnoreCase)))
+        if (AllSelectedSensors.Any(sensor => string.Equals(sensor.SensorId, detectedSensor.SensorId, StringComparison.OrdinalIgnoreCase)))
             return false;
 
-        EnsureSelectedGroup();
+        var ungrouped = EnsureUngroupedGroup();
 
         var model = new SelectedOverlaySensor
         {
@@ -140,12 +153,13 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             DisplayName = SensorFormatDefaults.GetDefaultDisplayName(detectedSensor.Sensor),
             Unit = detectedSensor.Sensor.Unit,
             Format = SensorFormatDefaults.GetDefaultFormat(detectedSensor.Sensor.Unit),
-            Order = SelectedSensors.Count,
+            Order = ungrouped.Sensors.Count,
             Enabled = true
         };
 
-        SelectedSensors.Add(new SelectedOverlaySensorViewModel(model, SelectedOverlayGroup!.Id, SyncSelectedSensorsToSettings, MoveSensorToGroup));
-        ReorderSelectedSensors(markChanged: true);
+        ungrouped.Sensors.Add(new SelectedOverlaySensorViewModel(model, ungrouped.Id, SyncSelectedSensorsToSettings, MoveSensorToGroup));
+        ReorderSensors(ungrouped.Sensors, markChanged: true);
+        RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings();
         UpdateSelectedSensorAvailability(DetectedSensors.Select(sensor => sensor.Sensor).ToArray());
         return true;
@@ -161,7 +175,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        var selectedSensor = SelectedSensors.FirstOrDefault(sensor =>
+        var selectedSensor = AllSelectedSensors.FirstOrDefault(sensor =>
             string.Equals(sensor.SensorId, detectedSensor.SensorId, StringComparison.OrdinalIgnoreCase));
         if (selectedSensor is null)
             return;
@@ -171,37 +185,53 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public void RemoveSelectedSensor(SelectedOverlaySensorViewModel selectedSensor)
     {
-        SelectedSensors.Remove(selectedSensor);
-        ReorderSelectedSensors(markChanged: true);
+        var ownerGroup = OverlayGroups.FirstOrDefault(group => group.Sensors.Contains(selectedSensor));
+        if (ownerGroup is null)
+            return;
+
+        ownerGroup.Sensors.Remove(selectedSensor);
+        ReorderSensors(ownerGroup.Sensors, markChanged: true);
+        RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings();
         SyncDetectedSensorSelectionStates();
     }
 
     public void MoveSelectedSensorUp(SelectedOverlaySensorViewModel selectedSensor)
     {
-        var index = SelectedSensors.IndexOf(selectedSensor);
+        var ownerGroup = OverlayGroups.FirstOrDefault(group => group.Sensors.Contains(selectedSensor));
+        if (ownerGroup is null)
+            return;
+
+        var index = ownerGroup.Sensors.IndexOf(selectedSensor);
         if (index <= 0)
             return;
 
-        SelectedSensors.Move(index, index - 1);
-        ReorderSelectedSensors(markChanged: true);
+        ownerGroup.Sensors.Move(index, index - 1);
+        ReorderSensors(ownerGroup.Sensors, markChanged: true);
+        RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings();
     }
 
     public void MoveSelectedSensorDown(SelectedOverlaySensorViewModel selectedSensor)
     {
-        var index = SelectedSensors.IndexOf(selectedSensor);
-        if (index < 0 || index >= SelectedSensors.Count - 1)
+        var ownerGroup = OverlayGroups.FirstOrDefault(group => group.Sensors.Contains(selectedSensor));
+        if (ownerGroup is null)
             return;
 
-        SelectedSensors.Move(index, index + 1);
-        ReorderSelectedSensors(markChanged: true);
+        var index = ownerGroup.Sensors.IndexOf(selectedSensor);
+        if (index < 0 || index >= ownerGroup.Sensors.Count - 1)
+            return;
+
+        ownerGroup.Sensors.Move(index, index + 1);
+        ReorderSensors(ownerGroup.Sensors, markChanged: true);
+        RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings();
     }
 
     public bool TrySave(out string? errorMessage)
     {
-        ReorderSelectedSensors(markChanged: true);
+        foreach (var group in OverlayGroups)
+            ReorderSensors(group.Sensors, markChanged: true);
         if (!ValidateFormats(out errorMessage))
             return false;
 
@@ -216,6 +246,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
         var snapshot = new LibreSensorSnapshot(DetectedSensors.Select(sensor => sensor.Sensor).ToArray());
         var groups = OverlayGroups
+            .Where(group => !string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase))
             .OrderBy(group => group.Order)
             .Select(group => group.ToModel())
             .ToArray();
@@ -225,6 +256,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return line;
 
         var enabledGroups = OverlayGroups
+            .Where(group => !string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase))
             .Where(group => group.Enabled)
             .OrderBy(group => group.Order)
             .Select(group => string.IsNullOrWhiteSpace(group.Name) ? "(unnamed group)" : group.Name)
@@ -243,7 +275,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public void AddOverlayGroup()
     {
-        var group = CreateGroup($"Group {OverlayGroups.Count + 1}", OverlayGroups.Count);
+        var group = CreateGroup($"Group {VisibleOverlayGroups.Count + 1}", OverlayGroups.Count);
         OverlayGroups.Add(group);
         SelectedOverlayGroup = group;
         ReorderOverlayGroups(markChanged: true);
@@ -252,12 +284,16 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public void RemoveOverlayGroup(OverlayGroupViewModel group)
     {
-        OverlayGroups.Remove(group);
-        if (OverlayGroups.Count == 0)
-            OverlayGroups.Add(CreateGroup("GPU", 0));
+        if (string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase))
+            return;
 
-        SelectedOverlayGroup = OverlayGroups.OrderBy(candidate => candidate.Order).FirstOrDefault();
+        OverlayGroups.Remove(group);
+        if (VisibleOverlayGroups.Count == 0)
+            OverlayGroups.Add(CreateGroup("GPU", OverlayGroups.Count));
+
+        SelectedOverlayGroup = VisibleOverlayGroups.OrderBy(candidate => candidate.Order).FirstOrDefault();
         ReorderOverlayGroups(markChanged: true);
+        RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings();
         SyncDetectedSensorSelectionStates();
     }
@@ -265,7 +301,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public void MoveOverlayGroupUp(OverlayGroupViewModel group)
     {
         var index = OverlayGroups.IndexOf(group);
-        if (index <= 0)
+        if (index <= 1)
             return;
 
         OverlayGroups.Move(index, index - 1);
@@ -297,6 +333,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private void SyncOverlayGroupsToSettings(bool markUnsaved)
     {
         _settings.ReplaceOverlayGroups(OverlayGroups.OrderBy(group => group.Order).Select(group => group.ToModel()));
+        OnPropertyChanged(nameof(VisibleOverlayGroups));
+        OnPropertyChanged(nameof(GroupSelectionGroups));
+        RebuildVisibleSelectedSensors();
 
         if (markUnsaved)
             HasUnsavedChanges = true;
@@ -306,12 +345,46 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private void EnsureSelectedGroup()
     {
+        if (SelectedOverlayGroup is not null && !string.Equals(SelectedOverlayGroup.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        SelectedOverlayGroup = VisibleOverlayGroups.OrderBy(group => group.Order).FirstOrDefault();
         if (SelectedOverlayGroup is not null)
             return;
 
-        var group = CreateGroup("GPU", OverlayGroups.Count);
-        OverlayGroups.Add(group);
-        SelectedOverlayGroup = group;
+        var created = CreateGroup("GPU", OverlayGroups.Count);
+        OverlayGroups.Add(created);
+        SelectedOverlayGroup = created;
+    }
+
+    private OverlayGroupViewModel EnsureUngroupedGroup()
+    {
+        var existing = OverlayGroups.FirstOrDefault(group => string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            if (!string.Equals(existing.Name, UngroupedGroupName, StringComparison.Ordinal))
+                existing.Name = UngroupedGroupName;
+
+            if (existing.Enabled)
+                existing.Enabled = false;
+
+            return existing;
+        }
+
+        var ungrouped = new OverlayGroupViewModel(
+            new OverlayGroup
+            {
+                Id = UngroupedGroupId,
+                Name = UngroupedGroupName,
+                Order = 0,
+                Enabled = false,
+                Sensors = []
+            },
+            SyncOverlayGroupsToSettings,
+            MoveSensorToGroup);
+
+        OverlayGroups.Insert(0, ungrouped);
+        return ungrouped;
     }
 
     private OverlayGroupViewModel CreateGroup(string name, int order)
@@ -353,6 +426,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         sensor.SetGroupSilently(targetGroup.Id);
         ReorderSensors(targetGroup.Sensors, markChanged: true);
 
+        RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings();
         SyncDetectedSensorSelectionStates();
         return true;
@@ -367,11 +441,6 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             else
                 OverlayGroups[index].SetOrderSilently(index);
         }
-    }
-
-    private void ReorderSelectedSensors(bool markChanged)
-    {
-        ReorderSensors(SelectedSensors, markChanged);
     }
 
     private static void ReorderSensors(ObservableCollection<SelectedOverlaySensorViewModel> sensors, bool markChanged)
@@ -430,7 +499,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private bool IsSensorSelectedInCurrentGroup(string sensorId)
     {
-        return SelectedSensors.Any(sensor => string.Equals(sensor.SensorId, sensorId, StringComparison.OrdinalIgnoreCase));
+        return AllSelectedSensors.Any(sensor => string.Equals(sensor.SensorId, sensorId, StringComparison.OrdinalIgnoreCase));
     }
 
     private void SensorCategoryFilter_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -504,6 +573,41 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         while (DetectedSensors.Count > target.Count)
             DetectedSensors.RemoveAt(DetectedSensors.Count - 1);
+    }
+
+    private void RebuildAllSelectedSensors()
+    {
+        AllSelectedSensors.Clear();
+
+        foreach (var sensor in OverlayGroups
+                     .SelectMany(group => group.Sensors)
+                     .OrderBy(sensor => sensor.GroupId == UngroupedGroupId ? 0 : 1)
+                     .ThenBy(sensor => sensor.GroupId)
+                     .ThenBy(sensor => sensor.Order))
+        {
+            AllSelectedSensors.Add(sensor);
+        }
+
+        RebuildVisibleSelectedSensors();
+        OnPropertyChanged(nameof(SelectedSensors));
+    }
+
+    private void RebuildVisibleSelectedSensors()
+    {
+        VisibleSelectedSensors.Clear();
+
+        var selectedGroupId = SelectedOverlayGroup?.Id;
+        IEnumerable<SelectedOverlaySensorViewModel> visibleSensors = AllSelectedSensors;
+
+        if (!string.IsNullOrWhiteSpace(selectedGroupId))
+        {
+            visibleSensors = visibleSensors.Where(sensor =>
+                string.Equals(sensor.GroupId, UngroupedGroupId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(sensor.GroupId, selectedGroupId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        foreach (var sensor in visibleSensors)
+            VisibleSelectedSensors.Add(sensor);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

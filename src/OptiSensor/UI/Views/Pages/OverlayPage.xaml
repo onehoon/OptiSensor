@@ -76,7 +76,7 @@
                     </Grid>
 
                     <ListBox x:Name="GroupsListBox"
-                             ItemsSource="{Binding OverlayGroups}"
+                             ItemsSource="{Binding VisibleOverlayGroups}"
                              SelectedItem="{Binding SelectedOverlayGroup, Mode=TwoWay}"
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
@@ -121,7 +121,7 @@
                                        FontSize="16"
                                        FontWeight="SemiBold"
                                        Foreground="#0F172A"/>
-                            <TextBlock Text="Toggle sensors on the Sensors tab to add them to the selected group."
+                            <TextBlock Text="Sensors checked on the Sensors tab are added to Ungrouped. Use the Group dropdown to assign them."
                                        Margin="0,4,0,0"
                                        Foreground="#64748B"/>
                         </StackPanel>
@@ -137,7 +137,7 @@
                     </Grid>
 
                     <DataGrid x:Name="SelectedSensorsDataGrid"
-                              ItemsSource="{Binding SelectedSensors}"
+                              ItemsSource="{Binding VisibleSelectedSensors}"
                               AutoGenerateColumns="False"
                               SelectionMode="Single"
                               CanUserAddRows="False"
@@ -151,7 +151,7 @@
                             <DataGridTemplateColumn Header="Group" Width="180">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <ComboBox ItemsSource="{Binding DataContext.OverlayGroups, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        <ComboBox ItemsSource="{Binding DataContext.GroupSelectionGroups, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                   DisplayMemberPath="DisplayName"
                                                   SelectedValuePath="Id"
                                                   SelectedValue="{Binding GroupId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"

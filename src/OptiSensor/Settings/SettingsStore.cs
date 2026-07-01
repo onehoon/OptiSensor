@@ -17,7 +17,17 @@ internal static class SettingsStore
             var json = File.ReadAllText(AppPaths.SettingsFilePath);
             var settings = AppSettings.Deserialize(json);
             settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 10000);
-            settings.ReplaceSelectedSensors(settings.SelectedSensors ?? []);
+
+            if (settings.OverlayGroups.Count > 0)
+            {
+                settings.ReplaceOverlayGroups(settings.OverlayGroups);
+            }
+            else
+            {
+                // Legacy migration path: older files may only contain selectedSensors.
+                settings.ReplaceSelectedSensors(settings.SelectedSensors ?? []);
+            }
+
             settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
             Save(settings);
             return settings;
