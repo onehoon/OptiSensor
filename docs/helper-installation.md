@@ -95,7 +95,7 @@ Watch:
 .\OptiSensor.exe --watch
 ```
 
-Runs the sensor publish loop from the current path and prints the current overlay line to the console. This command does not self-install.
+Runs the sensor publish loop from the current path and prints the current overlay line to the console. This command does not self-install. It may create or load `%LocalAppData%\OptiSensor\settings.json` so it can use `publishIntervalMs`.
 
 ## settings.json
 
@@ -110,5 +110,7 @@ Default settings:
 ```
 
 `publishIntervalMs` is clamped to the range `100` to `10000`.
+
+`startMinimized` is reserved for the future tray/UI implementation. The current MVP is still a console helper, so this value does not hide the console window yet.
 
 There is no settings UI yet. Users may edit `settings.json` manually. If the file contains invalid JSON, OptiSensor backs it up as `settings.json.bad.<timestamp>` and recreates defaults.

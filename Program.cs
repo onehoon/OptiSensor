@@ -254,7 +254,8 @@ internal sealed class ExternalOverlayPublisher : IDisposable
     // 12      4     padding
     // 16      8     lastUpdateTickMs
     // 24      4     lineCount
-    // 28      516   UTF-8 null-terminated lines[4][128]
+    // 28      512   UTF-8 null-terminated lines[4][128]
+    // 540     4     trailing padding
     // Total: 544 bytes
 
     private MemoryMappedFile? _mappedFile;
