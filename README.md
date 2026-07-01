@@ -39,19 +39,19 @@ Windows 10 and older Windows versions are not supported by this project.
 Run once:
 
 ```powershell
-dotnet run -- --once
+dotnet run --project .\src\OptiSensor\OptiSensor.csproj -- --once
 ```
 
 Watch sensor output in the console:
 
 ```powershell
-dotnet run -- --watch
+dotnet run --project .\src\OptiSensor\OptiSensor.csproj -- --watch
 ```
 
 Publish a self-contained Windows x64 executable:
 
 ```powershell
-dotnet publish .\OptiSensor.csproj `
+dotnet publish .\src\OptiSensor\OptiSensor.csproj `
   -c Release `
   -r win-x64 `
   --self-contained true `

@@ -251,15 +251,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $csproj = Get-ChildItem $env:GITHUB_WORKSPACE -Recurse -Filter "OptiSensor.csproj" |
-            Where-Object { $_.FullName -notmatch "\\.work\\" -and $_.FullName -notmatch "\\.artifacts\\" } |
-            Select-Object -First 1
-          if (-not $csproj) {
-            throw "OptiSensor.csproj not found"
+          $csproj = Join-Path $env:GITHUB_WORKSPACE "src/OptiSensor/OptiSensor.csproj"
+          if (-not (Test-Path $csproj)) {
+            throw "OptiSensor.csproj not found at $csproj"
           }
 
           $publishDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/optisensor-publish"
-          dotnet publish $csproj.FullName `
+          dotnet publish $csproj `
             -c Release `
             -r win-x64 `
             --self-contained true `
@@ -276,7 +274,7 @@ jobs:
           }
 
           Copy-Item $exe (Join-Path $env:GITHUB_WORKSPACE ".artifacts/package/OptiSensor.exe") -Force
-          "OPTISENSOR_CSPROJ=$($csproj.FullName)" >> $env:GITHUB_ENV
+          "OPTISENSOR_CSPROJ=$csproj" >> $env:GITHUB_ENV
           "OPTISENSOR_EXE=$exe" >> $env:GITHUB_ENV
           Write-Host "Published helper: $exe"
 
