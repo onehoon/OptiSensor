@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using OptiSensor.Libre;
 using OptiSensor.Models;
+using OptiSensor.Overlay;
 using OptiSensor.Settings;
 
 namespace OptiSensor.UI;
@@ -11,15 +12,18 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly AppSettings _settings;
     private readonly SensorDiscoveryService _sensorDiscoveryService = new();
+    private bool _hasUnsavedChanges;
+    private bool _isRefreshing;
 
     public MainWindowViewModel(AppSettings settings)
     {
         _settings = settings;
 
-        foreach (var sensor in _settings.SelectedSensors.OrderBy(sensor => sensor.Order))
+        foreach (var sensor in _settings.GetSelectedSensorsSnapshot())
             SelectedSensors.Add(new SelectedOverlaySensorViewModel(sensor, SyncSelectedSensorsToSettings));
 
         ReorderSelectedSensors();
+        SyncSelectedSensorsToSettings(markUnsaved: false);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -30,16 +34,53 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public int DetectedSensorCount => DetectedSensors.Count;
     public int EnabledSelectedSensorCount => SelectedSensors.Count(sensor => sensor.Enabled);
     public int TotalSelectedSensorCount => SelectedSensors.Count;
+    public string SettingsStateText => HasUnsavedChanges ? "Unsaved changes" : "Saved";
 
-    public void RefreshDetectedSensors()
+    public bool HasUnsavedChanges
     {
-        var snapshot = _sensorDiscoveryService.Discover();
+        get => _hasUnsavedChanges;
+        private set
+        {
+            if (_hasUnsavedChanges == value)
+                return;
 
-        DetectedSensors.Clear();
-        foreach (var sensor in snapshot.Sensors.OrderBy(sensor => sensor.Category).ThenBy(sensor => sensor.HardwareName).ThenBy(sensor => sensor.SensorName))
-            DetectedSensors.Add(new DetectedSensorViewModel(sensor));
+            _hasUnsavedChanges = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SettingsStateText));
+        }
+    }
 
-        OnCountsChanged();
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set
+        {
+            if (_isRefreshing == value)
+                return;
+
+            _isRefreshing = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public async Task RefreshDetectedSensorsAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            var snapshot = await Task.Run(() => _sensorDiscoveryService.Discover()).ConfigureAwait(true);
+
+            DetectedSensors.Clear();
+            foreach (var sensor in snapshot.Sensors.OrderBy(sensor => sensor.Category).ThenBy(sensor => sensor.HardwareName).ThenBy(sensor => sensor.SensorName))
+                DetectedSensors.Add(new DetectedSensorViewModel(sensor));
+
+            UpdateSelectedSensorAvailability(snapshot.Sensors);
+            OnCountsChanged();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     public bool AddDetectedSensor(DetectedSensorViewModel detectedSensor)
@@ -55,9 +96,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             SensorType = detectedSensor.Sensor.SensorType,
             SensorName = detectedSensor.Sensor.SensorName,
             Category = detectedSensor.Sensor.Category,
-            DisplayName = GetDefaultDisplayName(detectedSensor.Sensor),
+            DisplayName = SensorFormatDefaults.GetDefaultDisplayName(detectedSensor.Sensor),
             Unit = detectedSensor.Sensor.Unit,
-            Format = GetDefaultFormat(detectedSensor.Sensor.Unit),
+            Format = SensorFormatDefaults.GetDefaultFormat(detectedSensor.Sensor.Unit),
             Order = SelectedSensors.Count,
             Enabled = true
         };
@@ -65,6 +106,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         SelectedSensors.Add(new SelectedOverlaySensorViewModel(model, SyncSelectedSensorsToSettings));
         ReorderSelectedSensors();
         SyncSelectedSensorsToSettings();
+        UpdateSelectedSensorAvailability(DetectedSensors.Select(sensor => sensor.Sensor).ToArray());
         return true;
     }
 
@@ -97,11 +139,17 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         SyncSelectedSensorsToSettings();
     }
 
-    public void Save()
+    public bool TrySave(out string? errorMessage)
     {
         ReorderSelectedSensors();
+        if (!ValidateFormats(out errorMessage))
+            return false;
+
         SyncSelectedSensorsToSettings();
         _settings.Save();
+        HasUnsavedChanges = false;
+        errorMessage = null;
+        return true;
     }
 
     public void Dispose()
@@ -109,36 +157,19 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         _sensorDiscoveryService.Dispose();
     }
 
-    public static string GetDefaultFormat(string unit)
-    {
-        return unit switch
-        {
-            "C" => "{0:0}C",
-            "W" => "{0:0}W",
-            "%" => "{0:0}%",
-            "RPM" => "{0:0}RPM",
-            _ => "{0:0}"
-        };
-    }
-
-    private static string GetDefaultDisplayName(DetectedSensorInfo sensor)
-    {
-        return sensor.Category switch
-        {
-            OptiSensorCategory.Gpu => sensor.SensorType == "Temperature" ? "GPU" : string.Empty,
-            OptiSensorCategory.Cpu => sensor.SensorType == "Temperature" ? "CPU" : string.Empty,
-            OptiSensorCategory.Battery => "BAT",
-            OptiSensorCategory.Fan => "FAN",
-            _ => string.Empty
-        };
-    }
-
     private void SyncSelectedSensorsToSettings()
     {
-        _settings.SelectedSensors = SelectedSensors
+        SyncSelectedSensorsToSettings(markUnsaved: true);
+    }
+
+    private void SyncSelectedSensorsToSettings(bool markUnsaved)
+    {
+        _settings.ReplaceSelectedSensors(SelectedSensors
             .OrderBy(sensor => sensor.Order)
-            .Select(sensor => sensor.ToModel())
-            .ToList();
+            .Select(sensor => sensor.ToModel()));
+
+        if (markUnsaved)
+            HasUnsavedChanges = true;
 
         OnCountsChanged();
     }
@@ -154,6 +185,39 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(DetectedSensorCount));
         OnPropertyChanged(nameof(EnabledSelectedSensorCount));
         OnPropertyChanged(nameof(TotalSelectedSensorCount));
+    }
+
+    private void UpdateSelectedSensorAvailability(IReadOnlyCollection<DetectedSensorInfo> detectedSensors)
+    {
+        foreach (var selectedSensor in SelectedSensors)
+        {
+            var match = SensorMatcher.FindBestMatch(selectedSensor.ToModel(), detectedSensors);
+            var viewModel = match is null ? null : new DetectedSensorViewModel(match);
+            selectedSensor.UpdateAvailability(viewModel);
+        }
+    }
+
+    private bool ValidateFormats(out string? errorMessage)
+    {
+        foreach (var sensor in SelectedSensors)
+        {
+            var format = string.IsNullOrWhiteSpace(sensor.Format)
+                ? SensorFormatDefaults.GetDefaultFormat(sensor.Unit)
+                : sensor.Format;
+
+            try
+            {
+                _ = string.Format(CultureInfo.InvariantCulture, format, 123.4f);
+            }
+            catch (FormatException)
+            {
+                errorMessage = $"Invalid format: {sensor.Format}{Environment.NewLine}Please use a .NET numeric format such as {{0:0}}C, {{0:0.0}}W, or {{0:0}}%.";
+                return false;
+            }
+        }
+
+        errorMessage = null;
+        return true;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

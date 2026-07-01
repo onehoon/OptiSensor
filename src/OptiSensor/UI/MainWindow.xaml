@@ -46,6 +46,7 @@
                     <TextBlock x:Name="PublishIntervalTextBlock" Margin="0,4,0,0"/>
                     <TextBlock x:Name="DetectedSensorCountTextBlock" Margin="0,4,0,0"/>
                     <TextBlock x:Name="SelectedSensorCountTextBlock" Margin="0,4,0,0"/>
+                    <TextBlock x:Name="SettingsStateTextBlock" Margin="0,4,0,0"/>
                 </StackPanel>
             </GroupBox>
         </Grid>
@@ -53,7 +54,7 @@
         <GroupBox Grid.Row="2" Header="Detected Sensors" Margin="0,0,0,10">
             <DockPanel Margin="8">
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
-                    <Button Content="Refresh" MinWidth="80" Margin="0,0,8,0" Click="RefreshDetectedSensors_Click"/>
+                    <Button x:Name="RefreshSensorsButton" Content="Refresh" MinWidth="80" Margin="0,0,8,0" Click="RefreshDetectedSensors_Click"/>
                     <Button Content="Add" MinWidth="80" Click="AddSelectedSensor_Click"/>
                 </StackPanel>
 
@@ -94,6 +95,8 @@
                         <DataGridTextColumn Header="Sensor" Binding="{Binding SensorName}" IsReadOnly="True" Width="2*"/>
                         <DataGridTextColumn Header="Type" Binding="{Binding SensorType}" IsReadOnly="True" Width="110"/>
                         <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="90"/>
+                        <DataGridTextColumn Header="Available" Binding="{Binding AvailabilityText}" IsReadOnly="True" Width="110"/>
+                        <DataGridTextColumn Header="Current Value" Binding="{Binding CurrentValueText}" IsReadOnly="True" Width="110"/>
                         <DataGridTextColumn Header="Format" Binding="{Binding Format, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" IsReadOnly="True" Width="70"/>
                     </DataGrid.Columns>

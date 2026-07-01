@@ -36,8 +36,8 @@ internal static class AppInstaller
             Console.WriteLine($"Installed executable: {AppPaths.InstalledExecutablePath}");
             Console.WriteLine($"Settings: {AppPaths.SettingsFilePath}");
             Console.WriteLine(settings.StartWithWindows
-                ? "OptiSensor startup entry registered."
-                : "OptiSensor startup entry not registered because startWithWindows is false.");
+                ? "OptiSensor Task Scheduler startup task registration was requested."
+                : "OptiSensor Task Scheduler startup task was not registered because startWithWindows is false.");
         }
 
         return true;
@@ -49,7 +49,7 @@ internal static class AppInstaller
         SimpleLog.TryWrite("Uninstall started.");
 
         StartupRegistration.Unregister();
-        Console.WriteLine("OptiSensor startup entry removed.");
+        Console.WriteLine("OptiSensor startup task removed.");
 
         TryDeleteInstalledExecutable();
         TryDeleteEmptyInstallDirectory();

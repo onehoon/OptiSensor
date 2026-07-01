@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using OptiSensor.App;
 using OptiSensor.Install;
 using OptiSensor.Publishing;
@@ -27,7 +28,7 @@ public partial class MainWindow : Window
         _publishService.StatusChanged += PublishService_StatusChanged;
         _viewModel.PropertyChanged += (_, _) => UpdateStatus();
 
-        Loaded += (_, _) => RefreshDetectedSensors();
+        Loaded += async (_, _) => await RefreshDetectedSensorsAsync();
         UpdateStatus();
     }
 
@@ -76,12 +77,17 @@ public partial class MainWindow : Window
         StartupTextBlock.Text = $"Start with Windows: {(_settings.StartWithWindows ? "Enabled" : "Disabled")}";
         PublishIntervalTextBlock.Text = $"Publish interval: {_settings.ClampedPublishIntervalMs} ms";
         DetectedSensorCountTextBlock.Text = $"Detected sensors: {_viewModel.DetectedSensorCount}";
-        SelectedSensorCountTextBlock.Text = $"Selected sensors: {_publishService.SelectedSensorCount} / {_settings.SelectedSensors.Count}";
+        SelectedSensorCountTextBlock.Text = $"Selected sensors: {_viewModel.EnabledSelectedSensorCount} / {_viewModel.TotalSelectedSensorCount}";
+        SettingsStateTextBlock.Text = $"Settings: {_viewModel.SettingsStateText}";
+        RefreshSensorsButton.IsEnabled = !_viewModel.IsRefreshing;
+
+        if (_viewModel.IsRefreshing)
+            StatusTextBlock.Text = "Refreshing sensors...";
     }
 
-    private void RefreshDetectedSensors_Click(object sender, RoutedEventArgs e)
+    private async void RefreshDetectedSensors_Click(object sender, RoutedEventArgs e)
     {
-        RefreshDetectedSensors();
+        await RefreshDetectedSensorsAsync();
     }
 
     private void AddSelectedSensor_Click(object sender, RoutedEventArgs e)
@@ -126,7 +132,15 @@ public partial class MainWindow : Window
 
     private void SaveSettings_Click(object sender, RoutedEventArgs e)
     {
-        _viewModel.Save();
+        SelectedSensorsDataGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        SelectedSensorsDataGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
+        if (!_viewModel.TrySave(out var errorMessage))
+        {
+            System.Windows.MessageBox.Show(errorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         UpdateStatus();
         System.Windows.MessageBox.Show("Settings saved.", "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Information);
     }
@@ -151,11 +165,11 @@ public partial class MainWindow : Window
         _host.RequestExit();
     }
 
-    private void RefreshDetectedSensors()
+    private async Task RefreshDetectedSensorsAsync()
     {
         try
         {
-            _viewModel.RefreshDetectedSensors();
+            await _viewModel.RefreshDetectedSensorsAsync();
             UpdateStatus();
         }
         catch (Exception ex)

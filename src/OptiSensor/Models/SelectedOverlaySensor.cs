@@ -13,4 +13,22 @@ internal sealed record SelectedOverlaySensor
     public required string Format { get; set; }
     public required int Order { get; set; }
     public required bool Enabled { get; set; }
+
+    public SelectedOverlaySensor Copy()
+    {
+        return new SelectedOverlaySensor
+        {
+            SensorId = SensorId,
+            HardwareType = HardwareType,
+            HardwareName = HardwareName,
+            SensorType = SensorType,
+            SensorName = SensorName,
+            Category = Category,
+            DisplayName = DisplayName,
+            Unit = Unit,
+            Format = Format,
+            Order = Order,
+            Enabled = Enabled
+        };
+    }
 }

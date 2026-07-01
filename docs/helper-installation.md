@@ -29,25 +29,31 @@ Uninstall keeps `settings.json` and `logs\` so user data is preserved.
 
 ## Startup Registration
 
-OptiSensor uses the current user's Run registry key:
+OptiSensor uses a current-user Windows Task Scheduler task instead of the HKCU Run registry key.
 
-```text
-HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-```
-
-Value name:
+Task name:
 
 ```text
 OptiSensor
 ```
 
-Value data:
+Action:
 
 ```text
 "%LocalAppData%\Programs\OptiSensor\OptiSensor.exe" --startup
 ```
 
-No administrator rights are required.
+Policy:
+
+```text
+Trigger: At user logon
+Run level: Least privilege
+Restart on failure: every 1 minute, up to 3 attempts
+```
+
+No administrator rights are required. Legacy `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entries named `OptiSensor` are removed during install and uninstall to avoid duplicate launches.
+
+Tray `Exit` and the main window `Exit` button exit normally with code `0`, so Task Scheduler does not restart OptiSensor after an intentional user exit. A crash or non-zero process exit can be restarted by the task failure policy.
 
 ## Commands
 
@@ -77,7 +83,7 @@ Uninstall:
 .\OptiSensor.exe --uninstall
 ```
 
-Removes the HKCU Run startup entry and tries to delete the installed executable. Settings and logs are not deleted.
+Removes the Task Scheduler startup task, removes any legacy HKCU Run startup entry, and tries to delete the installed executable. Settings and logs are not deleted.
 
 Startup:
 

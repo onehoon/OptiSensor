@@ -92,7 +92,7 @@ internal sealed class OverlayLineBuilder
         try
         {
             var format = string.IsNullOrWhiteSpace(sensor.Format)
-                ? GetFallbackFormat(sensor.Unit)
+                ? SensorFormatDefaults.GetDefaultFormat(sensor.Unit)
                 : sensor.Format;
 
             formattedValue = string.Format(CultureInfo.InvariantCulture, format, value);
@@ -105,17 +105,5 @@ internal sealed class OverlayLineBuilder
         return string.IsNullOrWhiteSpace(sensor.DisplayName)
             ? formattedValue
             : $"{sensor.DisplayName} {formattedValue}";
-    }
-
-    private static string GetFallbackFormat(string unit)
-    {
-        return unit switch
-        {
-            "C" => "{0:0}C",
-            "W" => "{0:0}W",
-            "%" => "{0:0}%",
-            "RPM" => "{0:0}RPM",
-            _ => "{0:0}"
-        };
     }
 }

@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using OptiSensor.Libre;
 using OptiSensor.Models;
+using OptiSensor.Overlay;
 
 namespace OptiSensor.UI;
 
@@ -11,6 +13,9 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
     private int _order;
     private string _displayName;
     private string _format;
+    private bool _isAvailable;
+    private bool _hasPossibleMatch;
+    private string _currentValueText = "Not found";
 
     public SelectedOverlaySensorViewModel(SelectedOverlaySensor sensor, Action changed)
     {
@@ -37,6 +42,7 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
     public string SensorName { get; }
     public OptiSensorCategory Category { get; }
     public string Unit { get; }
+    public string AvailabilityText => IsAvailable ? "Yes" : HasPossibleMatch ? "Possible match" : "No";
 
     public bool Enabled
     {
@@ -62,6 +68,40 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
         set => SetField(ref _format, value);
     }
 
+    public bool IsAvailable
+    {
+        get => _isAvailable;
+        private set
+        {
+            if (SetField(ref _isAvailable, value, markChanged: false))
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AvailabilityText)));
+        }
+    }
+
+    public bool HasPossibleMatch
+    {
+        get => _hasPossibleMatch;
+        private set
+        {
+            if (SetField(ref _hasPossibleMatch, value, markChanged: false))
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AvailabilityText)));
+        }
+    }
+
+    public string CurrentValueText
+    {
+        get => _currentValueText;
+        private set => SetField(ref _currentValueText, value, markChanged: false);
+    }
+
+    public void UpdateAvailability(DetectedSensorViewModel? detectedSensor)
+    {
+        var exactMatch = detectedSensor is not null && SensorMatcher.HasExactSensorIdMatch(ToModel(), detectedSensor.Sensor);
+        IsAvailable = detectedSensor is not null && exactMatch;
+        HasPossibleMatch = detectedSensor is not null && !exactMatch;
+        CurrentValueText = detectedSensor?.ValueText ?? "Not found";
+    }
+
     public SelectedOverlaySensor ToModel()
     {
         return new SelectedOverlaySensor
@@ -74,19 +114,21 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
             Category = Category,
             DisplayName = DisplayName,
             Unit = Unit,
-            Format = string.IsNullOrWhiteSpace(Format) ? MainWindowViewModel.GetDefaultFormat(Unit) : Format,
+            Format = string.IsNullOrWhiteSpace(Format) ? SensorFormatDefaults.GetDefaultFormat(Unit) : Format,
             Order = Order,
             Enabled = Enabled
         };
     }
 
-    private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    private bool SetField<T>(ref T field, T value, bool markChanged = true, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
-            return;
+            return false;
 
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        _changed();
+        if (markChanged)
+            _changed();
+        return true;
     }
 }

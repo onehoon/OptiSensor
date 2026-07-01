@@ -17,7 +17,8 @@ internal sealed class SensorPublishService : IDisposable
     public bool IsRunning { get; private set; }
     public string? LastOverlayLine { get; private set; }
     public int LastDetectedSensorCount { get; private set; }
-    public int SelectedSensorCount { get; private set; }
+    public int EnabledSelectedSensorCount { get; private set; }
+    public int TotalSelectedSensorCount { get; private set; }
     public string? LastError { get; private set; }
     public event EventHandler? StatusChanged;
 
@@ -96,7 +97,8 @@ internal sealed class SensorPublishService : IDisposable
     {
         LastOverlayLine = result.OverlayLine;
         LastDetectedSensorCount = result.DetectedSensorCount;
-        SelectedSensorCount = result.SelectedSensorCount;
+        EnabledSelectedSensorCount = result.EnabledSelectedSensorCount;
+        TotalSelectedSensorCount = result.TotalSelectedSensorCount;
         LastError = null;
         OnStatusChanged();
     }

@@ -24,7 +24,7 @@ The helper source is organized under `src/OptiSensor` by role:
 ```text
 App/         WPF startup coordination and single-instance lifetime
 Cli/         --once and --watch diagnostic commands
-Install/     LocalAppData install paths and HKCU Run registration
+Install/     LocalAppData install paths and Task Scheduler startup registration
 Libre/       LibreHardwareMonitor reading and sensor classification
 Models/      Detected and selected sensor models
 Overlay/     Overlay line formatting and shared memory publishing
@@ -74,6 +74,14 @@ dotnet publish .\src\OptiSensor\OptiSensor.csproj `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -o .\publish\win-x64
 ```
+
+## Startup
+
+OptiSensor registers a current-user Windows Task Scheduler task named `OptiSensor` when `startWithWindows` is enabled.
+The task launches the installed helper with `--startup` at user logon and is configured to restart on failure up to 3 times at 1 minute intervals.
+
+Tray `Exit` and the main window `Exit` button perform a normal exit with code `0`, so Task Scheduler does not restart the helper after an intentional user exit.
+Legacy HKCU Run startup entries are removed during install/uninstall to avoid duplicate launches.
 
 ## OptiScaler Integration
 

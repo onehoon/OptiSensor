@@ -7,10 +7,16 @@ namespace OptiSensor.Settings;
 
 internal sealed class AppSettings
 {
+    private readonly object _selectedSensorsLock = new();
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
-        WriteIndented = true
+        WriteIndented = true,
+        Converters =
+        {
+            new JsonStringEnumConverter()
+        }
     };
 
     [JsonPropertyName("startWithWindows")]
@@ -30,7 +36,7 @@ internal sealed class AppSettings
 
     [JsonIgnore]
     public IReadOnlyList<SelectedOverlaySensor> EnabledSelectedSensors =>
-        SelectedSensors.Where(sensor => sensor.Enabled).OrderBy(sensor => sensor.Order).ToArray();
+        GetEnabledSelectedSensorsSnapshot();
 
     public static AppSettings LoadOrCreate()
     {
@@ -40,6 +46,40 @@ internal sealed class AppSettings
     public void Save()
     {
         SettingsStore.Save(this);
+    }
+
+    public IReadOnlyList<SelectedOverlaySensor> GetSelectedSensorsSnapshot()
+    {
+        lock (_selectedSensorsLock)
+        {
+            return SelectedSensors
+                .OrderBy(sensor => sensor.Order)
+                .Select(sensor => sensor.Copy())
+                .ToArray();
+        }
+    }
+
+    public IReadOnlyList<SelectedOverlaySensor> GetEnabledSelectedSensorsSnapshot()
+    {
+        return GetSelectedSensorsSnapshot()
+            .Where(sensor => sensor.Enabled)
+            .ToArray();
+    }
+
+    public void ReplaceSelectedSensors(IEnumerable<SelectedOverlaySensor> sensors)
+    {
+        lock (_selectedSensorsLock)
+        {
+            SelectedSensors = sensors
+                .OrderBy(sensor => sensor.Order)
+                .Select((sensor, index) =>
+                {
+                    var clone = sensor.Copy();
+                    clone.Order = index;
+                    return clone;
+                })
+                .ToList();
+        }
     }
 
     internal static AppSettings Deserialize(string json)
