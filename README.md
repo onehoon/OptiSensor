@@ -21,7 +21,7 @@ Advanced helper features such as tray UI, sensor selection, autostart, PawnIO in
 
 ## Requirements
 
-- Windows 10 or Windows 11
+- Windows 11
 - .NET 10 SDK for local development
 - Visual Studio/MSBuild for local OptiScaler builds
 
@@ -31,6 +31,8 @@ The helper targets:
 net10.0-windows
 win-x64
 ```
+
+Windows 10 and older Windows versions are not supported by this project.
 
 ## Local Helper Usage
 

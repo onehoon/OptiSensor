@@ -4,7 +4,7 @@ Date: Wed, 1 Jul 2026 10:32:29 +0900
 Subject: [PATCH] OptiSensor overlay integration
 
 ---
- OptiScaler.ini                          |  12 ++-
+ OptiScaler.ini                          |  14 ++-
  OptiScaler/Config.cpp                   |  11 ++
  OptiScaler/Config.h                     |   6 +-
  OptiScaler/OptiScaler.vcxproj           |   4 +-
@@ -22,17 +22,22 @@ index ce61bf74..a894a8c6 100644
 +++ b/OptiScaler.ini
 @@ -809,7 +809,7 @@ DisableSplash=auto
  
- ; Enables FPS overlay
- ; true or false - Default (auto) is false
+-; Enables FPS overlay
+-; true or false - Default (auto) is false
++; Enables FPS overlay
++; true or false - Default (auto) is true for OptiSensor patched builds
 -ShowFps=auto
 +ShowFps=true
  
  ; In-game FPS Overlay scale
  ; 0.5 to 2.0 - Default (auto) is using the same scale as menu
 @@ -823,7 +823,7 @@ FpsOverlayPos=auto
- ; FPS overlay type
- ; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 Full | 5 Full + Graph | 6 Reflex timings
- ; 0 to 6 - Default (auto) is 0
+-; FPS overlay type
+-; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 Full | 5 Full + Graph | 6 Reflex timings
+-; 0 to 6 - Default (auto) is 0
++; FPS overlay type
++; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 = Full | 5 = Full + Graph | 6 = Reflex timings | 7 = FPS Only
++; 0 to 7 - Default (auto) is 7 for OptiSensor patched builds
 -FpsOverlayType=auto
 +FpsOverlayType=7
  
@@ -325,10 +330,11 @@ new file mode 100644
 index 00000000..adfbd887
 --- /dev/null
 +++ b/OptiScaler/misc/ExternalOverlayFeed.cpp
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,134 @@
 +#include "pch.h"
 +#include "ExternalOverlayFeed.h"
 +
++#include <cstddef>
 +#include <array>
 +#include <cstring>
 +
@@ -351,6 +357,11 @@ index 00000000..adfbd887
 +    uint32_t lineCount;
 +    char lines[MaxLines][MaxLineLength];
 +};
++
++static_assert(offsetof(ExternalOverlayPayload, lastUpdateTickMs) == 16);
++static_assert(offsetof(ExternalOverlayPayload, lineCount) == 24);
++static_assert(offsetof(ExternalOverlayPayload, lines) == 28);
++static_assert(sizeof(ExternalOverlayPayload) == 544);
 +
 +HANDLE g_mapping = nullptr;
 +ExternalOverlayPayload* g_payload = nullptr;

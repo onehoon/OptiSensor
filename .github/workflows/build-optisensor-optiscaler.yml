@@ -57,6 +57,14 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Capture OptiSensor commit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $sensorCommit = git rev-parse HEAD
+          "OPTISENSOR_COMMIT=$sensorCommit" >> $env:GITHUB_ENV
+          Write-Host "OptiSensor commit: $sensorCommit"
+
       - name: Prepare workspace
         shell: pwsh
         run: |
@@ -179,20 +187,49 @@ jobs:
           $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
           $packageDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/package"
 
+          $config = "${{ inputs.optiscaler_configuration }}"
+          $platform = "${{ inputs.optiscaler_platform }}"
+          $escapedConfig = [regex]::Escape($config)
+          $escapedPlatform = [regex]::Escape($platform)
+
           $dll = Get-ChildItem $cloneDir -Recurse -Filter "OptiScaler.dll" |
-            Where-Object { $_.FullName -match "\\x64\\" -or $_.FullName -match "\\Release\\" } |
+            Where-Object {
+              $_.FullName -match "\\$escapedPlatform\\" -and
+              $_.FullName -match "\\$escapedConfig\\"
+            } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
+
+          if (-not $dll) {
+            Write-Warning "No OptiScaler.dll found with both platform '$platform' and configuration '$config'. Falling back to relaxed path matching."
+            $dll = Get-ChildItem $cloneDir -Recurse -Filter "OptiScaler.dll" |
+              Where-Object {
+                $_.FullName -match "\\$escapedPlatform\\" -or
+                $_.FullName -match "\\$escapedConfig\\"
+              } |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          }
+
           if (-not $dll) {
             throw "OptiScaler.dll not found after build"
           }
 
-          $ini = Get-ChildItem $cloneDir -Recurse -Filter "OptiScaler.ini" |
-            Sort-Object { $_.FullName.Length } |
-            Select-Object -First 1
+          $rootIni = Join-Path $cloneDir "OptiScaler.ini"
+          if (Test-Path $rootIni) {
+            $ini = Get-Item $rootIni
+          }
+          else {
+            Write-Warning "Root OptiScaler.ini not found. Falling back to recursive search."
+            $ini = Get-ChildItem $cloneDir -Recurse -Filter "OptiScaler.ini" |
+              Sort-Object { $_.FullName.Length } |
+              Select-Object -First 1
+          }
+
           if (-not $ini) {
             $fallbackIni = Join-Path $env:GITHUB_WORKSPACE "optiscaler/OptiScaler.ini"
             if (Test-Path $fallbackIni) {
+              Write-Warning "Using OptiSensor repository fallback OptiScaler.ini template."
               $ini = Get-Item $fallbackIni
             }
             else {
@@ -302,6 +339,9 @@ jobs:
             - Repository: ${{ inputs.optiscaler_repo }}
             - Ref: ${{ inputs.optiscaler_ref }}
             - Commit: ${{ env.OPTISCALER_FULL_COMMIT }}
+
+            OptiSensor patch stack:
+            - Repository commit: ${{ env.OPTISENSOR_COMMIT }}
 
             Package:
             - ${{ env.PACKAGE_FILE_NAME }}
