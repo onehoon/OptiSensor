@@ -19,6 +19,8 @@ struct Payload
     volatile uint32_t sequence;
     uint64_t lastUpdateTickMs;
     uint32_t lineCount;
+    // Each line is a UTF-8, null-terminated byte string.
+    // MaxLineLength includes the trailing null byte.
     char lines[MaxLines][MaxLineLength];
 };
 

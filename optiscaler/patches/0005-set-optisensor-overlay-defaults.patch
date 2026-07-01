@@ -1,0 +1,73 @@
+From 1a6602fa917e86940aa6e4c08ebe678cf46ffcfe Mon Sep 17 00:00:00 2001
+From: OptiSensor Patch Bot <optisensor@example.invalid>
+Date: Wed, 1 Jul 2026 11:42:31 +0900
+Subject: [PATCH 5/5] Set OptiSensor overlay defaults
+
+---
+ OptiScaler.ini      | 10 +++++-----
+ OptiScaler/Config.h |  6 +++---
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/OptiScaler.ini b/OptiScaler.ini
+index 97093a52..6506f7e9 100644
+--- a/OptiScaler.ini
++++ b/OptiScaler.ini
+@@ -808,8 +808,8 @@ TTFFontPath=auto
+ DisableSplash=auto
+ 
+ ; Enables FPS overlay
+-; true or false - Default (auto) is false
+-ShowFps=auto
++; true or false - Default (auto) is true for OptiSensor patched builds
++ShowFps=true
+ 
+ ; In-game FPS Overlay scale
+ ; 0.5 to 2.0 - Default (auto) is using the same scale as menu
+@@ -822,8 +822,8 @@ FpsOverlayPos=auto
+ 
+ ; FPS overlay type
+ ; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 = Full | 5 = Full + Graph | 6 = Reflex timings | 7 = FPS Only
+-; 0 to 7 - Default (auto) is 0
+-FpsOverlayType=auto
++; 0 to 7 - Default (auto) is 7 for OptiSensor patched builds
++FpsOverlayType=7
+ 
+ ; Shortcut key for FPS overlay
+ ; https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+@@ -1531,5 +1531,5 @@ OutputResourceBarrier=auto
+ [ExternalOverlay]
+ ; -------------------------------------------------------
+ ; Append text published by OptiSensor to the FPS Only overlay
+-; true or false - Default (auto) is false
++; true or false - Default (auto) is true for OptiSensor patched builds
+ AppendExternalOverlayText=true
+diff --git a/OptiScaler/Config.h b/OptiScaler/Config.h
+index abb5192a..87e7f481 100644
+--- a/OptiScaler/Config.h
++++ b/OptiScaler/Config.h
+@@ -322,19 +322,19 @@ class Config
+     CustomOptional<bool> OverlayMenu { true };
+     CustomOptional<int> ShortcutKey { VK_INSERT };
+     CustomOptional<bool> ExtendedLimits { false };
+-    CustomOptional<bool> ShowFps { false };
++    CustomOptional<bool> ShowFps { true };
+     /// 0 Top Left, 1 Top Right, 2 Bottom Left, 3 Bottom Right
+     CustomOptional<int> FpsOverlayPos { 0 };
+     /// 0 Only FPS, 1 +Avg FPS & Upscaler info 2 +Frame Time,
+     /// 3 +Upscaler Time, 4 +Frame Time Graph, 5 +Upscaler Time Graph
+     /// 6 +Reflex timings, 7 FPS only
+-    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_JustFPS };
++    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_FpsOnly };
+     CustomOptional<int> FpsShortcutKey { VK_PRIOR };
+     CustomOptional<int> FpsCycleShortcutKey { VK_NEXT };
+     CustomOptional<bool> FpsOverlayHorizontal { false };
+     CustomOptional<float> FpsOverlayAlpha { 0.4f };
+     CustomOptional<float, NoDefault> FpsScale; // No value means same as MenuScale
+-    CustomOptional<bool> AppendExternalOverlayText { false };
++    CustomOptional<bool> AppendExternalOverlayText { true };
+     CustomOptional<bool> UseHQFont { true };
+     CustomOptional<bool> DisableSplash { false };
+     CustomOptional<float> FontSize { 14.0f };
+-- 
+2.53.0.windows.2
+

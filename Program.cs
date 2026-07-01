@@ -142,6 +142,8 @@ internal sealed class ExternalOverlayPublisher : IDisposable
     private const string MappingName = "Local\\OptiScalerExternalOverlay";
     private const uint PayloadMagic = 0x564F534F; // OSOV
     private const uint PayloadVersion = 1;
+    private const uint ExpectedPayloadMagic = 0x564F534F;
+    private const uint ExpectedPayloadVersion = 1;
     private const int MaxLines = 4;
     private const int MaxLineLength = 128;
     private const int LastUpdateTickOffset = 16;
@@ -149,12 +151,25 @@ internal sealed class ExternalOverlayPublisher : IDisposable
     private const int LinesOffset = 28;
     private const int PayloadSize = 544;
 
+    // External overlay protocol v1
+    // Offset  Size  Field
+    // 0       4     magic = OSOV
+    // 4       4     version = 1
+    // 8       4     sequence
+    // 12      4     padding
+    // 16      8     lastUpdateTickMs
+    // 24      4     lineCount
+    // 28      516   UTF-8 null-terminated lines[4][128]
+    // Total: 544 bytes
+
     private MemoryMappedFile? _mappedFile;
     private MemoryMappedViewAccessor? _accessor;
     private uint _sequence;
 
     public void Open()
     {
+        ValidateProtocolLayout();
+
         _mappedFile = MemoryMappedFile.CreateOrOpen(MappingName, PayloadSize, MemoryMappedFileAccess.ReadWrite);
         _accessor = _mappedFile.CreateViewAccessor(0, PayloadSize, MemoryMappedFileAccess.ReadWrite);
 
@@ -168,11 +183,10 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         if (_accessor is null)
             return;
 
-        var bytes = Encoding.ASCII.GetBytes(line);
-        var length = Math.Min(bytes.Length, MaxLineLength - 1);
+        var bytes = EncodeUtf8NullTerminatedLine(line);
         Span<byte> lineBuffer = stackalloc byte[MaxLineLength];
 
-        bytes.AsSpan(0, length).CopyTo(lineBuffer);
+        bytes.CopyTo(lineBuffer);
 
         _sequence++;
         if ((_sequence & 1U) == 0)
@@ -186,6 +200,32 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         _sequence++;
         _accessor.Write(8, _sequence);
         _accessor.Flush();
+    }
+
+    private static byte[] EncodeUtf8NullTerminatedLine(string line)
+    {
+        var utf8 = Encoding.UTF8;
+        var encoder = utf8.GetEncoder();
+        var output = new byte[MaxLineLength - 1];
+
+        encoder.Convert(line.AsSpan(), output.AsSpan(), true, out _, out var bytesUsed, out _);
+        return output[..bytesUsed];
+    }
+
+    private static void ValidateProtocolLayout()
+    {
+        if (PayloadMagic != ExpectedPayloadMagic)
+            throw new InvalidOperationException($"Invalid protocol layout: PayloadMagic=0x{PayloadMagic:X8}, expected 0x{ExpectedPayloadMagic:X8}.");
+        if (PayloadVersion != ExpectedPayloadVersion)
+            throw new InvalidOperationException($"Invalid protocol layout: PayloadVersion={PayloadVersion}, expected {ExpectedPayloadVersion}.");
+        if (LastUpdateTickOffset != 16)
+            throw new InvalidOperationException($"Invalid protocol layout: LastUpdateTickOffset={LastUpdateTickOffset}, expected 16.");
+        if (LineCountOffset != 24)
+            throw new InvalidOperationException($"Invalid protocol layout: LineCountOffset={LineCountOffset}, expected 24.");
+        if (LinesOffset != 28)
+            throw new InvalidOperationException($"Invalid protocol layout: LinesOffset={LinesOffset}, expected 28.");
+        if (PayloadSize != 544)
+            throw new InvalidOperationException($"Invalid protocol layout: PayloadSize={PayloadSize}, expected 544.");
     }
 
     public void Dispose()
