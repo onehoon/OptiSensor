@@ -65,13 +65,24 @@ Inputs:
 
 | Input | Purpose |
 | --- | --- |
-| `optiscaler_repo` | OptiScaler repository to clone, default `optiscaler/OptiScaler`. |
 | `optiscaler_ref` | Branch, tag, or commit SHA to build from. |
-| `release_tag` | GitHub Release tag used when release publishing is enabled. |
-| `prerelease` | Marks the GitHub Release as prerelease. |
 | `publish_release` | When `false`, only uploads a workflow artifact. When `true`, also uploads to GitHub Releases. |
-| `optiscaler_configuration` | OptiScaler MSBuild configuration. |
-| `optiscaler_platform` | OptiScaler MSBuild platform. |
+
+Fixed workflow values:
+
+| Value | Setting |
+| --- | --- |
+| OptiScaler repository | `optiscaler/OptiScaler` |
+| OptiScaler configuration | `Release` |
+| OptiScaler platform | `x64` |
+| Package prefix | `OptiSensor` |
+| Release prerelease flag | `false` |
+
+When release publishing is enabled, the workflow generates a release tag from the sanitized OptiScaler ref and current runner time:
+
+```text
+<sanitized_optiscaler_ref>-YYYY-MM-DD-HHmm
+```
 
 ## Build Policy
 
@@ -110,7 +121,7 @@ Release build:
 publish_release=true
 ```
 
-This creates the same artifact and uploads it to the requested GitHub Release tag.
+This creates the same artifact and uploads it to an auto-generated GitHub Release tag.
 
 ## Package Naming
 

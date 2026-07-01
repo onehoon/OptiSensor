@@ -3,36 +3,21 @@ name: Build OptiSensor OptiScaler Package
 on:
   workflow_dispatch:
     inputs:
-      optiscaler_repo:
-        description: "OptiScaler repository to build from, e.g. optiscaler/OptiScaler"
-        required: true
-        default: "optiscaler/OptiScaler"
       optiscaler_ref:
         description: "OptiScaler branch, tag, or commit SHA"
         required: true
         default: "master"
-      release_tag:
-        description: "GitHub Release tag to upload asset to"
-        required: true
-        default: "optisensor-optiscaler-test"
-      prerelease:
-        description: "Mark GitHub Release as prerelease"
-        required: true
-        type: boolean
-        default: true
       publish_release:
         description: "Upload package to GitHub Release"
         required: true
         type: boolean
         default: false
-      optiscaler_configuration:
-        description: "OptiScaler build configuration"
-        required: true
-        default: "Release"
-      optiscaler_platform:
-        description: "OptiScaler build platform"
-        required: true
-        default: "x64"
+
+env:
+  OPTISCALER_REPO: optiscaler/OptiScaler
+  OPTISCALER_CONFIGURATION: Release
+  OPTISCALER_PLATFORM: x64
+  PACKAGE_PREFIX: OptiSensor
 
 permissions:
   contents: write
@@ -95,7 +80,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $repo = "${{ inputs.optiscaler_repo }}"
+          $repo = "$env:OPTISCALER_REPO"
           $ref = "${{ inputs.optiscaler_ref }}"
           $repoUrl = "https://github.com/$repo.git"
           $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
@@ -173,8 +158,8 @@ jobs:
 
           msbuild $vcxproj.FullName `
             /m `
-            /p:Configuration=${{ inputs.optiscaler_configuration }} `
-            /p:Platform=${{ inputs.optiscaler_platform }} `
+            /p:Configuration=$env:OPTISCALER_CONFIGURATION `
+            /p:Platform=$env:OPTISCALER_PLATFORM `
             /p:SolutionDir="$env:GITHUB_WORKSPACE\.work\OptiScaler\" `
             /p:PostBuildEventUseInBuild=false
 
@@ -185,8 +170,8 @@ jobs:
           $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
           $packageDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/package"
 
-          $config = "${{ inputs.optiscaler_configuration }}"
-          $platform = "${{ inputs.optiscaler_platform }}"
+          $config = "$env:OPTISCALER_CONFIGURATION"
+          $platform = "$env:OPTISCALER_PLATFORM"
           $escapedConfig = [regex]::Escape($config)
           $escapedPlatform = [regex]::Escape($platform)
 
@@ -280,7 +265,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $ref = "${{ inputs.optiscaler_ref }}"
           $safeRef = $ref -replace '[\\/:*?"<>|]+', '-'
-          $baseName = "OptiSensor-$safeRef-$env:OPTISCALER_COMMIT"
+          $baseName = "$env:PACKAGE_PREFIX-$safeRef-$env:OPTISCALER_COMMIT"
           $zipPath = Join-Path $env:GITHUB_WORKSPACE ".artifacts/dist/$baseName.zip"
 
           $requiredFiles = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor.exe")
@@ -296,7 +281,11 @@ jobs:
           "PACKAGE_FILE_NAME_WITHOUT_EXT=$baseName" >> $env:GITHUB_ENV
           "PACKAGE_FILE_NAME=$baseName.zip" >> $env:GITHUB_ENV
           "PACKAGE_ZIP=$zipPath" >> $env:GITHUB_ENV
+          $timestamp = Get-Date -Format "yyyy-MM-dd-HHmm"
+          $releaseTag = "$safeRef-$timestamp"
+          "RELEASE_TAG=$releaseTag" >> $env:GITHUB_ENV
           Write-Host "Package: $zipPath"
+          Write-Host "Release tag: $releaseTag"
 
       - name: Verify package contents
         shell: pwsh
@@ -325,14 +314,14 @@ jobs:
         if: ${{ inputs.publish_release }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
-          prerelease: ${{ inputs.prerelease }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          prerelease: false
           files: .artifacts/dist/*.zip
           body: |
             OptiSensor + patched OptiScaler package
 
             OptiScaler source:
-            - Repository: ${{ inputs.optiscaler_repo }}
+            - Repository: ${{ env.OPTISCALER_REPO }}
             - Ref: ${{ inputs.optiscaler_ref }}
             - Commit: ${{ env.OPTISCALER_FULL_COMMIT }}
 
