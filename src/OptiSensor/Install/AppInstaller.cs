@@ -24,10 +24,11 @@ internal static class AppInstaller
         }
 
         var settings = AppSettings.LoadOrCreate();
+        StartupRegistrationResult startupResult;
         if (settings.StartWithWindows)
-            StartupRegistration.Register();
+            startupResult = StartupRegistration.Register();
         else
-            StartupRegistration.Unregister();
+            startupResult = StartupRegistration.Unregister();
 
         SimpleLog.TryWrite("Install completed.");
 
@@ -35,9 +36,27 @@ internal static class AppInstaller
         {
             Console.WriteLine($"Installed executable: {AppPaths.InstalledExecutablePath}");
             Console.WriteLine($"Settings: {AppPaths.SettingsFilePath}");
-            Console.WriteLine(settings.StartWithWindows
-                ? "OptiSensor Task Scheduler startup task registration was requested."
-                : "OptiSensor Task Scheduler startup task was not registered because startWithWindows is false.");
+            if (settings.StartWithWindows)
+            {
+                if (startupResult.Success)
+                    Console.WriteLine("OptiSensor Task Scheduler startup task registered.");
+                else
+                {
+                    Console.WriteLine("Warning: Task Scheduler startup task registration failed.");
+                    Console.WriteLine($"Reason: {startupResult.ErrorMessage}");
+                    Console.WriteLine("OptiSensor was installed, but it may not start automatically at login.");
+                }
+            }
+            else
+            {
+                if (startupResult.Success)
+                    Console.WriteLine("OptiSensor Task Scheduler startup task is disabled by settings.");
+                else
+                {
+                    Console.WriteLine("Warning: Task Scheduler startup task could not be removed.");
+                    Console.WriteLine($"Reason: {startupResult.ErrorMessage}");
+                }
+            }
         }
 
         return true;
@@ -48,8 +67,14 @@ internal static class AppInstaller
         Console.WriteLine("Uninstalling OptiSensor...");
         SimpleLog.TryWrite("Uninstall started.");
 
-        StartupRegistration.Unregister();
-        Console.WriteLine("OptiSensor startup task removed.");
+        var startupResult = StartupRegistration.Unregister();
+        if (startupResult.Success)
+            Console.WriteLine("OptiSensor startup task removed.");
+        else
+        {
+            Console.WriteLine("Warning: Could not remove OptiSensor startup task.");
+            Console.WriteLine($"Reason: {startupResult.ErrorMessage}");
+        }
 
         TryDeleteInstalledExecutable();
         TryDeleteEmptyInstallDirectory();

@@ -22,8 +22,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         foreach (var sensor in _settings.GetSelectedSensorsSnapshot())
             SelectedSensors.Add(new SelectedOverlaySensorViewModel(sensor, SyncSelectedSensorsToSettings));
 
-        ReorderSelectedSensors();
+        ReorderSelectedSensors(markChanged: false);
         SyncSelectedSensorsToSettings(markUnsaved: false);
+        HasUnsavedChanges = false;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -104,7 +105,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         };
 
         SelectedSensors.Add(new SelectedOverlaySensorViewModel(model, SyncSelectedSensorsToSettings));
-        ReorderSelectedSensors();
+        ReorderSelectedSensors(markChanged: true);
         SyncSelectedSensorsToSettings();
         UpdateSelectedSensorAvailability(DetectedSensors.Select(sensor => sensor.Sensor).ToArray());
         return true;
@@ -113,7 +114,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public void RemoveSelectedSensor(SelectedOverlaySensorViewModel selectedSensor)
     {
         SelectedSensors.Remove(selectedSensor);
-        ReorderSelectedSensors();
+        ReorderSelectedSensors(markChanged: true);
         SyncSelectedSensorsToSettings();
     }
 
@@ -124,7 +125,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return;
 
         SelectedSensors.Move(index, index - 1);
-        ReorderSelectedSensors();
+        ReorderSelectedSensors(markChanged: true);
         SyncSelectedSensorsToSettings();
     }
 
@@ -135,13 +136,13 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return;
 
         SelectedSensors.Move(index, index + 1);
-        ReorderSelectedSensors();
+        ReorderSelectedSensors(markChanged: true);
         SyncSelectedSensorsToSettings();
     }
 
     public bool TrySave(out string? errorMessage)
     {
-        ReorderSelectedSensors();
+        ReorderSelectedSensors(markChanged: true);
         if (!ValidateFormats(out errorMessage))
             return false;
 
@@ -174,10 +175,15 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         OnCountsChanged();
     }
 
-    private void ReorderSelectedSensors()
+    private void ReorderSelectedSensors(bool markChanged)
     {
         for (var index = 0; index < SelectedSensors.Count; index++)
-            SelectedSensors[index].Order = index;
+        {
+            if (markChanged)
+                SelectedSensors[index].Order = index;
+            else
+                SelectedSensors[index].SetOrderSilently(index);
+        }
     }
 
     private void OnCountsChanged()

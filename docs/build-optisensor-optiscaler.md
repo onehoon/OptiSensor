@@ -145,6 +145,6 @@ FPS 111 | GPU 44C | 115W | 62%
 
 ## Out of Scope
 
-The workflow does not implement advanced OptiSensor features.
+The workflow only builds and packages the helper plus patched OptiScaler files.
 
-PawnIO installation, advanced LibreHardwareMonitor sensor selection, tray UI, autostart, and richer Helper configuration are separate follow-up work.
+Automatic updates, PawnIO installation, game activity based publishing, OptiScaler consumer alive detection, and runtime helper behavior changes are outside the packaging workflow.

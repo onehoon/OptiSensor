@@ -109,6 +109,15 @@ Watch:
 
 Diagnostic command. Runs the sensor publish loop from the current path and prints the current overlay line to the console when a console is available. This command does not self-install and does not show the WPF window or tray icon. It may create or load `%LocalAppData%\OptiSensor\settings.json` so it can use `publishIntervalMs`.
 
+## Sensor Editing
+
+The main window can discover supported LibreHardwareMonitor sensors and add them to the selected overlay list.
+Users can edit display name, format, enabled state, and order.
+
+Changes apply immediately for the current running session. Click `Save` to persist them to `settings.json`.
+
+Selected sensors can show `Possible match (not used)` when a saved sensor is no longer found by exact id but a similar sensor exists. Possible matches are shown for manual repair only and are not automatically used for publishing yet.
+
 ## settings.json
 
 Default settings:
@@ -117,7 +126,8 @@ Default settings:
 {
   "startWithWindows": true,
   "startMinimized": true,
-  "publishIntervalMs": 1000
+  "publishIntervalMs": 1000,
+  "selectedSensors": []
 }
 ```
 
@@ -125,4 +135,30 @@ Default settings:
 
 `startMinimized` is used by the tray lifecycle policy. Startup mode runs without showing the main window; normal interactive launch still shows the main window.
 
-There is no settings UI yet. Users may edit `settings.json` manually. If the file contains invalid JSON, OptiSensor backs it up as `settings.json.bad.<timestamp>` and recreates defaults.
+If the file contains invalid JSON, OptiSensor backs it up as `settings.json.bad.<timestamp>` and recreates defaults.
+
+## Task Scheduler Verification
+
+Check the startup task:
+
+```powershell
+schtasks /Query /TN "OptiSensor"
+schtasks /Query /TN "OptiSensor" /XML
+```
+
+Expected task details:
+
+```text
+LogonTrigger
+Command: %LocalAppData%\Programs\OptiSensor\OptiSensor.exe
+Arguments: --startup
+RestartOnFailure Interval: PT1M
+RestartOnFailure Count: 3
+RunLevel: LeastPrivilege
+```
+
+Check that the legacy HKCU Run value is absent:
+
+```powershell
+reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v OptiSensor
+```

@@ -42,7 +42,7 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
     public string SensorName { get; }
     public OptiSensorCategory Category { get; }
     public string Unit { get; }
-    public string AvailabilityText => IsAvailable ? "Yes" : HasPossibleMatch ? "Possible match" : "No";
+    public string AvailabilityText => IsAvailable ? "Yes" : HasPossibleMatch ? "Possible match (not used)" : "No";
 
     public bool Enabled
     {
@@ -54,6 +54,11 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
     {
         get => _order;
         set => SetField(ref _order, value);
+    }
+
+    public void SetOrderSilently(int order)
+    {
+        SetField(ref _order, order, markChanged: false, propertyName: nameof(Order));
     }
 
     public string DisplayName

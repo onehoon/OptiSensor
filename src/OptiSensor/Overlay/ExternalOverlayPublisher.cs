@@ -45,6 +45,27 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         _accessor.Flush();
     }
 
+    public void Clear()
+    {
+        if (_accessor is null)
+            return;
+
+        _sequence++;
+        if ((_sequence & 1U) == 0)
+            _sequence++;
+
+        _accessor.Write(8, _sequence);
+        _accessor.Write(ExternalOverlayProtocol.LastUpdateTickOffset, Environment.TickCount64);
+        _accessor.Write(ExternalOverlayProtocol.LineCountOffset, 0U);
+
+        var lineBuffer = new byte[ExternalOverlayProtocol.MaxLines * ExternalOverlayProtocol.MaxLineLength];
+        _accessor.WriteArray(ExternalOverlayProtocol.LinesOffset, lineBuffer, 0, lineBuffer.Length);
+
+        _sequence++;
+        _accessor.Write(8, _sequence);
+        _accessor.Flush();
+    }
+
     private static byte[] EncodeUtf8NullTerminatedLine(string line)
     {
         var utf8 = Encoding.UTF8;

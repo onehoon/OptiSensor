@@ -4,14 +4,14 @@ namespace OptiSensor.Publishing;
 
 internal sealed class SensorPublishService : IDisposable
 {
-    private readonly SensorPublishRunner _runner;
+    private readonly Func<SensorPublishRunner> _createRunner;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _workerTask;
     private bool _disposed;
 
-    public SensorPublishService(SensorPublishRunner runner)
+    public SensorPublishService(Func<SensorPublishRunner> createRunner)
     {
-        _runner = runner;
+        _createRunner = createRunner;
     }
 
     public bool IsRunning { get; private set; }
@@ -67,30 +67,41 @@ internal sealed class SensorPublishService : IDisposable
         _disposed = true;
         StopAsync().GetAwaiter().GetResult();
         _cancellationTokenSource?.Dispose();
-        _runner.Dispose();
     }
 
     private async Task RunLoop(int publishIntervalMs, CancellationToken cancellationToken)
     {
-        try
+        while (!cancellationToken.IsCancellationRequested)
         {
-            _runner.Open();
-            await _runner.RunLoopAsync(publishIntervalMs, OnPublished, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                using var runner = _createRunner();
+                runner.Open();
+                await runner.RunLoopAsync(publishIntervalMs, OnPublished, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                SimpleLog.TryWriteException(ex);
+                OnStatusChanged();
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
         }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            LastError = ex.Message;
-            SimpleLog.TryWriteException(ex);
-            OnStatusChanged();
-        }
-        finally
-        {
-            IsRunning = false;
-            OnStatusChanged();
-        }
+
+        IsRunning = false;
+        OnStatusChanged();
     }
 
     private void OnPublished(SensorPublishResult result)

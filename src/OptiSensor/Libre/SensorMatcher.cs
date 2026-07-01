@@ -23,13 +23,21 @@ internal static class SensorMatcher
             return exactFields;
 
         var normalizedSelectedName = Normalize(selectedSensor.SensorName);
-        var normalizedFields = detectedSensors.FirstOrDefault(sensor =>
-            string.Equals(sensor.HardwareType, selectedSensor.HardwareType, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(sensor.SensorType, selectedSensor.SensorType, StringComparison.OrdinalIgnoreCase) &&
-            Normalize(sensor.SensorName).Contains(normalizedSelectedName, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(normalizedSelectedName))
+        {
+            var normalizedFields = detectedSensors.FirstOrDefault(sensor =>
+            {
+                var normalizedSensorName = Normalize(sensor.SensorName);
+                return !string.IsNullOrWhiteSpace(normalizedSensorName) &&
+                    string.Equals(sensor.HardwareType, selectedSensor.HardwareType, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(sensor.SensorType, selectedSensor.SensorType, StringComparison.OrdinalIgnoreCase) &&
+                    (normalizedSensorName.Contains(normalizedSelectedName, StringComparison.OrdinalIgnoreCase) ||
+                     normalizedSelectedName.Contains(normalizedSensorName, StringComparison.OrdinalIgnoreCase));
+            });
 
-        if (normalizedFields is not null)
-            return normalizedFields;
+            if (normalizedFields is not null)
+                return normalizedFields;
+        }
 
         return detectedSensors.FirstOrDefault(sensor =>
             string.Equals(sensor.HardwareType, selectedSensor.HardwareType, StringComparison.OrdinalIgnoreCase) &&

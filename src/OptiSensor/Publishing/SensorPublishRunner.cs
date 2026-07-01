@@ -10,6 +10,7 @@ internal sealed class SensorPublishRunner : IDisposable
     private readonly OverlayLineBuilder _lineBuilder;
     private readonly ExternalOverlayPublisher _publisher;
     private readonly Func<IReadOnlyCollection<SelectedOverlaySensor>> _selectedSensorsProvider;
+    private bool _hadPublishedOverlay;
 
     public SensorPublishRunner(
         LibreSensorReader sensorReader,
@@ -40,7 +41,15 @@ internal sealed class SensorPublishRunner : IDisposable
             : _lineBuilder.BuildLine(snapshot, selectedSensors);
 
         if (overlayLine is not null)
+        {
             _publisher.Publish(overlayLine);
+            _hadPublishedOverlay = true;
+        }
+        else if (_hadPublishedOverlay)
+        {
+            _publisher.Clear();
+            _hadPublishedOverlay = false;
+        }
 
         return new SensorPublishResult(overlayLine, snapshot.Sensors.Count, enabledSelectedSensorCount, totalSelectedSensorCount);
     }

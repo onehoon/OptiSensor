@@ -14,10 +14,10 @@ FPS 111 | GPU 44C | 115W | 62%
 
 This repository currently serves two purposes:
 
-- `OptiSensor.exe`: a WPF tray helper that currently publishes a default GPU temperature, power, and load overlay line.
+- `OptiSensor.exe`: a WPF tray helper with LibreHardwareMonitor sensor discovery, selected overlay sensor editing, and shared memory publishing.
 - OptiScaler package hub: a manual GitHub Actions workflow that applies the OptiScaler patch stack, builds `OptiScaler.dll`, publishes `OptiSensor.exe`, and creates a small release zip.
 
-Sensor selection UI, display-name editing, PawnIO integration, automatic updates, and richer configuration are follow-up work.
+Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, PawnIO handling, automatic helper updates, and game or OptiScaler activity based publishing.
 
 The helper source is organized under `src/OptiSensor` by role:
 

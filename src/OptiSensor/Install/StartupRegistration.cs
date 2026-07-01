@@ -21,39 +21,49 @@ internal static class StartupRegistration
 
     public static string StartupCommand => $"\"{AppPaths.InstalledExecutablePath}\" {StartupArgument}";
 
-    public static void Register()
+    public static StartupRegistrationResult Register()
     {
         SimpleLog.TryWrite("Task Scheduler registration started.");
         RemoveLegacyRunEntry();
 
         if (!File.Exists(AppPaths.InstalledExecutablePath))
         {
-            SimpleLog.TryWrite($"Task Scheduler registration skipped because installed executable was not found: {AppPaths.InstalledExecutablePath}");
-            return;
+            var missingExecutableError = $"Installed executable was not found: {AppPaths.InstalledExecutablePath}";
+            SimpleLog.TryWrite($"Task Scheduler registration skipped: {missingExecutableError}");
+            return StartupRegistrationResult.Failed(missingExecutableError);
         }
 
         if (!TryRegister(out var error))
         {
             SimpleLog.TryWrite($"Task Scheduler registration failed: {error}");
-            return;
+            return StartupRegistrationResult.Failed(error ?? "Unknown Task Scheduler registration error.");
         }
 
         SimpleLog.TryWrite("Task Scheduler registration completed.");
+        return StartupRegistrationResult.Ok(registered: true);
     }
 
-    public static void Unregister()
+    public static StartupRegistrationResult Unregister()
     {
         SimpleLog.TryWrite("Task Scheduler unregister started.");
         RemoveLegacyRunEntry();
 
         var result = RunSchTasks($"/Delete /TN {Quote(TaskName)} /F");
-        if (result.ExitCode != 0 && IsRegistered())
+        if (result.ExitCode == 0)
         {
-            SimpleLog.TryWrite($"Task Scheduler unregister failed: exitCode={result.ExitCode}, stdout={result.Output}, stderr={result.Error}");
-            return;
+            SimpleLog.TryWrite("Task Scheduler unregister completed.");
+            return StartupRegistrationResult.Ok(registered: false);
         }
 
-        SimpleLog.TryWrite("Task Scheduler unregister completed.");
+        if (!IsRegistered())
+        {
+            SimpleLog.TryWrite("Task Scheduler task was already absent.");
+            return StartupRegistrationResult.Ok(registered: false);
+        }
+
+        var error = $"exitCode={result.ExitCode}, stdout={result.Output}, stderr={result.Error}";
+        SimpleLog.TryWrite($"Task Scheduler unregister failed: {error}");
+        return StartupRegistrationResult.Failed(error);
     }
 
     public static bool IsRegistered()
@@ -71,6 +81,7 @@ internal static class StartupRegistration
         {
             WriteTaskXml(xmlPath);
             var result = RunSchTasks($"/Create /TN {Quote(TaskName)} /XML {Quote(xmlPath)} /F");
+            SimpleLog.TryWrite($"Task Scheduler create result: exitCode={result.ExitCode}, stdout={result.Output}, stderr={result.Error}");
             if (result.ExitCode == 0)
             {
                 error = null;

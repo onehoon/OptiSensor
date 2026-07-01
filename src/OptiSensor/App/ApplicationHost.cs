@@ -34,7 +34,7 @@ internal sealed class ApplicationHost : IDisposable
     public static ApplicationHost Start(SingleInstanceGuard singleInstance, bool showMainWindow)
     {
         var settings = AppSettings.LoadOrCreate();
-        var publishService = new SensorPublishService(CreatePublishRunner(settings));
+        var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
         publishService.Start(settings.ClampedPublishIntervalMs);
