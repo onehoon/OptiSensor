@@ -1,0 +1,10 @@
+bin/
+obj/
+publish/
+
+*.user
+*.suo
+*.rsuser
+.vs/
+
+*.log
