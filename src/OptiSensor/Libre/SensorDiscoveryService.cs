@@ -17,10 +17,10 @@ internal sealed class SensorDiscoveryService : IDisposable
         _sensorReader = sensorReader;
     }
 
-    public LibreSensorSnapshot Discover(IReadOnlyCollection<OptiSensorCategory>? includedCategories = null)
+    public LibreSensorSnapshot Discover(IReadOnlyCollection<OptiSensorCategory>? includedCategories = null, bool fastStart = false)
     {
         EnsureOpen();
-        return _sensorReader.ReadSnapshot(includeAllSensors: true, includedCategories: includedCategories);
+        return _sensorReader.ReadSnapshot(includeAllSensors: true, includedCategories: includedCategories, fastStart: fastStart);
     }
 
     public void Dispose()

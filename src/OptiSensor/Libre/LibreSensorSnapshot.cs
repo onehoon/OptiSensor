@@ -8,8 +8,10 @@ internal sealed record LibreSensorSnapshot(
 
 internal sealed record LibreReadMetrics(
 	int HardwareCount,
+	int UpdatedHardwareCount,
 	int SensorCount,
 	int FallbackSensorIdCount,
 	int DuplicateSensorIdCount,
 	long UpdateMs,
-	long ProjectionMs);
+	long ProjectionMs,
+	bool FastStartApplied);

@@ -6,6 +6,7 @@ namespace OptiSensor.Libre;
 
 internal sealed class LibreSensorReader : IDisposable
 {
+    private readonly Dictionary<string, DateTimeOffset> _lastHardwareUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
     private readonly Computer _computer = new()
     {
         IsCpuEnabled = true,
@@ -23,14 +24,25 @@ internal sealed class LibreSensorReader : IDisposable
         _computer.Open();
     }
 
-    public LibreSensorSnapshot ReadSnapshot(bool includeAllSensors = false, IReadOnlyCollection<OptiSensorCategory>? includedCategories = null)
+    public LibreSensorSnapshot ReadSnapshot(
+        bool includeAllSensors = false,
+        IReadOnlyCollection<OptiSensorCategory>? includedCategories = null,
+        bool fastStart = false)
     {
+        var allHardware = _computer.Hardware.ToArray();
+        var nowUtc = DateTimeOffset.UtcNow;
+        var hardwareToUpdate = allHardware
+            .Where(hardware => ShouldUpdateHardware(hardware, nowUtc, fastStart))
+            .ToArray();
+
         var updateStopwatch = Stopwatch.StartNew();
-        foreach (var hardware in _computer.Hardware)
+        foreach (var hardware in hardwareToUpdate)
         {
             hardware.Update();
             foreach (var subHardware in hardware.SubHardware)
                 subHardware.Update();
+
+            _lastHardwareUpdateUtc[GetHardwareKey(hardware)] = nowUtc;
         }
         updateStopwatch.Stop();
 
@@ -40,7 +52,7 @@ internal sealed class LibreSensorReader : IDisposable
 
         var projectionStopwatch = Stopwatch.StartNew();
         var fallbackSensorIdCount = 0;
-        var sensors = _computer.Hardware
+        var sensors = allHardware
             .SelectMany(hardware => GetDetectedSensors(hardware, includeAllSensors, includedCategorySet))
             .Select(sensor =>
             {
@@ -58,12 +70,14 @@ internal sealed class LibreSensorReader : IDisposable
             .Count(group => group.Count() > 1);
 
         var metrics = new LibreReadMetrics(
-            HardwareCount: _computer.Hardware.Count,
+            HardwareCount: allHardware.Length,
+            UpdatedHardwareCount: hardwareToUpdate.Length,
             SensorCount: sensors.Length,
             FallbackSensorIdCount: fallbackSensorIdCount,
             DuplicateSensorIdCount: duplicateSensorIdCount,
             UpdateMs: updateStopwatch.ElapsedMilliseconds,
-            ProjectionMs: projectionStopwatch.ElapsedMilliseconds);
+            ProjectionMs: projectionStopwatch.ElapsedMilliseconds,
+            FastStartApplied: fastStart);
 
         return new LibreSensorSnapshot(sensors, metrics);
     }
@@ -132,5 +146,56 @@ internal sealed class LibreSensorReader : IDisposable
     private static string Sanitize(string value)
     {
         return value.Replace('/', '_').Replace('\\', '_');
+    }
+
+    private static bool IsFastStartHardware(IHardware hardware)
+    {
+        // Prioritize hardware that typically returns quickly so first sensor values appear sooner.
+        return hardware.HardwareType is HardwareType.Cpu
+            or HardwareType.GpuIntel
+            or HardwareType.GpuNvidia
+            or HardwareType.GpuAmd
+            or HardwareType.Memory
+            or HardwareType.Battery;
+    }
+
+    private bool ShouldUpdateHardware(IHardware hardware, DateTimeOffset nowUtc, bool fastStart)
+    {
+        if (fastStart && !IsFastStartHardware(hardware))
+            return false;
+
+        var key = GetHardwareKey(hardware);
+        if (!_lastHardwareUpdateUtc.TryGetValue(key, out var lastUpdatedUtc))
+            return true;
+
+        var interval = GetUpdateInterval(hardware.HardwareType);
+        return (nowUtc - lastUpdatedUtc) >= interval;
+    }
+
+    private static TimeSpan GetUpdateInterval(HardwareType hardwareType)
+    {
+        return hardwareType switch
+        {
+            HardwareType.Cpu => TimeSpan.FromSeconds(1),
+            HardwareType.GpuIntel => TimeSpan.FromSeconds(1),
+            HardwareType.GpuNvidia => TimeSpan.FromSeconds(1),
+            HardwareType.GpuAmd => TimeSpan.FromSeconds(1),
+            HardwareType.Battery => TimeSpan.FromSeconds(1),
+            HardwareType.Memory => TimeSpan.FromSeconds(2),
+            HardwareType.Storage => TimeSpan.FromSeconds(5),
+            HardwareType.Network => TimeSpan.FromSeconds(5),
+            HardwareType.Motherboard => TimeSpan.FromSeconds(5),
+            HardwareType.Controller => TimeSpan.FromSeconds(5),
+            _ => TimeSpan.FromSeconds(3)
+        };
+    }
+
+    private static string GetHardwareKey(IHardware hardware)
+    {
+        var identifier = hardware.Identifier?.ToString();
+        if (!string.IsNullOrWhiteSpace(identifier))
+            return identifier;
+
+        return $"{hardware.HardwareType}/{Sanitize(hardware.Name)}";
     }
 }
