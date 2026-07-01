@@ -145,6 +145,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
           Set-Location $cloneDir
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           $patches = Get-ChildItem "$env:GITHUB_WORKSPACE/optiscaler/patches" -Filter "*.patch" | Sort-Object Name
           if ($patches.Count -eq 0) {
