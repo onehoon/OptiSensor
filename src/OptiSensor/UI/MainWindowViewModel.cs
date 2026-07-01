@@ -120,9 +120,16 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             var includedCategories = SensorCategoryFilters
                 .Where(filter => filter.IsChecked)
                 .Select(filter => filter.Category)
-                .ToArray();
+                .ToHashSet();
 
-            var snapshot = await Task.Run(() => _sensorDiscoveryService.Discover(includedCategories)).ConfigureAwait(true);
+            foreach (var category in OverlayGroups
+                         .SelectMany(group => group.Sensors)
+                         .Select(sensor => sensor.Category))
+            {
+                includedCategories.Add(category);
+            }
+
+            var snapshot = await Task.Run(() => _sensorDiscoveryService.Discover(includedCategories.ToArray())).ConfigureAwait(true);
 
             SyncDetectedSensors(snapshot.Sensors);
 

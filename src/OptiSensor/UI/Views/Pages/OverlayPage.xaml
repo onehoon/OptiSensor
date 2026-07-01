@@ -81,6 +81,31 @@
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0,0,10,8"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    BorderThickness="0"
+                                                    CornerRadius="10"
+                                                    SnapsToDevicePixels="True">
+                                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel Orientation="Horizontal"/>
@@ -88,7 +113,7 @@
                         </ListBox.ItemsPanel>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Margin="0,0,10,8"
+                                <Border x:Name="GroupCard"
                                         Padding="10,8"
                                         Background="#F8FAFC"
                                         BorderBrush="#E2E8F0"
@@ -103,6 +128,13 @@
                                                  Style="{StaticResource FluentTextBoxStyle}"/>
                                     </StackPanel>
                                 </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                                        <Setter TargetName="GroupCard" Property="Background" Value="#EAF3FF"/>
+                                        <Setter TargetName="GroupCard" Property="BorderBrush" Value="#2563EB"/>
+                                        <Setter TargetName="GroupCard" Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -168,12 +200,10 @@
                                     <Style TargetType="CheckBox" BasedOn="{StaticResource FluentDataGridCheckBoxStyle}"/>
                                 </DataGridCheckBoxColumn.EditingElementStyle>
                             </DataGridCheckBoxColumn>
-                            <DataGridTextColumn Header="Order" Binding="{Binding Order}" IsReadOnly="True" Width="64"/>
+                            <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="92"/>
                             <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
                             <DataGridTextColumn Header="Sensor" Binding="{Binding SensorName}" IsReadOnly="True" Width="180"/>
                             <DataGridTextColumn Header="Type" Binding="{Binding SensorType}" IsReadOnly="True" Width="110"/>
-                            <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="92"/>
-                            <DataGridTextColumn Header="Available" Binding="{Binding AvailabilityText}" IsReadOnly="True" Width="130"/>
                             <DataGridTextColumn Header="Current Value" Binding="{Binding CurrentValueText}" IsReadOnly="True" Width="130"/>
                             <DataGridTextColumn Header="Format" Binding="{Binding Format, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                             <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" IsReadOnly="True" Width="64"/>
