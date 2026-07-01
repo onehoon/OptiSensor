@@ -13,7 +13,9 @@ internal sealed class OverlayLineBuilder
 
     public string? BuildLine(LibreSensorSnapshot snapshot, IReadOnlyCollection<SelectedOverlaySensor> selectedSensors)
     {
-        var sensorById = snapshot.Sensors.ToDictionary(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase);
+        var sensorById = snapshot.Sensors
+            .GroupBy(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var parts = new List<string>();
 
         foreach (var selectedSensor in selectedSensors.Where(sensor => sensor.Enabled).OrderBy(sensor => sensor.Order))
@@ -32,7 +34,9 @@ internal sealed class OverlayLineBuilder
 
     public string? BuildLine(LibreSensorSnapshot snapshot, IReadOnlyCollection<OverlayGroup> overlayGroups)
     {
-        var sensorById = snapshot.Sensors.ToDictionary(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase);
+        var sensorById = snapshot.Sensors
+            .GroupBy(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var groupParts = new List<string>();
 
         foreach (var group in overlayGroups.Where(group => group.Enabled).OrderBy(group => group.Order))

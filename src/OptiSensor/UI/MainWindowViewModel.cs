@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using OptiSensor.App;
 using OptiSensor.Libre;
 using OptiSensor.Models;
 using OptiSensor.Overlay;
@@ -19,6 +21,15 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private bool _hasUnsavedChanges;
     private bool _isRefreshing;
     private OverlayGroupViewModel? _selectedOverlayGroup;
+    private long _refreshBenchmarkCount;
+    private long _refreshBenchmarkTotalMs;
+    private long _refreshBenchmarkMaxMs;
+    private long _refreshBenchmarkReaderUpdateTotalMs;
+    private long _refreshBenchmarkReaderProjectionTotalMs;
+    private long _refreshBenchmarkFallbackSensorIdTotal;
+    private long _refreshBenchmarkDuplicateSensorIdTotal;
+    private long _refreshBenchmarkAllocatedBytesTotal;
+    private int _refreshBenchmarkSensorCountMax;
 
     public MainWindowViewModel(AppSettings settings)
     {
@@ -117,6 +128,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         IsRefreshing = true;
         try
         {
+            var refreshStopwatch = Stopwatch.StartNew();
+            var allocatedBefore = GC.GetTotalAllocatedBytes(false);
+
             var includedCategories = SensorCategoryFilters
                 .Where(filter => filter.IsChecked)
                 .Select(filter => filter.Category)
@@ -135,6 +149,10 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
             UpdateSelectedSensorAvailability(snapshot.Sensors);
             OnCountsChanged();
+
+            refreshStopwatch.Stop();
+            var allocatedAfter = GC.GetTotalAllocatedBytes(false);
+            RecordRefreshBenchmark(snapshot.Metrics, refreshStopwatch.ElapsedMilliseconds, Math.Max(0L, allocatedAfter - allocatedBefore));
         }
         finally
         {
@@ -251,7 +269,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public string GetOverlayPreviewText()
     {
-        var snapshot = new LibreSensorSnapshot(DetectedSensors.Select(sensor => sensor.Sensor).ToArray());
+        var snapshot = new LibreSensorSnapshot(
+            DetectedSensors.Select(sensor => sensor.Sensor).ToArray(),
+            new LibreReadMetrics(0, DetectedSensors.Count, 0, 0, 0, 0));
         var groups = OverlayGroups
             .Where(group => !string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase))
             .OrderBy(group => group.Order)
@@ -539,7 +559,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             .ThenBy(sensor => sensor.SensorName)
             .ToArray();
 
-        var existingById = DetectedSensors.ToDictionary(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase);
+        var existingById = DetectedSensors
+            .GroupBy(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var target = new List<DetectedSensorViewModel>(orderedSensors.Length);
 
         foreach (var sensor in orderedSensors)
@@ -620,5 +642,35 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private void RecordRefreshBenchmark(LibreReadMetrics metrics, long refreshMs, long allocatedBytes)
+    {
+        _refreshBenchmarkCount++;
+        _refreshBenchmarkTotalMs += refreshMs;
+        _refreshBenchmarkMaxMs = Math.Max(_refreshBenchmarkMaxMs, refreshMs);
+        _refreshBenchmarkReaderUpdateTotalMs += metrics.UpdateMs;
+        _refreshBenchmarkReaderProjectionTotalMs += metrics.ProjectionMs;
+        _refreshBenchmarkFallbackSensorIdTotal += metrics.FallbackSensorIdCount;
+        _refreshBenchmarkDuplicateSensorIdTotal += metrics.DuplicateSensorIdCount;
+        _refreshBenchmarkAllocatedBytesTotal += allocatedBytes;
+        _refreshBenchmarkSensorCountMax = Math.Max(_refreshBenchmarkSensorCountMax, metrics.SensorCount);
+
+        const int summaryInterval = 30;
+        if (_refreshBenchmarkCount % summaryInterval != 0)
+            return;
+
+        var avgRefreshMs = _refreshBenchmarkTotalMs / _refreshBenchmarkCount;
+        var avgUpdateMs = _refreshBenchmarkReaderUpdateTotalMs / _refreshBenchmarkCount;
+        var avgProjectionMs = _refreshBenchmarkReaderProjectionTotalMs / _refreshBenchmarkCount;
+        var avgFallback = _refreshBenchmarkFallbackSensorIdTotal / _refreshBenchmarkCount;
+        var avgDuplicate = _refreshBenchmarkDuplicateSensorIdTotal / _refreshBenchmarkCount;
+        var avgAllocatedKb = (_refreshBenchmarkAllocatedBytesTotal / _refreshBenchmarkCount) / 1024d;
+
+        SimpleLog.TryWrite(
+            $"Refresh benchmark (n={_refreshBenchmarkCount}): avg={avgRefreshMs}ms max={_refreshBenchmarkMaxMs}ms " +
+            $"reader(update/projection)={avgUpdateMs}/{avgProjectionMs}ms " +
+            $"avgFallbackId={avgFallback} avgDuplicateId={avgDuplicate} maxSensors={_refreshBenchmarkSensorCountMax} " +
+            $"avgAlloc={avgAllocatedKb:0.0}KB");
     }
 }

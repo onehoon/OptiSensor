@@ -161,6 +161,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            SimpleLog.TryWrite($"RefreshDetectedSensorsAsync failed: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
             System.Windows.MessageBox.Show(ex.Message, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

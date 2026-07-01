@@ -1,5 +1,6 @@
 using LibreHardwareMonitor.Hardware;
 using OptiSensor.Models;
+using System.Diagnostics;
 
 namespace OptiSensor.Libre;
 
@@ -24,23 +25,47 @@ internal sealed class LibreSensorReader : IDisposable
 
     public LibreSensorSnapshot ReadSnapshot(bool includeAllSensors = false, IReadOnlyCollection<OptiSensorCategory>? includedCategories = null)
     {
+        var updateStopwatch = Stopwatch.StartNew();
         foreach (var hardware in _computer.Hardware)
         {
             hardware.Update();
             foreach (var subHardware in hardware.SubHardware)
                 subHardware.Update();
         }
+        updateStopwatch.Stop();
 
         HashSet<OptiSensorCategory>? includedCategorySet = null;
         if (includedCategories is not null)
             includedCategorySet = includedCategories.Count == 0 ? [] : includedCategories.ToHashSet();
 
+        var projectionStopwatch = Stopwatch.StartNew();
+        var fallbackSensorIdCount = 0;
         var sensors = _computer.Hardware
             .SelectMany(hardware => GetDetectedSensors(hardware, includeAllSensors, includedCategorySet))
+            .Select(sensor =>
+            {
+                if (sensor.SensorId.StartsWith("fallback/", StringComparison.Ordinal))
+                    fallbackSensorIdCount++;
+
+                return sensor;
+            })
             .Where(sensor => sensor.Value.HasValue)
             .ToArray();
+        projectionStopwatch.Stop();
 
-        return new LibreSensorSnapshot(sensors);
+        var duplicateSensorIdCount = sensors
+            .GroupBy(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase)
+            .Count(group => group.Count() > 1);
+
+        var metrics = new LibreReadMetrics(
+            HardwareCount: _computer.Hardware.Length,
+            SensorCount: sensors.Length,
+            FallbackSensorIdCount: fallbackSensorIdCount,
+            DuplicateSensorIdCount: duplicateSensorIdCount,
+            UpdateMs: updateStopwatch.ElapsedMilliseconds,
+            ProjectionMs: projectionStopwatch.ElapsedMilliseconds);
+
+        return new LibreSensorSnapshot(sensors, metrics);
     }
 
     public void Dispose()
@@ -75,7 +100,7 @@ internal sealed class LibreSensorReader : IDisposable
                 continue;
 
             yield return new DetectedSensorInfo(
-                SensorId: BuildSensorId(rootHardware, sensorHardware, sensor),
+                SensorId: BuildSensorId(sensor),
                 HardwareType: rootHardware.HardwareType.ToString(),
                 HardwareName: rootHardware.Name,
                 SensorType: sensor.SensorType.ToString(),
@@ -86,15 +111,21 @@ internal sealed class LibreSensorReader : IDisposable
         }
     }
 
-    private static string BuildSensorId(IHardware rootHardware, IHardware sensorHardware, ISensor sensor)
+    private static string BuildSensorId(ISensor sensor)
     {
+        var identifier = sensor.Identifier?.ToString();
+        if (!string.IsNullOrWhiteSpace(identifier))
+            return identifier;
+
+        var hardwareIdentifier = sensor.Hardware?.Identifier?.ToString();
+        var sensorName = string.IsNullOrWhiteSpace(sensor.Name) ? "unnamed" : Sanitize(sensor.Name);
+
         return string.Join(
             "/",
-            rootHardware.HardwareType,
-            Sanitize(rootHardware.Name),
-            Sanitize(sensorHardware.Name),
+            "fallback",
+            string.IsNullOrWhiteSpace(hardwareIdentifier) ? "unknown-hardware" : Sanitize(hardwareIdentifier),
             sensor.SensorType,
-            Sanitize(sensor.Name),
+            sensorName,
             sensor.Index);
     }
 
