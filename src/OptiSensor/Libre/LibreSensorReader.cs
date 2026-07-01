@@ -58,7 +58,7 @@ internal sealed class LibreSensorReader : IDisposable
             .Count(group => group.Count() > 1);
 
         var metrics = new LibreReadMetrics(
-            HardwareCount: _computer.Hardware.Length,
+            HardwareCount: _computer.Hardware.Count,
             SensorCount: sensors.Length,
             FallbackSensorIdCount: fallbackSensorIdCount,
             DuplicateSensorIdCount: duplicateSensorIdCount,
