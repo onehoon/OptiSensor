@@ -6,7 +6,103 @@ namespace OptiSensor;
 
 class Program
 {
-    static void Main(string[] args)
+    static int Main(string[] args)
+    {
+        try
+        {
+            return Run(args);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            SimpleLog.TryWriteException(ex);
+            return 1;
+        }
+    }
+
+    private static int Run(string[] args)
+    {
+        if (HasArg(args, "--install"))
+        {
+            AppInstaller.Install(verbose: true);
+            return 0;
+        }
+
+        if (HasArg(args, "--uninstall"))
+        {
+            AppInstaller.Uninstall();
+            return 0;
+        }
+
+        var runOnce = HasArg(args, "--once");
+        var watch = HasArg(args, "--watch");
+        var startup = HasArg(args, "--startup");
+
+        if (runOnce)
+        {
+            RunSensorLoop(showConsoleUpdates: true, runOnce: true, publishIntervalMs: 1000);
+            return 0;
+        }
+
+        if (startup)
+        {
+            if (AppInstaller.EnsureInstalledAndRelaunchIfNeeded(startup: true))
+                return 0;
+
+            using var guard = AcquireSingleInstanceOrExit();
+            if (guard is null)
+                return 0;
+
+            var settings = AppSettings.LoadOrCreate();
+            SimpleLog.TryWrite("Startup execution started.");
+            RunSensorLoop(showConsoleUpdates: false, runOnce: false, settings.ClampedPublishIntervalMs);
+            return 0;
+        }
+
+        if (watch)
+        {
+            using var guard = AcquireSingleInstanceOrExit();
+            if (guard is null)
+                return 0;
+
+            var settings = AppSettings.LoadOrCreate();
+            RunSensorLoop(showConsoleUpdates: true, runOnce: false, settings.ClampedPublishIntervalMs);
+            return 0;
+        }
+
+        if (AppInstaller.EnsureInstalledAndRelaunchIfNeeded(startup: false))
+            return 0;
+
+        using (var guard = AcquireSingleInstanceOrExit())
+        {
+            if (guard is null)
+                return 0;
+
+            var settings = AppSettings.LoadOrCreate();
+            RunSensorLoop(showConsoleUpdates: false, runOnce: false, settings.ClampedPublishIntervalMs);
+        }
+
+        return 0;
+    }
+
+    private static SingleInstanceGuard? AcquireSingleInstanceOrExit()
+    {
+        var guard = SingleInstanceGuard.TryAcquire();
+        if (guard is null)
+        {
+            Console.WriteLine("OptiSensor is already running.");
+            return null;
+        }
+
+        return guard;
+    }
+
+    private static bool HasArg(string[] args, string option)
+    {
+        return args.Contains(option, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void RunSensorLoop(bool showConsoleUpdates, bool runOnce, int publishIntervalMs)
     {
         using var sensorReader = new SensorReader();
         using var publisher = new ExternalOverlayPublisher();
@@ -14,8 +110,7 @@ class Program
         sensorReader.Open();
         publisher.Open();
 
-        var showConsoleUpdates = args.Contains("--watch", StringComparer.OrdinalIgnoreCase);
-        var runOnce = args.Contains("--once", StringComparer.OrdinalIgnoreCase);
+        var delay = TimeSpan.FromMilliseconds(Math.Clamp(publishIntervalMs, 100, 10000));
 
         while (true)
         {
@@ -33,7 +128,7 @@ class Program
             if (runOnce)
                 break;
 
-            Thread.Sleep(TimeSpan.FromSeconds(1));
+            Thread.Sleep(delay);
         }
     }
 
