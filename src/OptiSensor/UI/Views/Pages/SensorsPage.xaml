@@ -46,7 +46,14 @@
                 <DataGrid.Columns>
                     <DataGridCheckBoxColumn Header="Overlay"
                                             Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                            Width="80"/>
+                                            Width="80">
+                        <DataGridCheckBoxColumn.ElementStyle>
+                            <Style TargetType="CheckBox" BasedOn="{StaticResource FluentDataGridCheckBoxStyle}"/>
+                        </DataGridCheckBoxColumn.ElementStyle>
+                        <DataGridCheckBoxColumn.EditingElementStyle>
+                            <Style TargetType="CheckBox" BasedOn="{StaticResource FluentDataGridCheckBoxStyle}"/>
+                        </DataGridCheckBoxColumn.EditingElementStyle>
+                    </DataGridCheckBoxColumn>
                     <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="100"/>
                     <DataGridTextColumn Header="Hardware Type" Binding="{Binding HardwareType}" IsReadOnly="True" Width="130"/>
                     <DataGridTextColumn Header="Hardware" Binding="{Binding HardwareName}" IsReadOnly="True" Width="2*"/>

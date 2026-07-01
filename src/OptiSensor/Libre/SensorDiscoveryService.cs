@@ -1,3 +1,5 @@
+using OptiSensor.Models;
+
 namespace OptiSensor.Libre;
 
 internal sealed class SensorDiscoveryService : IDisposable
