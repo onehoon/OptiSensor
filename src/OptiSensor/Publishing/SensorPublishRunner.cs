@@ -6,11 +6,14 @@ namespace OptiSensor.Publishing;
 
 internal sealed class SensorPublishRunner : IDisposable
 {
+    private const int ClearDebounceCycles = 5;
     private readonly LibreSensorReader _sensorReader;
     private readonly OverlayLineBuilder _lineBuilder;
     private readonly ExternalOverlayPublisher _publisher;
     private readonly Func<IReadOnlyCollection<OverlayGroup>> _overlayGroupsProvider;
+    private readonly Dictionary<string, DetectedSensorInfo> _lastKnownSensorById = new(StringComparer.OrdinalIgnoreCase);
     private bool _hadPublishedOverlay;
+    private int _emptyOverlayCycles;
 
     public SensorPublishRunner(
         LibreSensorReader sensorReader,
@@ -34,24 +37,31 @@ internal sealed class SensorPublishRunner : IDisposable
     {
         var snapshot = _sensorReader.ReadSnapshot();
         var overlayGroups = _overlayGroupsProvider();
+        var effectiveSnapshot = CreateEffectiveSnapshot(snapshot, overlayGroups);
         var totalSelectedSensorCount = overlayGroups.Sum(group => group.Sensors.Count);
         var enabledSelectedSensorCount = overlayGroups.Where(group => group.Enabled).Sum(group => group.Sensors.Count(sensor => sensor.Enabled));
         var overlayLine = totalSelectedSensorCount == 0
-            ? _lineBuilder.BuildDefaultLine(snapshot)
-            : _lineBuilder.BuildLine(snapshot, overlayGroups);
+            ? _lineBuilder.BuildDefaultLine(effectiveSnapshot)
+            : _lineBuilder.BuildLine(effectiveSnapshot, overlayGroups);
 
         if (overlayLine is not null)
         {
             _publisher.Publish(overlayLine);
             _hadPublishedOverlay = true;
+            _emptyOverlayCycles = 0;
         }
         else if (_hadPublishedOverlay)
         {
-            _publisher.Clear();
-            _hadPublishedOverlay = false;
+            _emptyOverlayCycles++;
+            if (_emptyOverlayCycles >= ClearDebounceCycles)
+            {
+                _publisher.Clear();
+                _hadPublishedOverlay = false;
+                _emptyOverlayCycles = 0;
+            }
         }
 
-        return new SensorPublishResult(overlayLine, snapshot.Sensors.Count, enabledSelectedSensorCount, totalSelectedSensorCount);
+        return new SensorPublishResult(overlayLine, effectiveSnapshot.Sensors.Count, enabledSelectedSensorCount, totalSelectedSensorCount);
     }
 
     public async Task RunLoopAsync(int publishIntervalMs, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)
@@ -71,5 +81,37 @@ internal sealed class SensorPublishRunner : IDisposable
     {
         _publisher.Dispose();
         _sensorReader.Dispose();
+    }
+
+    private LibreSensorSnapshot CreateEffectiveSnapshot(LibreSensorSnapshot snapshot, IReadOnlyCollection<OverlayGroup> overlayGroups)
+    {
+        foreach (var sensor in snapshot.Sensors)
+            _lastKnownSensorById[sensor.SensorId] = sensor;
+
+        var selectedSensorIds = overlayGroups
+            .SelectMany(group => group.Sensors)
+            .Select(sensor => sensor.SensorId)
+            .Where(sensorId => !string.IsNullOrWhiteSpace(sensorId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (selectedSensorIds.Length == 0)
+            return snapshot;
+
+        var sensorById = snapshot.Sensors
+            .GroupBy(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var sensorId in selectedSensorIds)
+        {
+            if (sensorById.ContainsKey(sensorId))
+                continue;
+
+            if (_lastKnownSensorById.TryGetValue(sensorId, out var cached))
+                sensorById[sensorId] = cached;
+        }
+
+        var mergedSensors = sensorById.Values.ToArray();
+        return new LibreSensorSnapshot(mergedSensors, snapshot.Metrics);
     }
 }
