@@ -185,7 +185,7 @@ internal sealed class LibreSensorReader : IDisposable
             HardwareType.Storage => TimeSpan.FromSeconds(5),
             HardwareType.Network => TimeSpan.FromSeconds(5),
             HardwareType.Motherboard => TimeSpan.FromSeconds(5),
-            HardwareType.Controller => TimeSpan.FromSeconds(5),
+            HardwareType.SuperIO => TimeSpan.FromSeconds(5),
             _ => TimeSpan.FromSeconds(3)
         };
     }
