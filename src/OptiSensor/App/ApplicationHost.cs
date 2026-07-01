@@ -54,7 +54,7 @@ internal sealed class ApplicationHost : IDisposable
             new LibreSensorReader(),
             new OverlayLineBuilder(),
             new ExternalOverlayPublisher(),
-            () => settings.EnabledSelectedSensors);
+            () => settings.SelectedSensors.OrderBy(sensor => sensor.Order).ToArray());
     }
 
     public void ShowMainWindow()

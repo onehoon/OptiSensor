@@ -8,7 +8,10 @@ internal static class CliCommands
 {
     public static void RunOnce(Func<SensorPublishRunner> createRunner)
     {
-        RunSensorLoop(createRunner, showConsoleUpdates: true, runOnce: true, publishIntervalMs: 1000);
+        using var runner = createRunner();
+        runner.Open();
+
+        PrintResult(runner.PublishOnce());
     }
 
     public static void RunWatch(Func<SensorPublishRunner> createRunner)
@@ -21,35 +24,18 @@ internal static class CliCommands
         }
 
         var settings = AppSettings.LoadOrCreate();
-        RunSensorLoop(createRunner, showConsoleUpdates: true, runOnce: false, settings.ClampedPublishIntervalMs);
-    }
-
-    private static void RunSensorLoop(
-        Func<SensorPublishRunner> createRunner,
-        bool showConsoleUpdates,
-        bool runOnce,
-        int publishIntervalMs)
-    {
         using var runner = createRunner();
         runner.Open();
 
-        var delay = TimeSpan.FromMilliseconds(Math.Clamp(publishIntervalMs, 100, 10000));
+        runner.RunLoopAsync(settings.ClampedPublishIntervalMs, PrintResult, CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+    }
 
-        while (true)
-        {
-            var result = runner.PublishOnce();
-
-            if (showConsoleUpdates || runOnce)
-            {
-                TryClearConsole();
-                Console.WriteLine(result.OverlayLine ?? "No GPU sensor values available.");
-            }
-
-            if (runOnce)
-                break;
-
-            Thread.Sleep(delay);
-        }
+    private static void PrintResult(SensorPublishResult result)
+    {
+        TryClearConsole();
+        Console.WriteLine(result.OverlayLine ?? "No GPU sensor values available.");
     }
 
     private static void TryClearConsole()

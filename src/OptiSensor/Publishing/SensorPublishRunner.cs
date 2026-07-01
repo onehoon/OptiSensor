@@ -33,6 +33,7 @@ internal sealed class SensorPublishRunner : IDisposable
     {
         var snapshot = _sensorReader.ReadSnapshot();
         var selectedSensors = _selectedSensorsProvider();
+        var enabledSelectedSensorCount = selectedSensors.Count(sensor => sensor.Enabled);
         var overlayLine = selectedSensors.Count == 0
             ? _lineBuilder.BuildDefaultLine(snapshot)
             : _lineBuilder.BuildLine(snapshot, selectedSensors);
@@ -40,7 +41,7 @@ internal sealed class SensorPublishRunner : IDisposable
         if (overlayLine is not null)
             _publisher.Publish(overlayLine);
 
-        return new SensorPublishResult(overlayLine, snapshot.Sensors.Count, selectedSensors.Count);
+        return new SensorPublishResult(overlayLine, snapshot.Sensors.Count, enabledSelectedSensorCount);
     }
 
     public async Task RunLoopAsync(int publishIntervalMs, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)
