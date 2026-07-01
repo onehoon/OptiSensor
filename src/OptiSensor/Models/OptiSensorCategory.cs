@@ -6,5 +6,6 @@ internal enum OptiSensorCategory
     Gpu,
     Power,
     Fan,
-    Battery
+    Battery,
+    Other
 }

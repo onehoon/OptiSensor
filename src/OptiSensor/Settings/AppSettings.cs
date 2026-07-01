@@ -8,6 +8,7 @@ namespace OptiSensor.Settings;
 internal sealed class AppSettings
 {
     private readonly object _selectedSensorsLock = new();
+    private readonly object _overlayGroupsLock = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -31,6 +32,9 @@ internal sealed class AppSettings
     [JsonPropertyName("selectedSensors")]
     public List<SelectedOverlaySensor> SelectedSensors { get; set; } = [];
 
+    [JsonPropertyName("overlayGroups")]
+    public List<OverlayGroup> OverlayGroups { get; set; } = [];
+
     [JsonIgnore]
     public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 10000);
 
@@ -50,13 +54,11 @@ internal sealed class AppSettings
 
     public IReadOnlyList<SelectedOverlaySensor> GetSelectedSensorsSnapshot()
     {
-        lock (_selectedSensorsLock)
-        {
-            return SelectedSensors
-                .OrderBy(sensor => sensor.Order)
-                .Select(sensor => sensor.Copy())
-                .ToArray();
-        }
+        return GetOverlayGroupsSnapshot()
+            .SelectMany(group => group.Sensors)
+            .OrderBy(sensor => sensor.Order)
+            .Select(sensor => sensor.Copy())
+            .ToArray();
     }
 
     public IReadOnlyList<SelectedOverlaySensor> GetEnabledSelectedSensorsSnapshot()
@@ -68,17 +70,57 @@ internal sealed class AppSettings
 
     public void ReplaceSelectedSensors(IEnumerable<SelectedOverlaySensor> sensors)
     {
-        lock (_selectedSensorsLock)
+        ReplaceOverlayGroups(
+        [
+            new OverlayGroup
+            {
+                Id = "default",
+                Name = string.Empty,
+                Order = 0,
+                Enabled = true,
+                Sensors = sensors.ToList()
+            }
+        ]);
+    }
+
+    public IReadOnlyList<OverlayGroup> GetOverlayGroupsSnapshot()
+    {
+        lock (_overlayGroupsLock)
         {
-            SelectedSensors = sensors
-                .OrderBy(sensor => sensor.Order)
-                .Select((sensor, index) =>
+            return OverlayGroups
+                .OrderBy(group => group.Order)
+                .Select(group => group.Copy())
+                .ToArray();
+        }
+    }
+
+    public void ReplaceOverlayGroups(IEnumerable<OverlayGroup> groups)
+    {
+        lock (_overlayGroupsLock)
+        {
+            OverlayGroups = groups
+                .OrderBy(group => group.Order)
+                .Select((group, groupIndex) =>
                 {
-                    var clone = sensor.Copy();
-                    clone.Order = index;
+                    var clone = group.Copy();
+                    clone.Order = groupIndex;
+                    clone.Sensors = clone.Sensors
+                        .OrderBy(sensor => sensor.Order)
+                        .Select((sensor, sensorIndex) =>
+                        {
+                            var sensorClone = sensor.Copy();
+                            sensorClone.Order = sensorIndex;
+                            return sensorClone;
+                        })
+                        .ToList();
                     return clone;
                 })
                 .ToList();
+
+            lock (_selectedSensorsLock)
+            {
+                SelectedSensors = OverlayGroups.SelectMany(group => group.Sensors).Select(sensor => sensor.Copy()).ToList();
+            }
         }
     }
 
@@ -86,6 +128,22 @@ internal sealed class AppSettings
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
         settings.SelectedSensors ??= [];
+        settings.OverlayGroups ??= [];
+        if (settings.OverlayGroups.Count == 0 && settings.SelectedSensors.Count > 0)
+        {
+            settings.OverlayGroups =
+            [
+                new OverlayGroup
+                {
+                    Id = "default",
+                    Name = string.Empty,
+                    Order = 0,
+                    Enabled = true,
+                    Sensors = settings.SelectedSensors
+                }
+            ];
+        }
+
         return settings;
     }
 

@@ -41,11 +41,10 @@
                                 Orientation="Horizontal"
                                 Margin="0,14,0,0">
                         <TextBox x:Name="PublishIntervalTextBox"
-                                 Width="110"
-                                 Height="30"
-                                 VerticalContentAlignment="Center"/>
+                                 Width="128"
+                                 Style="{StaticResource FluentTextBoxStyle}"/>
                         <TextBlock Text="ms"
-                                   Margin="8,5,0,0"
+                                   Margin="10,8,0,0"
                                    Foreground="#64748B"/>
                     </StackPanel>
 

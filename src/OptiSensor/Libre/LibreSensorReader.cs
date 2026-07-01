@@ -11,7 +11,10 @@ internal sealed class LibreSensorReader : IDisposable
         IsGpuEnabled = true,
         IsBatteryEnabled = true,
         IsControllerEnabled = true,
-        IsMotherboardEnabled = true
+        IsMemoryEnabled = true,
+        IsMotherboardEnabled = true,
+        IsNetworkEnabled = true,
+        IsStorageEnabled = true
     };
 
     public void Open()
@@ -19,7 +22,7 @@ internal sealed class LibreSensorReader : IDisposable
         _computer.Open();
     }
 
-    public LibreSensorSnapshot ReadSnapshot()
+    public LibreSensorSnapshot ReadSnapshot(bool includeAllSensors = false)
     {
         foreach (var hardware in _computer.Hardware)
         {
@@ -29,7 +32,7 @@ internal sealed class LibreSensorReader : IDisposable
         }
 
         var sensors = _computer.Hardware
-            .SelectMany(GetDetectedSensors)
+            .SelectMany(hardware => GetDetectedSensors(hardware, includeAllSensors))
             .Where(sensor => sensor.Value.HasValue)
             .ToArray();
 
@@ -41,24 +44,28 @@ internal sealed class LibreSensorReader : IDisposable
         _computer.Close();
     }
 
-    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware hardware)
+    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware hardware, bool includeAllSensors)
     {
-        foreach (var detectedSensor in GetDetectedSensors(hardware, hardware))
+        foreach (var detectedSensor in GetDetectedSensors(hardware, hardware, includeAllSensors))
             yield return detectedSensor;
 
         foreach (var subHardware in hardware.SubHardware)
         {
-            foreach (var detectedSensor in GetDetectedSensors(hardware, subHardware))
+            foreach (var detectedSensor in GetDetectedSensors(hardware, subHardware, includeAllSensors))
                 yield return detectedSensor;
         }
     }
 
-    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware rootHardware, IHardware sensorHardware)
+    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware rootHardware, IHardware sensorHardware, bool includeAllSensors)
     {
         foreach (var sensor in sensorHardware.Sensors)
         {
-            if (!SensorClassifier.TryClassify(rootHardware, sensor, out var category, out var unit))
+            var isSupportedOverlaySensor = SensorClassifier.TryClassify(rootHardware, sensor, out var category, out var unit);
+            if (!isSupportedOverlaySensor && !includeAllSensors)
                 continue;
+
+            if (!isSupportedOverlaySensor)
+                SensorClassifier.DescribeForDisplay(rootHardware, sensor, out category, out unit);
 
             yield return new DetectedSensorInfo(
                 SensorId: BuildSensorId(rootHardware, sensorHardware, sensor),

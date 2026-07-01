@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using DrawingIcon = System.Drawing.Icon;
 using DrawingSystemIcons = System.Drawing.SystemIcons;
 using Forms = System.Windows.Forms;
 
@@ -13,7 +15,7 @@ internal sealed class TrayIconService : IDisposable
     {
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = DrawingSystemIcons.Application,
+            Icon = LoadApplicationIcon(),
             Text = "OptiSensor",
             Visible = true,
             ContextMenuStrip = BuildMenu(showWindow, exitApplication)
@@ -46,5 +48,18 @@ internal sealed class TrayIconService : IDisposable
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => exitApplication());
         return menu;
+    }
+
+    private static DrawingIcon LoadApplicationIcon()
+    {
+        var executablePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+        if (!string.IsNullOrWhiteSpace(executablePath))
+        {
+            var icon = DrawingIcon.ExtractAssociatedIcon(executablePath);
+            if (icon is not null)
+                return icon;
+        }
+
+        return DrawingSystemIcons.Application;
     }
 }

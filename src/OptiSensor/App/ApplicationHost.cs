@@ -54,7 +54,7 @@ internal sealed class ApplicationHost : IDisposable
             new LibreSensorReader(),
             new OverlayLineBuilder(),
             new ExternalOverlayPublisher(),
-            settings.GetSelectedSensorsSnapshot);
+            settings.GetOverlayGroupsSnapshot);
     }
 
     public void ShowMainWindow()

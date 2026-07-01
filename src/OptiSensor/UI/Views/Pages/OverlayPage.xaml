@@ -4,56 +4,23 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <DockPanel Margin="0,0,0,16">
-            <StackPanel>
-                <TextBlock Text="Overlay"
-                           FontSize="28"
-                           FontWeight="SemiBold"
-                           Foreground="#0F172A"/>
-                <TextBlock Text="Choose the sensors that appear in the OptiScaler external overlay."
-                           Margin="0,6,0,0"
-                           Foreground="#64748B"/>
-            </StackPanel>
+        <StackPanel Margin="0,0,0,16">
+            <TextBlock Text="Overlay"
+                       FontSize="28"
+                       FontWeight="SemiBold"
+                       Foreground="#0F172A"/>
+            <TextBlock Text="Compose overlay groups. Sensors inside a group are joined with spaces; groups are separated by |."
+                       Margin="0,6,0,0"
+                       Foreground="#64748B"/>
+        </StackPanel>
 
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button Content="Up" MinWidth="74" Margin="0,0,8,0" Style="{StaticResource NeutralButtonStyle}" Click="MoveUpButton_Click"/>
-                <Button Content="Down" MinWidth="74" Margin="0,0,8,0" Style="{StaticResource NeutralButtonStyle}" Click="MoveDownButton_Click"/>
-                <Button Content="Remove" MinWidth="88" Style="{StaticResource DangerButtonStyle}" Click="RemoveButton_Click"/>
-            </StackPanel>
-        </DockPanel>
-
-        <Border Grid.Row="1" Style="{StaticResource FluentCardStyle}">
-            <DataGrid x:Name="SelectedSensorsDataGrid"
-                      ItemsSource="{Binding SelectedSensors}"
-                      AutoGenerateColumns="False"
-                      SelectionMode="Single"
-                      CanUserAddRows="False"
-                      CanUserDeleteRows="False"
-                      BorderThickness="0"
-                      GridLinesVisibility="None"
-                      RowHeight="34">
-                <DataGrid.Columns>
-                    <DataGridCheckBoxColumn Header="Enabled" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="90"/>
-                    <DataGridTextColumn Header="Order" Binding="{Binding Order}" IsReadOnly="True" Width="70"/>
-                    <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="140"/>
-                    <DataGridTextColumn Header="Sensor" Binding="{Binding SensorName}" IsReadOnly="True" Width="2*"/>
-                    <DataGridTextColumn Header="Type" Binding="{Binding SensorType}" IsReadOnly="True" Width="120"/>
-                    <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="100"/>
-                    <DataGridTextColumn Header="Available" Binding="{Binding AvailabilityText}" IsReadOnly="True" Width="150"/>
-                    <DataGridTextColumn Header="Current Value" Binding="{Binding CurrentValueText}" IsReadOnly="True" Width="120"/>
-                    <DataGridTextColumn Header="Format" Binding="{Binding Format, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
-                    <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" IsReadOnly="True" Width="70"/>
-                </DataGrid.Columns>
-            </DataGrid>
-        </Border>
-
-        <Border Grid.Row="2"
+        <Border Grid.Row="1"
                 Style="{StaticResource FluentCardStyle}"
-                Margin="0,16,0,0">
+                Margin="0,0,0,16">
             <StackPanel>
                 <TextBlock Text="Overlay Preview"
                            FontSize="13"
@@ -67,5 +34,127 @@
                            TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource FluentCardStyle}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <TextBlock Text="Groups"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="#0F172A"/>
+                        <TextBlock Text="Group order controls the | separated blocks."
+                                   Margin="0,4,0,0"
+                                   Foreground="#64748B"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom"
+                                Orientation="Horizontal"
+                                Margin="0,12,0,0">
+                        <Button Content="Add"
+                                MinWidth="64"
+                                Margin="0,0,8,0"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Click="AddGroupButton_Click"/>
+                        <Button Content="Up"
+                                MinWidth="58"
+                                Margin="0,0,8,0"
+                                Style="{StaticResource NeutralButtonStyle}"
+                                Click="MoveGroupUpButton_Click"/>
+                        <Button Content="Down"
+                                MinWidth="70"
+                                Margin="0,0,8,0"
+                                Style="{StaticResource NeutralButtonStyle}"
+                                Click="MoveGroupDownButton_Click"/>
+                        <Button Content="Remove"
+                                MinWidth="82"
+                                Style="{StaticResource DangerButtonStyle}"
+                                Click="RemoveGroupButton_Click"/>
+                    </StackPanel>
+
+                    <ListBox x:Name="GroupsListBox"
+                             ItemsSource="{Binding OverlayGroups}"
+                             SelectedItem="{Binding SelectedOverlayGroup, Mode=TwoWay}"
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              VerticalAlignment="Center"
+                                              Margin="0,0,8,0"/>
+                                    <TextBox Grid.Column="1"
+                                             Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             Style="{StaticResource FluentTextBoxStyle}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource FluentCardStyle}">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Group Sensors"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="#0F172A"/>
+                            <TextBlock Text="Toggle sensors on the Sensors tab to add them to the selected group."
+                                       Margin="0,4,0,0"
+                                       Foreground="#64748B"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Bottom"
+                                    Margin="16,0,0,0">
+                            <Button Content="Up" MinWidth="64" Margin="0,0,8,0" Style="{StaticResource NeutralButtonStyle}" Click="MoveUpButton_Click"/>
+                            <Button Content="Down" MinWidth="74" Margin="0,0,8,0" Style="{StaticResource NeutralButtonStyle}" Click="MoveDownButton_Click"/>
+                            <Button Content="Remove" MinWidth="92" Style="{StaticResource DangerButtonStyle}" Click="RemoveButton_Click"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <DataGrid x:Name="SelectedSensorsDataGrid"
+                              ItemsSource="{Binding SelectedSensors}"
+                              AutoGenerateColumns="False"
+                              SelectionMode="Single"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              BorderThickness="0"
+                              GridLinesVisibility="None"
+                              RowHeight="36"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Enabled" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="82"/>
+                            <DataGridTextColumn Header="Order" Binding="{Binding Order}" IsReadOnly="True" Width="64"/>
+                            <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                            <DataGridTextColumn Header="Sensor" Binding="{Binding SensorName}" IsReadOnly="True" Width="180"/>
+                            <DataGridTextColumn Header="Type" Binding="{Binding SensorType}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="92"/>
+                            <DataGridTextColumn Header="Available" Binding="{Binding AvailabilityText}" IsReadOnly="True" Width="130"/>
+                            <DataGridTextColumn Header="Current Value" Binding="{Binding CurrentValueText}" IsReadOnly="True" Width="130"/>
+                            <DataGridTextColumn Header="Format" Binding="{Binding Format, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                            <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" IsReadOnly="True" Width="64"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

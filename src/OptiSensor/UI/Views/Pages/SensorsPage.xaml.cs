@@ -1,4 +1,5 @@
-using System.Windows;
+using System.ComponentModel;
+using System.Windows.Data;
 
 namespace OptiSensor.UI.Views.Pages;
 
@@ -7,27 +8,19 @@ public partial class SensorsPage : System.Windows.Controls.UserControl
     public SensorsPage()
     {
         InitializeComponent();
+        DataContextChanged += (_, _) => ApplyGrouping();
     }
-
-    public event EventHandler? RefreshRequested;
-    public event EventHandler? AddRequested;
 
     internal DetectedSensorViewModel? SelectedDetectedSensor =>
         DetectedSensorsDataGrid.SelectedItem as DetectedSensorViewModel;
 
-    public bool IsRefreshEnabled
+    private void ApplyGrouping()
     {
-        get => RefreshButton.IsEnabled;
-        set => RefreshButton.IsEnabled = value;
-    }
+        var view = CollectionViewSource.GetDefaultView(DetectedSensorsDataGrid.ItemsSource);
+        if (view is null)
+            return;
 
-    private void RefreshButton_Click(object sender, RoutedEventArgs e)
-    {
-        RefreshRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void AddButton_Click(object sender, RoutedEventArgs e)
-    {
-        AddRequested?.Invoke(this, EventArgs.Empty);
+        view.GroupDescriptions.Clear();
+        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(DetectedSensorViewModel.Category)));
     }
 }

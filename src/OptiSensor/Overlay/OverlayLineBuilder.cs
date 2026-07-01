@@ -30,6 +30,38 @@ internal sealed class OverlayLineBuilder
         return parts.Count == 0 ? null : string.Join(" | ", parts);
     }
 
+    public string? BuildLine(LibreSensorSnapshot snapshot, IReadOnlyCollection<OverlayGroup> overlayGroups)
+    {
+        var sensorById = snapshot.Sensors.ToDictionary(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase);
+        var groupParts = new List<string>();
+
+        foreach (var group in overlayGroups.Where(group => group.Enabled).OrderBy(group => group.Order))
+        {
+            var sensorParts = new List<string>();
+            foreach (var selectedSensor in group.Sensors.Where(sensor => sensor.Enabled).OrderBy(sensor => sensor.Order))
+            {
+                if (!sensorById.TryGetValue(selectedSensor.SensorId, out var detectedSensor) ||
+                    detectedSensor.Value is not float value)
+                {
+                    continue;
+                }
+
+                sensorParts.Add(FormatSensor(selectedSensor, value));
+            }
+
+            if (sensorParts.Count == 0)
+                continue;
+
+            var groupText = string.Join(" ", sensorParts);
+            if (!string.IsNullOrWhiteSpace(group.Name))
+                groupText = $"{group.Name} {groupText}";
+
+            groupParts.Add(groupText);
+        }
+
+        return groupParts.Count == 0 ? null : string.Join(" | ", groupParts);
+    }
+
     private static IEnumerable<SelectedOverlaySensor> CreateDefaultGpuSelections(LibreSensorSnapshot snapshot)
     {
         var gpuSensors = snapshot.Sensors
@@ -41,7 +73,7 @@ internal sealed class OverlayLineBuilder
         var load = PickSensor(gpuSensors, "Load", "GPU Core", "GPU Load", "Core");
 
         if (temperature is not null)
-            yield return CreateSelection(temperature, "GPU", "{0:0}C", 0);
+            yield return CreateSelection(temperature, "GPU", "{0:0}°C", 0);
 
         if (power is not null)
             yield return CreateSelection(power, string.Empty, "{0:0}W", 1);
@@ -95,15 +127,39 @@ internal sealed class OverlayLineBuilder
                 ? SensorFormatDefaults.GetDefaultFormat(sensor.Unit)
                 : sensor.Format;
 
-            formattedValue = string.Format(CultureInfo.InvariantCulture, format, value);
+            formattedValue = NormalizeTemperatureSuffix(
+                sensor,
+                string.Format(CultureInfo.InvariantCulture, format, value));
         }
         catch (FormatException)
         {
-            formattedValue = value.ToString("0", CultureInfo.InvariantCulture) + sensor.Unit;
+            formattedValue = value.ToString("0", CultureInfo.InvariantCulture) + GetDisplayUnit(sensor);
         }
 
         return string.IsNullOrWhiteSpace(sensor.DisplayName)
             ? formattedValue
             : $"{sensor.DisplayName} {formattedValue}";
+    }
+
+    private static string NormalizeTemperatureSuffix(SelectedOverlaySensor sensor, string formattedValue)
+    {
+        if (!IsTemperatureSensor(sensor))
+            return formattedValue;
+
+        return formattedValue.EndsWith("°C", StringComparison.Ordinal)
+            ? formattedValue
+            : formattedValue.EndsWith("C", StringComparison.Ordinal)
+                ? formattedValue[..^1] + "°C"
+                : formattedValue;
+    }
+
+    private static string GetDisplayUnit(SelectedOverlaySensor sensor)
+    {
+        return IsTemperatureSensor(sensor) ? "°C" : sensor.Unit;
+    }
+
+    private static bool IsTemperatureSensor(SelectedOverlaySensor sensor)
+    {
+        return string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase);
     }
 }

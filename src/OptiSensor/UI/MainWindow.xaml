@@ -7,6 +7,7 @@
         MinWidth="960"
         MinHeight="640"
         Background="#F6F8FB"
+        Icon="/Assets/OptiSensor.ico"
         WindowStartupLocation="CenterScreen">
     <Grid>
         <Grid.ColumnDefinitions>
@@ -37,18 +38,14 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Margin="0,20,0,0">
-                    <Button x:Name="DashboardNavButton"
-                            Content="Dashboard"
-                            Style="{StaticResource NavButtonStyle}"
-                            Click="DashboardNavButton_Click"/>
-                    <Button x:Name="SensorsNavButton"
-                            Content="Sensors"
-                            Style="{StaticResource NavButtonStyle}"
-                            Click="SensorsNavButton_Click"/>
                     <Button x:Name="OverlayNavButton"
                             Content="Overlay"
                             Style="{StaticResource NavButtonStyle}"
                             Click="OverlayNavButton_Click"/>
+                    <Button x:Name="SensorsNavButton"
+                            Content="Sensors"
+                            Style="{StaticResource NavButtonStyle}"
+                            Click="SensorsNavButton_Click"/>
                     <Button x:Name="SettingsNavButton"
                             Content="Settings"
                             Style="{StaticResource NavButtonStyle}"

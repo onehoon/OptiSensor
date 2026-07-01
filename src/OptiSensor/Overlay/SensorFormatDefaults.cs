@@ -8,7 +8,8 @@ internal static class SensorFormatDefaults
     {
         return unit switch
         {
-            "C" => "{0:0}C",
+            "C" => "{0:0}°C",
+            "°C" => "{0:0}°C",
             "W" => "{0:0}W",
             "%" => "{0:0}%",
             "RPM" => "{0:0}RPM",

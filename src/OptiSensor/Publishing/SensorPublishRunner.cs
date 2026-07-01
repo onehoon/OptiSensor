@@ -9,19 +9,19 @@ internal sealed class SensorPublishRunner : IDisposable
     private readonly LibreSensorReader _sensorReader;
     private readonly OverlayLineBuilder _lineBuilder;
     private readonly ExternalOverlayPublisher _publisher;
-    private readonly Func<IReadOnlyCollection<SelectedOverlaySensor>> _selectedSensorsProvider;
+    private readonly Func<IReadOnlyCollection<OverlayGroup>> _overlayGroupsProvider;
     private bool _hadPublishedOverlay;
 
     public SensorPublishRunner(
         LibreSensorReader sensorReader,
         OverlayLineBuilder lineBuilder,
         ExternalOverlayPublisher publisher,
-        Func<IReadOnlyCollection<SelectedOverlaySensor>> selectedSensorsProvider)
+        Func<IReadOnlyCollection<OverlayGroup>> overlayGroupsProvider)
     {
         _sensorReader = sensorReader;
         _lineBuilder = lineBuilder;
         _publisher = publisher;
-        _selectedSensorsProvider = selectedSensorsProvider;
+        _overlayGroupsProvider = overlayGroupsProvider;
     }
 
     public void Open()
@@ -33,12 +33,12 @@ internal sealed class SensorPublishRunner : IDisposable
     public SensorPublishResult PublishOnce()
     {
         var snapshot = _sensorReader.ReadSnapshot();
-        var selectedSensors = _selectedSensorsProvider();
-        var totalSelectedSensorCount = selectedSensors.Count;
-        var enabledSelectedSensorCount = selectedSensors.Count(sensor => sensor.Enabled);
+        var overlayGroups = _overlayGroupsProvider();
+        var totalSelectedSensorCount = overlayGroups.Sum(group => group.Sensors.Count);
+        var enabledSelectedSensorCount = overlayGroups.Where(group => group.Enabled).Sum(group => group.Sensors.Count(sensor => sensor.Enabled));
         var overlayLine = totalSelectedSensorCount == 0
             ? _lineBuilder.BuildDefaultLine(snapshot)
-            : _lineBuilder.BuildLine(snapshot, selectedSensors);
+            : _lineBuilder.BuildLine(snapshot, overlayGroups);
 
         if (overlayLine is not null)
         {

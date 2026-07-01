@@ -18,7 +18,7 @@ internal sealed class SensorDiscoveryService : IDisposable
     public LibreSensorSnapshot Discover()
     {
         EnsureOpen();
-        return _sensorReader.ReadSnapshot();
+        return _sensorReader.ReadSnapshot(includeAllSensors: true);
     }
 
     public void Dispose()

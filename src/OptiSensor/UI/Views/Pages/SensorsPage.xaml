@@ -13,24 +13,9 @@
                            FontSize="28"
                            FontWeight="SemiBold"
                            Foreground="#0F172A"/>
-                <TextBlock Text="Detected sensors from LibreHardwareMonitor. Select a sensor and add it to the overlay."
+                <TextBlock Text="All LibreHardwareMonitor sensors detected on this PC. Toggle a row to add or remove it from the overlay."
                            Margin="0,6,0,0"
                            Foreground="#64748B"/>
-            </StackPanel>
-
-            <StackPanel DockPanel.Dock="Right"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Right">
-                <Button x:Name="RefreshButton"
-                        Content="Refresh"
-                        MinWidth="88"
-                        Margin="0,0,8,0"
-                        Style="{StaticResource AccentButtonStyle}"
-                        Click="RefreshButton_Click"/>
-                <Button Content="Add"
-                        MinWidth="88"
-                        Style="{StaticResource NeutralButtonStyle}"
-                        Click="AddButton_Click"/>
             </StackPanel>
         </DockPanel>
 
@@ -39,17 +24,59 @@
             <DataGrid x:Name="DetectedSensorsDataGrid"
                       ItemsSource="{Binding DetectedSensors}"
                       AutoGenerateColumns="False"
-                      IsReadOnly="True"
+                      IsReadOnly="False"
                       SelectionMode="Single"
                       BorderThickness="0"
                       GridLinesVisibility="None"
                       RowHeight="34">
+                <DataGrid.GroupStyle>
+                    <GroupStyle>
+                        <GroupStyle.ContainerStyle>
+                            <Style TargetType="{x:Type GroupItem}">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="{x:Type GroupItem}">
+                                            <Expander IsExpanded="True"
+                                                      Margin="0,0,0,8"
+                                                      Background="#F8FAFC"
+                                                      BorderBrush="#E2E8F0"
+                                                      BorderThickness="1">
+                                                <Expander.Header>
+                                                    <StackPanel Orientation="Horizontal" Margin="8,4">
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="#0F172A"/>
+                                                        <TextBlock Text="{Binding ItemCount, StringFormat= ({0})}"
+                                                                   Margin="4,0,0,0"
+                                                                   Foreground="#64748B"/>
+                                                    </StackPanel>
+                                                </Expander.Header>
+                                                <ItemsPresenter Margin="0,4,0,0"/>
+                                            </Expander>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </GroupStyle.ContainerStyle>
+                    </GroupStyle>
+                </DataGrid.GroupStyle>
+
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="100"/>
-                    <DataGridTextColumn Header="Hardware" Binding="{Binding HardwareName}" Width="2*"/>
-                    <DataGridTextColumn Header="Sensor" Binding="{Binding SensorName}" Width="2*"/>
-                    <DataGridTextColumn Header="Type" Binding="{Binding SensorType}" Width="120"/>
-                    <DataGridTextColumn Header="Value" Binding="{Binding ValueText}" Width="100"/>
+                    <DataGridTemplateColumn Header="Overlay" Width="80">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Center"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="100"/>
+                    <DataGridTextColumn Header="Hardware Type" Binding="{Binding HardwareType}" IsReadOnly="True" Width="130"/>
+                    <DataGridTextColumn Header="Hardware" Binding="{Binding HardwareName}" IsReadOnly="True" Width="2*"/>
+                    <DataGridTextColumn Header="Sensor" Binding="{Binding SensorName}" IsReadOnly="True" Width="2*"/>
+                    <DataGridTextColumn Header="Type" Binding="{Binding SensorType}" IsReadOnly="True" Width="120"/>
+                    <DataGridTextColumn Header="Value" Binding="{Binding ValueText}" IsReadOnly="True" Width="100"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
