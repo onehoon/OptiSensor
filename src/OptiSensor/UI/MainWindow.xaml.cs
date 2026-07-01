@@ -149,6 +149,9 @@ public partial class MainWindow : Window
         if (_viewModel.IsRefreshing)
             return;
 
+        if (ReferenceEquals(PageContentControl.Content, _sensorsPage) && _sensorsPage.ShouldDeferRefresh)
+            return;
+
         try
         {
             _sensorsPage.CaptureScrollPosition();

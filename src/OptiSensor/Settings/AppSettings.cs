@@ -35,6 +35,9 @@ internal sealed class AppSettings
     [JsonPropertyName("overlayGroups")]
     public List<OverlayGroup> OverlayGroups { get; set; } = [];
 
+    [JsonPropertyName("sensorCategoryFilters")]
+    public Dictionary<OptiSensorCategory, bool> SensorCategoryFilters { get; set; } = [];
+
     [JsonIgnore]
     public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 10000);
 
@@ -83,6 +86,27 @@ internal sealed class AppSettings
         ]);
     }
 
+    public IReadOnlyDictionary<OptiSensorCategory, bool> GetSensorCategoryFilterSnapshot()
+    {
+        var normalized = new Dictionary<OptiSensorCategory, bool>();
+        foreach (var category in Enum.GetValues<OptiSensorCategory>())
+            normalized[category] = SensorCategoryFilters.TryGetValue(category, out var isChecked) ? isChecked : true;
+
+        return normalized;
+    }
+
+    public void ReplaceSensorCategoryFilters(IEnumerable<KeyValuePair<OptiSensorCategory, bool>> filters)
+    {
+        var normalized = new Dictionary<OptiSensorCategory, bool>();
+        foreach (var category in Enum.GetValues<OptiSensorCategory>())
+            normalized[category] = true;
+
+        foreach (var filter in filters)
+            normalized[filter.Key] = filter.Value;
+
+        SensorCategoryFilters = normalized;
+    }
+
     public IReadOnlyList<OverlayGroup> GetOverlayGroupsSnapshot()
     {
         lock (_overlayGroupsLock)
@@ -129,6 +153,7 @@ internal sealed class AppSettings
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
         settings.SelectedSensors ??= [];
         settings.OverlayGroups ??= [];
+        settings.SensorCategoryFilters ??= [];
         if (settings.OverlayGroups.Count == 0 && settings.SelectedSensors.Count > 0)
         {
             settings.OverlayGroups =

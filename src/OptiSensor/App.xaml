@@ -147,6 +147,17 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="FluentComboBoxStyle" TargetType="ComboBox">
+                <Setter Property="Height" Value="36"/>
+                <Setter Property="MinWidth" Value="120"/>
+                <Setter Property="Padding" Value="8,0"/>
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="BorderBrush" Value="#CBD5E1"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Foreground" Value="#0F172A"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+            </Style>
+
             <Style x:Key="ToggleSwitchStyle" TargetType="{x:Type ToggleButton}">
                 <Setter Property="Width" Value="42"/>
                 <Setter Property="Height" Value="22"/>

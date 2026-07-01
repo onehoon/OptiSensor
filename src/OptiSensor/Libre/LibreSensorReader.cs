@@ -22,7 +22,7 @@ internal sealed class LibreSensorReader : IDisposable
         _computer.Open();
     }
 
-    public LibreSensorSnapshot ReadSnapshot(bool includeAllSensors = false)
+    public LibreSensorSnapshot ReadSnapshot(bool includeAllSensors = false, IReadOnlyCollection<OptiSensorCategory>? includedCategories = null)
     {
         foreach (var hardware in _computer.Hardware)
         {
@@ -31,8 +31,12 @@ internal sealed class LibreSensorReader : IDisposable
                 subHardware.Update();
         }
 
+        HashSet<OptiSensorCategory>? includedCategorySet = null;
+        if (includedCategories is not null)
+            includedCategorySet = includedCategories.Count == 0 ? [] : includedCategories.ToHashSet();
+
         var sensors = _computer.Hardware
-            .SelectMany(hardware => GetDetectedSensors(hardware, includeAllSensors))
+            .SelectMany(hardware => GetDetectedSensors(hardware, includeAllSensors, includedCategorySet))
             .Where(sensor => sensor.Value.HasValue)
             .ToArray();
 
@@ -44,19 +48,19 @@ internal sealed class LibreSensorReader : IDisposable
         _computer.Close();
     }
 
-    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware hardware, bool includeAllSensors)
+    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware hardware, bool includeAllSensors, HashSet<OptiSensorCategory>? includedCategories)
     {
-        foreach (var detectedSensor in GetDetectedSensors(hardware, hardware, includeAllSensors))
+        foreach (var detectedSensor in GetDetectedSensors(hardware, hardware, includeAllSensors, includedCategories))
             yield return detectedSensor;
 
         foreach (var subHardware in hardware.SubHardware)
         {
-            foreach (var detectedSensor in GetDetectedSensors(hardware, subHardware, includeAllSensors))
+            foreach (var detectedSensor in GetDetectedSensors(hardware, subHardware, includeAllSensors, includedCategories))
                 yield return detectedSensor;
         }
     }
 
-    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware rootHardware, IHardware sensorHardware, bool includeAllSensors)
+    private static IEnumerable<DetectedSensorInfo> GetDetectedSensors(IHardware rootHardware, IHardware sensorHardware, bool includeAllSensors, HashSet<OptiSensorCategory>? includedCategories)
     {
         foreach (var sensor in sensorHardware.Sensors)
         {
@@ -66,6 +70,9 @@ internal sealed class LibreSensorReader : IDisposable
 
             if (!isSupportedOverlaySensor)
                 SensorClassifier.DescribeForDisplay(rootHardware, sensor, out category, out unit);
+
+            if (includedCategories is not null && !includedCategories.Contains(category))
+                continue;
 
             yield return new DetectedSensorInfo(
                 SensorId: BuildSensorId(rootHardware, sensorHardware, sensor),

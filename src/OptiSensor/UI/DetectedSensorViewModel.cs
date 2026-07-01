@@ -22,7 +22,7 @@ internal sealed class DetectedSensorViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public DetectedSensorInfo Sensor { get; }
+    public DetectedSensorInfo Sensor { get; private set; }
     public string SensorId => Sensor.SensorId;
     public string Category => Sensor.Category.ToString();
     public string HardwareType => Sensor.HardwareType;
@@ -68,5 +68,17 @@ internal sealed class DetectedSensorViewModel : INotifyPropertyChanged
         {
             _suppressSelectionChanged = false;
         }
+    }
+
+    public void UpdateSensor(DetectedSensorInfo sensor)
+    {
+        Sensor = sensor;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Category)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HardwareType)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HardwareName)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SensorName)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SensorType)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Unit)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ValueText)));
     }
 }

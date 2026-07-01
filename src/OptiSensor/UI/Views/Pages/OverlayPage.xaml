@@ -44,40 +44,36 @@
 
             <Border Grid.Row="0" Style="{StaticResource FluentCardStyle}">
                 <DockPanel>
-                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
                         <TextBlock Text="Groups"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Foreground="#0F172A"/>
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#0F172A"/>
                         <TextBlock Text="Group order controls the | separated blocks."
-                                   Margin="0,4,0,0"
-                                   Foreground="#64748B"
-                                   TextWrapping="Wrap"/>
+                               Margin="0,4,0,0"
+                               Foreground="#64748B"
+                               TextWrapping="Wrap"/>
                     </StackPanel>
-
-                    <StackPanel DockPanel.Dock="Bottom"
-                                Orientation="Horizontal"
-                                Margin="0,12,0,0">
+                    <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Bottom"
+                            Margin="16,0,0,0">
                         <Button Content="Add"
-                                MinWidth="64"
-                                Margin="0,0,8,0"
-                                Style="{StaticResource AccentButtonStyle}"
-                                Click="AddGroupButton_Click"/>
-                        <Button Content="Up"
-                                MinWidth="58"
-                                Margin="0,0,8,0"
-                                Style="{StaticResource NeutralButtonStyle}"
-                                Click="MoveGroupUpButton_Click"/>
-                        <Button Content="Down"
-                                MinWidth="70"
-                                Margin="0,0,8,0"
-                                Style="{StaticResource NeutralButtonStyle}"
-                                Click="MoveGroupDownButton_Click"/>
+                            MinWidth="64"
+                            Margin="0,0,8,0"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Click="AddGroupButton_Click"/>
                         <Button Content="Remove"
-                                MinWidth="82"
-                                Style="{StaticResource DangerButtonStyle}"
-                                Click="RemoveGroupButton_Click"/>
+                            MinWidth="82"
+                            Style="{StaticResource DangerButtonStyle}"
+                            Click="RemoveGroupButton_Click"/>
                     </StackPanel>
+                    </Grid>
 
                     <ListBox x:Name="GroupsListBox"
                              ItemsSource="{Binding OverlayGroups}"

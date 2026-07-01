@@ -1,24 +1,34 @@
 using System.ComponentModel;
+using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
+using OptiSensor.Models;
+using OptiSensor.UI;
 
 namespace OptiSensor.UI.Views.Pages;
 
 public partial class SensorsPage : System.Windows.Controls.UserControl
 {
-    private readonly Dictionary<string, bool> _categoryExpandedStates = new(StringComparer.OrdinalIgnoreCase);
+    private MainWindowViewModel? _viewModel;
     private double? _savedVerticalOffset;
     private double? _savedHorizontalOffset;
+    private string? _savedSelectedSensorId;
+    private bool _isPointerDown;
 
     public SensorsPage()
     {
         InitializeComponent();
-        DataContextChanged += (_, _) => ApplyGrouping();
+        DataContextChanged += OnDataContextChanged;
+        DetectedSensorsDataGrid.PreviewMouseDown += (_, _) => _isPointerDown = true;
+        DetectedSensorsDataGrid.PreviewMouseUp += (_, _) => _isPointerDown = false;
+        DetectedSensorsDataGrid.MouseLeave += (_, _) => _isPointerDown = false;
     }
 
     internal DetectedSensorViewModel? SelectedDetectedSensor =>
         DetectedSensorsDataGrid.SelectedItem as DetectedSensorViewModel;
+
+    internal bool ShouldDeferRefresh => _isPointerDown || DetectedSensorsDataGrid.IsKeyboardFocusWithin;
 
     internal void CaptureScrollPosition()
     {
@@ -28,6 +38,7 @@ public partial class SensorsPage : System.Windows.Controls.UserControl
 
         _savedVerticalOffset = scrollViewer.VerticalOffset;
         _savedHorizontalOffset = scrollViewer.HorizontalOffset;
+        _savedSelectedSensorId = SelectedDetectedSensor?.SensorId;
     }
 
     internal void RestoreScrollPosition()
@@ -49,47 +60,51 @@ public partial class SensorsPage : System.Windows.Controls.UserControl
 
             if (targetHorizontalOffset is not null)
                 scrollViewer.ScrollToHorizontalOffset(Math.Min(targetHorizontalOffset.Value, scrollViewer.ScrollableWidth));
+
+            if (!string.IsNullOrWhiteSpace(_savedSelectedSensorId))
+            {
+                var item = DetectedSensorsDataGrid.Items
+                    .OfType<DetectedSensorViewModel>()
+                    .FirstOrDefault(sensor => string.Equals(sensor.SensorId, _savedSelectedSensorId, StringComparison.OrdinalIgnoreCase));
+                if (item is not null)
+                    DetectedSensorsDataGrid.SelectedItem = item;
+            }
         }, DispatcherPriority.Loaded);
     }
 
-    private void ApplyGrouping()
+    private void OnDataContextChanged(object? sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is MainWindowViewModel oldViewModel)
+        {
+            foreach (var filter in oldViewModel.SensorCategoryFilters)
+                filter.PropertyChanged -= OnCategoryFilterChanged;
+        }
+
+        _viewModel = DataContext as MainWindowViewModel;
+        if (_viewModel is not null)
+        {
+            foreach (var filter in _viewModel.SensorCategoryFilters)
+                filter.PropertyChanged += OnCategoryFilterChanged;
+        }
+
+        ApplyFilter();
+    }
+
+    private void OnCategoryFilterChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SensorCategoryFilterViewModel.IsChecked))
+            ApplyFilter();
+    }
+
+    private void ApplyFilter()
     {
         var view = CollectionViewSource.GetDefaultView(DetectedSensorsDataGrid.ItemsSource);
         if (view is null)
             return;
 
         view.GroupDescriptions.Clear();
-        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(DetectedSensorViewModel.Category)));
-    }
-
-    private void GroupItem_Loaded(object sender, System.Windows.RoutedEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.GroupItem groupItem)
-            return;
-
-        var groupName = GetGroupName(groupItem.DataContext);
-        if (groupName is null)
-            return;
-
-        var expander = FindDescendant<System.Windows.Controls.Expander>(groupItem);
-        if (expander is null)
-            return;
-
-        // Mark initialized group key so startup Expanded events from template creation are ignored.
-        expander.Tag = groupName;
-
-        if (_categoryExpandedStates.TryGetValue(groupName, out var isExpanded))
-            expander.IsExpanded = isExpanded;
-    }
-
-    private void GroupExpander_Expanded(object sender, System.Windows.RoutedEventArgs e)
-    {
-        UpdateGroupExpandedState(sender, isExpanded: true);
-    }
-
-    private void GroupExpander_Collapsed(object sender, System.Windows.RoutedEventArgs e)
-    {
-        UpdateGroupExpandedState(sender, isExpanded: false);
+        view.Filter = item => FilterDetectedSensor(item as DetectedSensorViewModel);
+        view.Refresh();
     }
 
     private System.Windows.Controls.ScrollViewer? FindDataGridScrollViewer()
@@ -114,25 +129,11 @@ public partial class SensorsPage : System.Windows.Controls.UserControl
         return null;
     }
 
-    private static string? GetGroupName(object? dataContext)
+    private bool FilterDetectedSensor(DetectedSensorViewModel? sensor)
     {
-        return dataContext is CollectionViewGroup group
-            ? group.Name?.ToString()
-            : null;
-    }
+        if (sensor is null)
+            return false;
 
-    private void UpdateGroupExpandedState(object sender, bool isExpanded)
-    {
-        if (sender is not System.Windows.Controls.Expander expander)
-            return;
-
-        // Ignore template initialization events that fire before GroupItem_Loaded wires the group key.
-        if (expander.Tag is not string groupName || string.IsNullOrWhiteSpace(groupName))
-            return;
-
-        if (string.IsNullOrWhiteSpace(groupName))
-            return;
-
-        _categoryExpandedStates[groupName] = isExpanded;
+        return _viewModel?.IsCategoryVisible(sensor.Sensor.Category) ?? true;
     }
 }

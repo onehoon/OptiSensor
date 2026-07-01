@@ -22,6 +22,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
         _settings = settings;
 
+        var categoryFilterSnapshot = _settings.GetSensorCategoryFilterSnapshot();
+        foreach (var category in Enum.GetValues<OptiSensorCategory>())
+        {
+            var filter = new SensorCategoryFilterViewModel(category, categoryFilterSnapshot[category]);
+            filter.PropertyChanged += SensorCategoryFilter_PropertyChanged;
+            SensorCategoryFilters.Add(filter);
+        }
+
         foreach (var group in _settings.GetOverlayGroupsSnapshot())
             OverlayGroups.Add(new OverlayGroupViewModel(group, SyncOverlayGroupsToSettings, MoveSensorToGroup));
 
@@ -38,6 +46,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ObservableCollection<DetectedSensorViewModel> DetectedSensors { get; } = [];
+    public ObservableCollection<SensorCategoryFilterViewModel> SensorCategoryFilters { get; } = [];
     public ObservableCollection<OverlayGroupViewModel> OverlayGroups { get; } = [];
     public ObservableCollection<SelectedOverlaySensorViewModel> SelectedSensors => SelectedOverlayGroup?.Sensors ?? _emptySelectedSensors;
 
@@ -95,15 +104,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         IsRefreshing = true;
         try
         {
-            var snapshot = await Task.Run(() => _sensorDiscoveryService.Discover()).ConfigureAwait(true);
+            var includedCategories = SensorCategoryFilters
+                .Where(filter => filter.IsChecked)
+                .Select(filter => filter.Category)
+                .ToArray();
 
-            DetectedSensors.Clear();
-            foreach (var sensor in snapshot.Sensors.OrderBy(sensor => sensor.Category).ThenBy(sensor => sensor.HardwareName).ThenBy(sensor => sensor.SensorName))
-            {
-                var viewModel = new DetectedSensorViewModel(sensor, ToggleDetectedSensorSelection);
-                viewModel.SetSelectedSilently(IsSensorSelectedInCurrentGroup(sensor.SensorId));
-                DetectedSensors.Add(viewModel);
-            }
+            var snapshot = await Task.Run(() => _sensorDiscoveryService.Discover(includedCategories)).ConfigureAwait(true);
+
+            SyncDetectedSensors(snapshot.Sensors);
 
             UpdateSelectedSensorAvailability(snapshot.Sensors);
             OnCountsChanged();
@@ -425,10 +433,77 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         return SelectedSensors.Any(sensor => string.Equals(sensor.SensorId, sensorId, StringComparison.OrdinalIgnoreCase));
     }
 
+    private void SensorCategoryFilter_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(SensorCategoryFilterViewModel.IsChecked))
+            return;
+
+        _settings.ReplaceSensorCategoryFilters(SensorCategoryFilters.Select(filter =>
+            new KeyValuePair<OptiSensorCategory, bool>(filter.Category, filter.IsChecked)));
+        _settings.Save();
+    }
+
     private void SyncDetectedSensorSelectionStates()
     {
         foreach (var detectedSensor in DetectedSensors)
             detectedSensor.SetSelectedSilently(IsSensorSelectedInCurrentGroup(detectedSensor.SensorId));
+    }
+
+    public bool IsCategoryVisible(OptiSensorCategory category)
+    {
+        var filter = SensorCategoryFilters.FirstOrDefault(item => item.Category == category);
+        return filter?.IsChecked ?? true;
+    }
+
+    private void SyncDetectedSensors(IReadOnlyCollection<DetectedSensorInfo> sensors)
+    {
+        var orderedSensors = sensors
+            .OrderBy(sensor => sensor.Category)
+            .ThenBy(sensor => sensor.HardwareName)
+            .ThenBy(sensor => sensor.SensorName)
+            .ToArray();
+
+        var existingById = DetectedSensors.ToDictionary(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase);
+        var target = new List<DetectedSensorViewModel>(orderedSensors.Length);
+
+        foreach (var sensor in orderedSensors)
+        {
+            if (existingById.TryGetValue(sensor.SensorId, out var viewModel))
+            {
+                viewModel.UpdateSensor(sensor);
+                existingById.Remove(sensor.SensorId);
+            }
+            else
+            {
+                viewModel = new DetectedSensorViewModel(sensor, ToggleDetectedSensorSelection);
+            }
+
+            viewModel.SetSelectedSilently(IsSensorSelectedInCurrentGroup(sensor.SensorId));
+            target.Add(viewModel);
+        }
+
+        foreach (var stale in existingById.Values.ToArray())
+            DetectedSensors.Remove(stale);
+
+        for (var index = 0; index < target.Count; index++)
+        {
+            var expected = target[index];
+            if (index < DetectedSensors.Count && ReferenceEquals(DetectedSensors[index], expected))
+                continue;
+
+            var currentIndex = DetectedSensors.IndexOf(expected);
+            if (currentIndex >= 0)
+            {
+                DetectedSensors.Move(currentIndex, index);
+            }
+            else
+            {
+                DetectedSensors.Insert(index, expected);
+            }
+        }
+
+        while (DetectedSensors.Count > target.Count)
+            DetectedSensors.RemoveAt(DetectedSensors.Count - 1);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

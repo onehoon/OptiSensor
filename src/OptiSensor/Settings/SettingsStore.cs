@@ -18,6 +18,7 @@ internal static class SettingsStore
             var settings = AppSettings.Deserialize(json);
             settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 10000);
             settings.ReplaceSelectedSensors(settings.SelectedSensors ?? []);
+            settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
             Save(settings);
             return settings;
         }
