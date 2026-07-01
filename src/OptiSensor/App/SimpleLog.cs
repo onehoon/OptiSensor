@@ -1,4 +1,6 @@
-namespace OptiSensor;
+using OptiSensor.Install;
+
+namespace OptiSensor.App;
 
 internal static class SimpleLog
 {

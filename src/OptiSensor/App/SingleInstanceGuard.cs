@@ -1,4 +1,4 @@
-namespace OptiSensor;
+namespace OptiSensor.App;
 
 internal sealed class SingleInstanceGuard : IDisposable
 {

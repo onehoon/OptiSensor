@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace OptiSensor;
+namespace OptiSensor.Install;
 
 internal static class AppPaths
 {

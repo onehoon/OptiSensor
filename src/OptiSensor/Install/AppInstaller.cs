@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using OptiSensor.App;
+using OptiSensor.Settings;
 
-namespace OptiSensor;
+namespace OptiSensor.Install;
 
 internal static class AppInstaller
 {
-    public static void Install(bool verbose)
+    public static bool Install(bool verbose)
     {
         if (verbose)
             Console.WriteLine($"Installing OptiSensor to: {AppPaths.InstallDirectory}");
@@ -14,8 +16,12 @@ internal static class AppInstaller
         Directory.CreateDirectory(AppPaths.InstallDirectory);
         AppPaths.EnsureDataDirectories();
 
-        if (!AppPaths.PathsEqual(AppPaths.CurrentExecutablePath, AppPaths.InstalledExecutablePath))
-            CopyCurrentExecutableToInstallPath(verbose);
+        if (!AppPaths.PathsEqual(AppPaths.CurrentExecutablePath, AppPaths.InstalledExecutablePath) &&
+            !CopyCurrentExecutableToInstallPath(verbose))
+        {
+            SimpleLog.TryWrite("Install failed because the executable could not be copied.");
+            return false;
+        }
 
         var settings = AppSettings.LoadOrCreate();
         if (settings.StartWithWindows)
@@ -33,6 +39,8 @@ internal static class AppInstaller
                 ? "OptiSensor startup entry registered."
                 : "OptiSensor startup entry not registered because startWithWindows is false.");
         }
+
+        return true;
     }
 
     public static void Uninstall()
@@ -55,10 +63,17 @@ internal static class AppInstaller
         if (AppPaths.IsRunningFromInstallDirectory())
             return false;
 
+        var installSucceeded = true;
         if (startup && !File.Exists(AppPaths.InstalledExecutablePath))
-            Install(verbose: false);
+            installSucceeded = Install(verbose: false);
         else if (!startup)
-            Install(verbose: true);
+            installSucceeded = Install(verbose: true);
+
+        if (!installSucceeded && !File.Exists(AppPaths.InstalledExecutablePath))
+            throw new InvalidOperationException("OptiSensor could not install itself and no installed executable is available.");
+
+        if (!installSucceeded)
+            SimpleLog.TryWrite("Launching the existing installed executable after install copy failed.");
 
         var arguments = startup ? "--startup" : "";
         if (!startup)
@@ -78,11 +93,12 @@ internal static class AppInstaller
         });
     }
 
-    private static void CopyCurrentExecutableToInstallPath(bool verbose)
+    private static bool CopyCurrentExecutableToInstallPath(bool verbose)
     {
         try
         {
             File.Copy(AppPaths.CurrentExecutablePath, AppPaths.InstalledExecutablePath, overwrite: true);
+            return true;
         }
         catch (IOException ex) when (File.Exists(AppPaths.InstalledExecutablePath))
         {
@@ -90,6 +106,8 @@ internal static class AppInstaller
             SimpleLog.TryWrite(message);
             if (verbose)
                 Console.WriteLine(message);
+
+            return false;
         }
     }
 

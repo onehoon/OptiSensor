@@ -1,7 +1,7 @@
 using DrawingSystemIcons = System.Drawing.SystemIcons;
 using Forms = System.Windows.Forms;
 
-namespace OptiSensor;
+namespace OptiSensor.UI;
 
 internal sealed class TrayIconService : IDisposable
 {

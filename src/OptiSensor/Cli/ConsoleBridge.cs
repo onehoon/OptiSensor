@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace OptiSensor;
+namespace OptiSensor.Cli;
 
 internal static class ConsoleBridge
 {

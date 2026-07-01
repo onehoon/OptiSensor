@@ -1,9 +1,18 @@
-namespace OptiSensor;
+using OptiSensor.App;
+
+namespace OptiSensor.Publishing;
 
 internal sealed class SensorPublishService : IDisposable
 {
+    private readonly SensorPublishRunner _runner;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _workerTask;
+    private bool _disposed;
+
+    public SensorPublishService(SensorPublishRunner runner)
+    {
+        _runner = runner;
+    }
 
     public bool IsRunning { get; private set; }
     public string? LastOverlayLine { get; private set; }
@@ -15,14 +24,13 @@ internal sealed class SensorPublishService : IDisposable
         if (IsRunning)
             return;
 
-        var interval = Math.Clamp(publishIntervalMs, 100, 10000);
         _cancellationTokenSource = new CancellationTokenSource();
         IsRunning = true;
         LastError = null;
         SimpleLog.TryWrite("Sensor publish service started.");
         OnStatusChanged();
 
-        _workerTask = Task.Run(() => RunLoop(interval, _cancellationTokenSource.Token));
+        _workerTask = Task.Run(() => RunLoop(publishIntervalMs, _cancellationTokenSource.Token));
     }
 
     public async Task StopAsync()
@@ -50,32 +58,21 @@ internal sealed class SensorPublishService : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
         StopAsync().GetAwaiter().GetResult();
         _cancellationTokenSource?.Dispose();
+        _runner.Dispose();
     }
 
     private async Task RunLoop(int publishIntervalMs, CancellationToken cancellationToken)
     {
         try
         {
-            using var sensorReader = new SensorReader();
-            using var publisher = new ExternalOverlayPublisher();
-
-            sensorReader.Open();
-            publisher.Open();
-
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var overlayLine = sensorReader.ReadOverlayLine();
-                if (overlayLine is not null)
-                    publisher.Publish(overlayLine);
-
-                LastOverlayLine = overlayLine;
-                LastError = null;
-                OnStatusChanged();
-
-                await Task.Delay(publishIntervalMs, cancellationToken).ConfigureAwait(false);
-            }
+            _runner.Open();
+            await _runner.RunLoopAsync(publishIntervalMs, OnPublished, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -91,6 +88,13 @@ internal sealed class SensorPublishService : IDisposable
             IsRunning = false;
             OnStatusChanged();
         }
+    }
+
+    private void OnPublished(string? overlayLine)
+    {
+        LastOverlayLine = overlayLine;
+        LastError = null;
+        OnStatusChanged();
     }
 
     private void OnStatusChanged()

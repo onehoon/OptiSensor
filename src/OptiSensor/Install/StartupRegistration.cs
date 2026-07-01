@@ -1,6 +1,6 @@
 using Microsoft.Win32;
 
-namespace OptiSensor;
+namespace OptiSensor.Install;
 
 internal static class StartupRegistration
 {

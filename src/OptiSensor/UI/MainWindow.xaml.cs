@@ -1,17 +1,23 @@
 using System.Diagnostics;
 using System.Windows;
+using OptiSensor.App;
+using OptiSensor.Install;
+using OptiSensor.Publishing;
+using OptiSensor.Settings;
 
-namespace OptiSensor;
+namespace OptiSensor.UI;
 
 public partial class MainWindow : Window
 {
+    private readonly ApplicationHost _host;
     private readonly SensorPublishService _publishService;
     private readonly AppSettings _settings;
 
-    internal MainWindow(SensorPublishService publishService, AppSettings settings)
+    internal MainWindow(ApplicationHost host, SensorPublishService publishService, AppSettings settings)
     {
         InitializeComponent();
 
+        _host = host;
         _publishService = publishService;
         _settings = settings;
         _publishService.StatusChanged += PublishService_StatusChanged;
@@ -21,7 +27,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (!App.CurrentApp.IsExitRequested)
+        if (!_host.IsExitRequested)
         {
             e.Cancel = true;
             Hide();
@@ -76,6 +82,6 @@ public partial class MainWindow : Window
 
     private void Exit_Click(object sender, RoutedEventArgs e)
     {
-        App.CurrentApp.RequestExit();
+        _host.RequestExit();
     }
 }

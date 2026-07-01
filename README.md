@@ -2,7 +2,7 @@
 
 OptiSensor is a lightweight Windows hardware sensor helper for OptiScaler's external overlay.
 
-It reads local GPU sensor values with LibreHardwareMonitor and publishes a compact overlay line through shared memory, so a patched OptiScaler build can append the values to its FPS-only overlay.
+It reads local hardware sensor values with LibreHardwareMonitor and publishes a compact overlay line through shared memory, so a patched OptiScaler build can append the values to its FPS-only overlay.
 
 Example overlay:
 
@@ -14,10 +14,24 @@ FPS 111 | GPU 44C | 115W | 62%
 
 This repository currently serves two purposes:
 
-- `OptiSensor.exe`: a minimal helper that reads GPU temperature, power, and load.
+- `OptiSensor.exe`: a WPF tray helper that currently publishes a default GPU temperature, power, and load overlay line.
 - OptiScaler package hub: a manual GitHub Actions workflow that applies the OptiScaler patch stack, builds `OptiScaler.dll`, publishes `OptiSensor.exe`, and creates a small release zip.
 
-Advanced helper features such as tray UI, sensor selection, autostart, PawnIO integration, and richer configuration are follow-up work.
+Sensor selection UI, display-name editing, PawnIO integration, automatic updates, and richer configuration are follow-up work.
+
+The helper source is organized under `src/OptiSensor` by role:
+
+```text
+App/         WPF startup coordination and single-instance lifetime
+Cli/         --once and --watch diagnostic commands
+Install/     LocalAppData install paths and HKCU Run registration
+Libre/       LibreHardwareMonitor reading and sensor classification
+Models/      Detected and selected sensor models
+Overlay/     Overlay line formatting and shared memory publishing
+Publishing/  Shared publish runner and background service
+Settings/    settings.json model and store
+UI/          Main window and tray icon lifecycle
+```
 
 ## Requirements
 

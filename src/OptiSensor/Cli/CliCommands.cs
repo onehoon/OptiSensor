@@ -1,13 +1,17 @@
-namespace OptiSensor;
+using OptiSensor.App;
+using OptiSensor.Publishing;
+using OptiSensor.Settings;
+
+namespace OptiSensor.Cli;
 
 internal static class CliCommands
 {
-    public static void RunOnce()
+    public static void RunOnce(Func<SensorPublishRunner> createRunner)
     {
-        RunSensorLoop(showConsoleUpdates: true, runOnce: true, publishIntervalMs: 1000);
+        RunSensorLoop(createRunner, showConsoleUpdates: true, runOnce: true, publishIntervalMs: 1000);
     }
 
-    public static void RunWatch()
+    public static void RunWatch(Func<SensorPublishRunner> createRunner)
     {
         using var guard = SingleInstanceGuard.TryAcquire();
         if (guard is null)
@@ -17,25 +21,23 @@ internal static class CliCommands
         }
 
         var settings = AppSettings.LoadOrCreate();
-        RunSensorLoop(showConsoleUpdates: true, runOnce: false, settings.ClampedPublishIntervalMs);
+        RunSensorLoop(createRunner, showConsoleUpdates: true, runOnce: false, settings.ClampedPublishIntervalMs);
     }
 
-    private static void RunSensorLoop(bool showConsoleUpdates, bool runOnce, int publishIntervalMs)
+    private static void RunSensorLoop(
+        Func<SensorPublishRunner> createRunner,
+        bool showConsoleUpdates,
+        bool runOnce,
+        int publishIntervalMs)
     {
-        using var sensorReader = new SensorReader();
-        using var publisher = new ExternalOverlayPublisher();
-
-        sensorReader.Open();
-        publisher.Open();
+        using var runner = createRunner();
+        runner.Open();
 
         var delay = TimeSpan.FromMilliseconds(Math.Clamp(publishIntervalMs, 100, 10000));
 
         while (true)
         {
-            var overlayLine = sensorReader.ReadOverlayLine();
-
-            if (overlayLine is not null)
-                publisher.Publish(overlayLine);
+            var overlayLine = runner.PublishOnce();
 
             if (showConsoleUpdates || runOnce)
             {
