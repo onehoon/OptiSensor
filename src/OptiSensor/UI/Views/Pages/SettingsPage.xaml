@@ -1,0 +1,113 @@
+<UserControl x:Class="OptiSensor.UI.Views.Pages.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <TextBlock Text="Settings"
+                       FontSize="28"
+                       FontWeight="SemiBold"
+                       Foreground="#0F172A"/>
+            <TextBlock Text="Startup, persistence, and helper lifecycle settings."
+                       Margin="0,6,0,20"
+                       Foreground="#64748B"/>
+
+            <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="Start with Windows"
+                               FontWeight="SemiBold"
+                               Foreground="#0F172A"/>
+                    <CheckBox x:Name="StartWithWindowsCheckBox"
+                              Grid.Column="1"
+                              Content="Register startup task"
+                              VerticalAlignment="Center"/>
+
+                    <TextBlock Grid.Row="1"
+                               Text="Publish interval"
+                               Margin="0,18,0,0"
+                               FontWeight="SemiBold"
+                               Foreground="#0F172A"/>
+                    <StackPanel Grid.Row="1"
+                                Grid.Column="1"
+                                Orientation="Horizontal"
+                                Margin="0,14,0,0">
+                        <TextBox x:Name="PublishIntervalTextBox"
+                                 Width="110"
+                                 Height="30"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock Text="ms"
+                                   Margin="8,5,0,0"
+                                   Foreground="#64748B"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2"
+                               Grid.ColumnSpan="2"
+                               Margin="0,18,0,0"
+                               Foreground="#64748B"
+                               TextWrapping="Wrap"
+                               Text="Sensor edits apply immediately for this session. Save persists them to settings.json. Publish interval changes are used on the next helper start."/>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Runtime"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#0F172A"/>
+                    <TextBlock x:Name="RuntimeTextBlock"
+                               Margin="0,10,0,0"
+                               Foreground="#334155"
+                               TextWrapping="Wrap"/>
+                    <TextBlock x:Name="SettingsStateTextBlock"
+                               Margin="0,8,0,0"
+                               Foreground="#64748B"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="About"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#0F172A"/>
+                    <TextBlock Text="OptiSensor publishes selected local hardware sensor values to OptiScaler's external overlay shared memory feed."
+                               Margin="0,10,0,0"
+                               Foreground="#334155"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Save"
+                        MinWidth="88"
+                        Margin="0,0,8,0"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Click="SaveButton_Click"/>
+                <Button Content="Open Settings Folder"
+                        MinWidth="150"
+                        Margin="0,0,8,0"
+                        Style="{StaticResource NeutralButtonStyle}"
+                        Click="OpenSettingsFolderButton_Click"/>
+                <Button Content="Hide to Tray"
+                        MinWidth="110"
+                        Margin="0,0,8,0"
+                        Style="{StaticResource NeutralButtonStyle}"
+                        Click="HideButton_Click"/>
+                <Button Content="Exit"
+                        MinWidth="88"
+                        Style="{StaticResource DangerButtonStyle}"
+                        Click="ExitButton_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

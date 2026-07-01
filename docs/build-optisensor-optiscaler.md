@@ -67,7 +67,6 @@ Inputs:
 | --- | --- |
 | `optiscaler_repo` | OptiScaler repository to clone, default `optiscaler/OptiScaler`. |
 | `optiscaler_ref` | Branch, tag, or commit SHA to build from. |
-| `package_name` | Output package base name. |
 | `release_tag` | GitHub Release tag used when release publishing is enabled. |
 | `prerelease` | Marks the GitHub Release as prerelease. |
 | `publish_release` | When `false`, only uploads a workflow artifact. When `true`, also uploads to GitHub Releases. |
@@ -88,10 +87,12 @@ The workflow:
 4. Finds and builds `OptiScaler.vcxproj`.
 5. Collects exactly one `OptiScaler.dll`.
 6. Collects `OptiScaler.ini`.
-7. Publishes the OptiSensor helper as a Windows x64 self-contained single-file executable.
+7. Publishes the OptiSensor helper as a Windows x64 framework-dependent single-file executable.
 8. Creates the final zip.
 9. Always uploads the zip as a workflow artifact.
 10. Uploads the zip to a GitHub Release only when `publish_release=true`.
+
+`OptiSensor.exe` is framework-dependent. It does not bundle the .NET runtime, so target machines must install the .NET 10 Desktop Runtime separately. Native helper libraries are bundled into the single executable.
 
 ## Test Build vs Release Build
 
@@ -113,16 +114,16 @@ This creates the same artifact and uploads it to the requested GitHub Release ta
 
 ## Package Naming
 
-The zip filename includes the package name, sanitized OptiScaler ref, and resolved OptiScaler commit:
+The zip filename includes the fixed `OptiSensor` package prefix, sanitized OptiScaler ref, and resolved OptiScaler commit:
 
 ```text
-<package_name>-<sanitized_optiscaler_ref>-<optiscaler_commit>.zip
+OptiSensor-<sanitized_optiscaler_ref>-<optiscaler_commit>.zip
 ```
 
 Example:
 
 ```text
-OptiSensor-OptiScaler-master-a1b2c3d4e5f6.zip
+OptiSensor-master-a1b2c3d4e5f6.zip
 ```
 
 ## Overlay Defaults

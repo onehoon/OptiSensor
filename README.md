@@ -62,18 +62,20 @@ Watch sensor output in the console:
 dotnet run --project .\src\OptiSensor\OptiSensor.csproj -- --watch
 ```
 
-Publish a self-contained Windows x64 executable:
+Publish a framework-dependent Windows x64 executable:
 
 ```powershell
 dotnet publish .\src\OptiSensor\OptiSensor.csproj `
   -c Release `
   -r win-x64 `
-  --self-contained true `
+  --self-contained false `
   -p:PublishSingleFile=true `
-  -p:PublishReadyToRun=true `
+  -p:PublishReadyToRun=false `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -o .\publish\win-x64
 ```
+
+The packaged helper expects the .NET 10 Desktop Runtime to be installed separately. Native helper libraries are still bundled into `OptiSensor.exe` so the package can keep a single helper executable.
 
 ## Startup
 

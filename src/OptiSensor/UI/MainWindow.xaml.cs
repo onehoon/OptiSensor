@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Windows;
-using System.Windows.Controls;
 using OptiSensor.App;
 using OptiSensor.Install;
 using OptiSensor.Publishing;
 using OptiSensor.Settings;
+using OptiSensor.UI.Views.Pages;
 
 namespace OptiSensor.UI;
 
@@ -14,6 +14,10 @@ public partial class MainWindow : Window
     private readonly SensorPublishService _publishService;
     private readonly AppSettings _settings;
     private readonly MainWindowViewModel _viewModel;
+    private readonly DashboardPage _dashboardPage;
+    private readonly SensorsPage _sensorsPage;
+    private readonly OverlayPage _overlayPage;
+    private readonly SettingsPage _settingsPage;
 
     internal MainWindow(ApplicationHost host, SensorPublishService publishService, AppSettings settings)
     {
@@ -23,12 +27,20 @@ public partial class MainWindow : Window
         _publishService = publishService;
         _settings = settings;
         _viewModel = new MainWindowViewModel(_settings);
-        DataContext = _viewModel;
+
+        _dashboardPage = new DashboardPage { DataContext = _viewModel };
+        _sensorsPage = new SensorsPage { DataContext = _viewModel };
+        _overlayPage = new OverlayPage { DataContext = _viewModel };
+        _settingsPage = new SettingsPage { DataContext = _viewModel };
+        _settingsPage.LoadSettings(_settings);
+
+        WirePageEvents();
 
         _publishService.StatusChanged += PublishService_StatusChanged;
         _viewModel.PropertyChanged += (_, _) => UpdateStatus();
 
         Loaded += async (_, _) => await RefreshDetectedSensorsAsync();
+        NavigateTo(_dashboardPage, DashboardNavButton);
         UpdateStatus();
     }
 
@@ -61,6 +73,21 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
+    private void WirePageEvents()
+    {
+        _sensorsPage.RefreshRequested += async (_, _) => await RefreshDetectedSensorsAsync();
+        _sensorsPage.AddRequested += (_, _) => AddSelectedSensor();
+
+        _overlayPage.MoveUpRequested += (_, _) => MoveSelectedSensorUp();
+        _overlayPage.MoveDownRequested += (_, _) => MoveSelectedSensorDown();
+        _overlayPage.RemoveRequested += (_, _) => RemoveSelectedSensor();
+
+        _settingsPage.SaveRequested += (_, _) => SaveSettings();
+        _settingsPage.OpenSettingsFolderRequested += (_, _) => OpenSettingsFolder();
+        _settingsPage.HideRequested += (_, _) => Hide();
+        _settingsPage.ExitRequested += (_, _) => _host.RequestExit();
+    }
+
     private void PublishService_StatusChanged(object? sender, EventArgs e)
     {
         Dispatcher.BeginInvoke(UpdateStatus);
@@ -68,101 +95,47 @@ public partial class MainWindow : Window
 
     private void UpdateStatus()
     {
-        if (_publishService.LastError is not null)
-            StatusTextBlock.Text = $"Error: {_publishService.LastError}";
-        else
-            StatusTextBlock.Text = _publishService.IsRunning ? "Running" : "Stopped";
-
-        LastOverlayTextBlock.Text = _publishService.LastOverlayLine ?? "No GPU sensor values available.";
-        StartupTextBlock.Text = $"Start with Windows: {(_settings.StartWithWindows ? "Enabled" : "Disabled")}";
-        PublishIntervalTextBlock.Text = $"Publish interval: {_settings.ClampedPublishIntervalMs} ms";
-        DetectedSensorCountTextBlock.Text = $"Detected sensors: {_viewModel.DetectedSensorCount}";
-        SelectedSensorCountTextBlock.Text = $"Selected sensors: {_viewModel.EnabledSelectedSensorCount} / {_viewModel.TotalSelectedSensorCount}";
-        SettingsStateTextBlock.Text = $"Settings: {_viewModel.SettingsStateText}";
-        RefreshSensorsButton.IsEnabled = !_viewModel.IsRefreshing;
+        var status = GetStatusText();
+        var lastOverlay = _publishService.LastOverlayLine ?? "No overlay line is currently published.";
+        var publishDetail =
+            $"Interval {_settings.ClampedPublishIntervalMs} ms · Detected {_viewModel.DetectedSensorCount} · Selected {_viewModel.EnabledSelectedSensorCount}/{_viewModel.TotalSelectedSensorCount}";
+        var settingsState = $"Settings: {_viewModel.SettingsStateText}";
+        var optiScalerStatus = _publishService.LastOverlayLine is null
+            ? "Waiting for publishable sensor values"
+            : "Shared memory feed active";
 
         if (_viewModel.IsRefreshing)
-            StatusTextBlock.Text = "Refreshing sensors...";
+            status = "Refreshing sensors...";
+
+        _dashboardPage.UpdateStatus(status, lastOverlay, publishDetail, settingsState, optiScalerStatus);
+        _overlayPage.UpdatePreview(lastOverlay);
+        _settingsPage.UpdateRuntime(_settings, _viewModel);
+        _sensorsPage.IsRefreshEnabled = !_viewModel.IsRefreshing;
     }
 
-    private async void RefreshDetectedSensors_Click(object sender, RoutedEventArgs e)
+    private string GetStatusText()
     {
-        await RefreshDetectedSensorsAsync();
+        if (_publishService.LastError is not null)
+            return $"Error: {_publishService.LastError}";
+
+        return _publishService.IsRunning ? "Running" : "Stopped";
     }
 
-    private void AddSelectedSensor_Click(object sender, RoutedEventArgs e)
+    private void NavigateTo(System.Windows.Controls.UserControl page, System.Windows.Controls.Button selectedButton)
     {
-        if (DetectedSensorsDataGrid.SelectedItem is not DetectedSensorViewModel detectedSensor)
-            return;
-
-        if (!_viewModel.AddDetectedSensor(detectedSensor))
-            System.Windows.MessageBox.Show("This sensor is already selected.", "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Information);
-
-        UpdateStatus();
+        PageContentControl.Content = page;
+        ResetNavButton(DashboardNavButton);
+        ResetNavButton(SensorsNavButton);
+        ResetNavButton(OverlayNavButton);
+        ResetNavButton(SettingsNavButton);
+        selectedButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(219, 234, 254));
+        selectedButton.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(30, 64, 175));
     }
 
-    private void RemoveSelectedSensor_Click(object sender, RoutedEventArgs e)
+    private static void ResetNavButton(System.Windows.Controls.Button button)
     {
-        if (SelectedSensorsDataGrid.SelectedItem is not SelectedOverlaySensorViewModel selectedSensor)
-            return;
-
-        _viewModel.RemoveSelectedSensor(selectedSensor);
-        UpdateStatus();
-    }
-
-    private void MoveSelectedSensorUp_Click(object sender, RoutedEventArgs e)
-    {
-        if (SelectedSensorsDataGrid.SelectedItem is not SelectedOverlaySensorViewModel selectedSensor)
-            return;
-
-        _viewModel.MoveSelectedSensorUp(selectedSensor);
-        SelectedSensorsDataGrid.SelectedItem = selectedSensor;
-        UpdateStatus();
-    }
-
-    private void MoveSelectedSensorDown_Click(object sender, RoutedEventArgs e)
-    {
-        if (SelectedSensorsDataGrid.SelectedItem is not SelectedOverlaySensorViewModel selectedSensor)
-            return;
-
-        _viewModel.MoveSelectedSensorDown(selectedSensor);
-        SelectedSensorsDataGrid.SelectedItem = selectedSensor;
-        UpdateStatus();
-    }
-
-    private void SaveSettings_Click(object sender, RoutedEventArgs e)
-    {
-        SelectedSensorsDataGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-        SelectedSensorsDataGrid.CommitEdit(DataGridEditingUnit.Row, true);
-
-        if (!_viewModel.TrySave(out var errorMessage))
-        {
-            System.Windows.MessageBox.Show(errorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        UpdateStatus();
-        System.Windows.MessageBox.Show("Settings saved.", "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Information);
-    }
-
-    private void HideToTray_Click(object sender, RoutedEventArgs e)
-    {
-        Hide();
-    }
-
-    private void OpenSettingsFolder_Click(object sender, RoutedEventArgs e)
-    {
-        AppPaths.EnsureDataDirectories();
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = AppPaths.DataDirectory,
-            UseShellExecute = true
-        });
-    }
-
-    private void Exit_Click(object sender, RoutedEventArgs e)
-    {
-        _host.RequestExit();
+        button.Background = System.Windows.Media.Brushes.Transparent;
+        button.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(51, 65, 85));
     }
 
     private async Task RefreshDetectedSensorsAsync()
@@ -176,5 +149,111 @@ public partial class MainWindow : Window
         {
             System.Windows.MessageBox.Show(ex.Message, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private void AddSelectedSensor()
+    {
+        if (_sensorsPage.SelectedDetectedSensor is not { } detectedSensor)
+            return;
+
+        if (!_viewModel.AddDetectedSensor(detectedSensor))
+            System.Windows.MessageBox.Show("This sensor is already selected.", "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Information);
+
+        UpdateStatus();
+    }
+
+    private void RemoveSelectedSensor()
+    {
+        if (_overlayPage.SelectedOverlaySensor is not { } selectedSensor)
+            return;
+
+        _viewModel.RemoveSelectedSensor(selectedSensor);
+        UpdateStatus();
+    }
+
+    private void MoveSelectedSensorUp()
+    {
+        if (_overlayPage.SelectedOverlaySensor is not { } selectedSensor)
+            return;
+
+        _viewModel.MoveSelectedSensorUp(selectedSensor);
+        _overlayPage.SelectOverlaySensor(selectedSensor);
+        UpdateStatus();
+    }
+
+    private void MoveSelectedSensorDown()
+    {
+        if (_overlayPage.SelectedOverlaySensor is not { } selectedSensor)
+            return;
+
+        _viewModel.MoveSelectedSensorDown(selectedSensor);
+        _overlayPage.SelectOverlaySensor(selectedSensor);
+        UpdateStatus();
+    }
+
+    private void SaveSettings()
+    {
+        _overlayPage.CommitEdits();
+
+        if (!_settingsPage.ApplySettingsEdits(_settings, out var settingsErrorMessage))
+        {
+            System.Windows.MessageBox.Show(settingsErrorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!_viewModel.TrySave(out var errorMessage))
+        {
+            System.Windows.MessageBox.Show(errorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var startupResult = _settings.StartWithWindows
+            ? StartupRegistration.Register()
+            : StartupRegistration.Unregister();
+
+        _settingsPage.LoadSettings(_settings);
+        UpdateStatus();
+
+        if (!startupResult.Success)
+        {
+            System.Windows.MessageBox.Show(
+                $"Settings saved, but startup registration failed.\n\n{startupResult.ErrorMessage}",
+                "OptiSensor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        System.Windows.MessageBox.Show("Settings saved.", "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private static void OpenSettingsFolder()
+    {
+        AppPaths.EnsureDataDirectories();
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = AppPaths.DataDirectory,
+            UseShellExecute = true
+        });
+    }
+
+    private void DashboardNavButton_Click(object sender, RoutedEventArgs e)
+    {
+        NavigateTo(_dashboardPage, DashboardNavButton);
+    }
+
+    private void SensorsNavButton_Click(object sender, RoutedEventArgs e)
+    {
+        NavigateTo(_sensorsPage, SensorsNavButton);
+    }
+
+    private void OverlayNavButton_Click(object sender, RoutedEventArgs e)
+    {
+        NavigateTo(_overlayPage, OverlayNavButton);
+    }
+
+    private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
+    {
+        NavigateTo(_settingsPage, SettingsNavButton);
     }
 }

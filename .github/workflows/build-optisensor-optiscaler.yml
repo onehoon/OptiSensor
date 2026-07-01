@@ -11,10 +11,6 @@ on:
         description: "OptiScaler branch, tag, or commit SHA"
         required: true
         default: "master"
-      package_name:
-        description: "Output package base name"
-        required: true
-        default: "OptiSensor-OptiScaler"
       release_tag:
         description: "GitHub Release tag to upload asset to"
         required: true
@@ -260,9 +256,9 @@ jobs:
           dotnet publish $csproj `
             -c Release `
             -r win-x64 `
-            --self-contained true `
+            --self-contained false `
             -p:PublishSingleFile=true `
-            -p:PublishReadyToRun=true `
+            -p:PublishReadyToRun=false `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=None `
             -p:DebugSymbols=false `
@@ -284,7 +280,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $ref = "${{ inputs.optiscaler_ref }}"
           $safeRef = $ref -replace '[\\/:*?"<>|]+', '-'
-          $baseName = "${{ inputs.package_name }}-$safeRef-$env:OPTISCALER_COMMIT"
+          $baseName = "OptiSensor-$safeRef-$env:OPTISCALER_COMMIT"
           $zipPath = Join-Path $env:GITHUB_WORKSPACE ".artifacts/dist/$baseName.zip"
 
           $requiredFiles = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor.exe")
