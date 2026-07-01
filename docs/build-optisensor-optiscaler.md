@@ -32,7 +32,7 @@ Use the helper script when the OptiScaler integration branch has new commits:
 .\scripts\import-optiscaler-patches.ps1 `
   -SourceRepo "onehoon/OptiScaler" `
   -SourceRef "optisensor-overlay" `
-  -BaseRef "main" `
+  -BaseRef "master" `
   -OutputDir "optiscaler/patches"
 ```
 
@@ -65,7 +65,7 @@ Inputs:
 
 | Input | Purpose |
 | --- | --- |
-| `optiscaler_repo` | OptiScaler repository to clone, for example `onehoon/OptiScaler`. |
+| `optiscaler_repo` | OptiScaler repository to clone, default `optiscaler/OptiScaler`. |
 | `optiscaler_ref` | Branch, tag, or commit SHA to build from. |
 | `package_name` | Output package base name. |
 | `release_tag` | GitHub Release tag used when release publishing is enabled. |
@@ -122,7 +122,7 @@ The zip filename includes the package name, sanitized OptiScaler ref, and resolv
 Example:
 
 ```text
-OptiSensor-OptiScaler-main-a1b2c3d4e5f6.zip
+OptiSensor-OptiScaler-master-a1b2c3d4e5f6.zip
 ```
 
 ## Overlay Defaults

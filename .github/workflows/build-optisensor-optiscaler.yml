@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       optiscaler_repo:
-        description: "OptiScaler repository to build from, e.g. onehoon/OptiScaler"
+        description: "OptiScaler repository to build from, e.g. optiscaler/OptiScaler"
         required: true
-        default: "onehoon/OptiScaler"
+        default: "optiscaler/OptiScaler"
       optiscaler_ref:
         description: "OptiScaler branch, tag, or commit SHA"
         required: true
-        default: "main"
+        default: "master"
       package_name:
         description: "Output package base name"
         required: true
@@ -114,11 +114,11 @@ jobs:
             git pull --ff-only origin $ref
           }
           else {
-            if ($ref -eq "main") {
+            if ($ref -eq "master" -or $ref -eq "main") {
               $defaultRemote = git symbolic-ref --short refs/remotes/origin/HEAD
               if ($LASTEXITCODE -eq 0 -and $defaultRemote) {
                 $defaultBranch = $defaultRemote -replace "^origin/", ""
-                Write-Host "Ref 'main' was not found. Falling back to remote default branch '$defaultBranch'."
+                Write-Host "Ref '$ref' was not found. Falling back to remote default branch '$defaultBranch'."
                 git checkout -B $defaultBranch $defaultRemote
                 git pull --ff-only origin $defaultBranch
               }

@@ -95,7 +95,7 @@ Use the patch import helper when the OptiScaler integration branch changes:
 .\scripts\import-optiscaler-patches.ps1 `
   -SourceRepo "onehoon/OptiScaler" `
   -SourceRef "optisensor-overlay" `
-  -BaseRef "main" `
+  -BaseRef "master" `
   -OutputDir "optiscaler/patches"
 ```
 
