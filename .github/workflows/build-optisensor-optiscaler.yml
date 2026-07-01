@@ -308,7 +308,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PACKAGE_FILE_NAME_WITHOUT_EXT }}
-          path: .artifacts/dist/*.zip
+          path: .artifacts/package/*
 
       - name: Upload to GitHub Release
         if: ${{ inputs.publish_release }}

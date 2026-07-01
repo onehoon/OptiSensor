@@ -99,9 +99,9 @@ The workflow:
 5. Collects exactly one `OptiScaler.dll`.
 6. Collects `OptiScaler.ini`.
 7. Publishes the OptiSensor helper as a Windows x64 framework-dependent single-file executable.
-8. Creates the final zip.
-9. Always uploads the zip as a workflow artifact.
-10. Uploads the zip to a GitHub Release only when `publish_release=true`.
+8. Creates the final release zip.
+9. Always uploads the package files as a workflow artifact.
+10. Uploads the release zip to a GitHub Release only when `publish_release=true`.
 
 `OptiSensor.exe` is framework-dependent. It does not bundle the .NET runtime, so target machines must install the .NET 10 Desktop Runtime separately. Native helper libraries are bundled into the single executable.
 
@@ -113,7 +113,7 @@ Test build:
 publish_release=false
 ```
 
-This creates the zip and uploads it as an Actions artifact only.
+This creates the release zip, but uploads the package files as an Actions artifact only. Downloading the artifact gives a GitHub-generated zip that contains `OptiScaler.dll`, `OptiScaler.ini`, and `OptiSensor.exe` directly.
 
 Release build:
 
@@ -121,7 +121,7 @@ Release build:
 publish_release=true
 ```
 
-This creates the same artifact and uploads it to an auto-generated GitHub Release tag.
+This creates the same workflow artifact and also uploads the release zip to an auto-generated GitHub Release tag.
 
 ## Package Naming
 
