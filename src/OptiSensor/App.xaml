@@ -158,12 +158,10 @@
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
             </Style>
 
-            <Style x:Key="FluentDataGridCheckBoxStyle" TargetType="CheckBox">
+            <Style x:Key="FluentDataGridCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
                 <Setter Property="HorizontalAlignment" Value="Center"/>
                 <Setter Property="VerticalAlignment" Value="Center"/>
-                <Setter Property="Width" Value="18"/>
-                <Setter Property="Height" Value="18"/>
-                <Setter Property="Foreground" Value="#2563EB"/>
+                <Setter Property="Margin" Value="0"/>
             </Style>
 
             <Style x:Key="ToggleSwitchStyle" TargetType="{x:Type ToggleButton}">
