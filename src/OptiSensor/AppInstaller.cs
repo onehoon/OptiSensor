@@ -15,7 +15,7 @@ internal static class AppInstaller
         AppPaths.EnsureDataDirectories();
 
         if (!AppPaths.PathsEqual(AppPaths.CurrentExecutablePath, AppPaths.InstalledExecutablePath))
-            File.Copy(AppPaths.CurrentExecutablePath, AppPaths.InstalledExecutablePath, overwrite: true);
+            CopyCurrentExecutableToInstallPath(verbose);
 
         var settings = AppSettings.LoadOrCreate();
         if (settings.StartWithWindows)
@@ -76,6 +76,21 @@ internal static class AppInstaller
             Arguments = arguments,
             UseShellExecute = false
         });
+    }
+
+    private static void CopyCurrentExecutableToInstallPath(bool verbose)
+    {
+        try
+        {
+            File.Copy(AppPaths.CurrentExecutablePath, AppPaths.InstalledExecutablePath, overwrite: true);
+        }
+        catch (IOException ex) when (File.Exists(AppPaths.InstalledExecutablePath))
+        {
+            var message = $"Could not update installed executable because it is currently in use: {ex.Message}";
+            SimpleLog.TryWrite(message);
+            if (verbose)
+                Console.WriteLine(message);
+        }
     }
 
     private static void TryDeleteInstalledExecutable()

@@ -1,6 +1,8 @@
 # OptiSensor Helper Installation
 
-OptiSensor is packaged as a single `OptiSensor.exe`. When it is run normally from a downloaded zip or any temporary folder, it installs itself into the current user's LocalAppData folder and relaunches from the installed path.
+OptiSensor is a WPF tray helper packaged as a single `OptiSensor.exe`. When it is run normally from a downloaded zip or any temporary folder, it installs itself into the current user's LocalAppData folder and relaunches from the installed path.
+
+The app uses the default Windows WPF theme and standard controls. There is no custom theme, dark theme, or third-party UI framework.
 
 ## Paths
 
@@ -55,7 +57,11 @@ Normal run:
 .\OptiSensor.exe
 ```
 
-Installs to LocalAppData when needed, launches the installed executable, then exits the original process. If already running from the installed path, it starts the helper publish loop.
+Installs to LocalAppData when needed, launches the installed executable, then exits the original process. If already running from the installed path, it starts the background sensor publish service, shows the tray icon, and displays the main window.
+
+Closing the main window with the X button does not exit OptiSensor. It hides the window to the tray while sensor publishing continues. Minimizing the window also hides it to the tray.
+
+To exit the app, use the tray menu `Exit` command or the main window `Exit` button. The tray menu also includes `Show`, which restores and activates the main window.
 
 Install:
 
@@ -79,7 +85,7 @@ Startup:
 .\OptiSensor.exe --startup
 ```
 
-Used by the Windows startup entry. If launched from another path, it redirects to the installed executable. It then starts the helper publish loop unless another instance is already running.
+Used by the Windows startup entry. If launched from another path, it redirects to the installed executable. It then starts the tray icon and background sensor publish service without showing the main window. If another instance is already running, startup mode exits quietly and writes to the log.
 
 Once:
 
@@ -87,7 +93,7 @@ Once:
 .\OptiSensor.exe --once
 ```
 
-Runs one sensor read/publish cycle from the current path and exits. This command does not self-install.
+Diagnostic command. Runs one sensor read/publish cycle from the current path and exits. This command does not self-install and does not show the WPF window or tray icon.
 
 Watch:
 
@@ -95,7 +101,7 @@ Watch:
 .\OptiSensor.exe --watch
 ```
 
-Runs the sensor publish loop from the current path and prints the current overlay line to the console. This command does not self-install. It may create or load `%LocalAppData%\OptiSensor\settings.json` so it can use `publishIntervalMs`.
+Diagnostic command. Runs the sensor publish loop from the current path and prints the current overlay line to the console when a console is available. This command does not self-install and does not show the WPF window or tray icon. It may create or load `%LocalAppData%\OptiSensor\settings.json` so it can use `publishIntervalMs`.
 
 ## settings.json
 
@@ -111,6 +117,6 @@ Default settings:
 
 `publishIntervalMs` is clamped to the range `100` to `10000`.
 
-`startMinimized` is reserved for the future tray/UI implementation. The current MVP is still a console helper, so this value does not hide the console window yet.
+`startMinimized` is used by the tray lifecycle policy. Startup mode runs without showing the main window; normal interactive launch still shows the main window.
 
 There is no settings UI yet. Users may edit `settings.json` manually. If the file contains invalid JSON, OptiSensor backs it up as `settings.json.bad.<timestamp>` and recreates defaults.
