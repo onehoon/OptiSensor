@@ -17,6 +17,7 @@ public partial class OverlayPage : System.Windows.Controls.UserControl
     public event EventHandler? MoveGroupUpRequested;
     public event EventHandler? MoveGroupDownRequested;
     public event EventHandler? RemoveGroupRequested;
+    public event EventHandler? SaveRequested;
 
     internal SelectedOverlaySensorViewModel? SelectedOverlaySensor =>
         SelectedSensorsDataGrid.SelectedItem as SelectedOverlaySensorViewModel;
@@ -73,5 +74,10 @@ public partial class OverlayPage : System.Windows.Controls.UserControl
     private void RemoveGroupButton_Click(object sender, RoutedEventArgs e)
     {
         RemoveGroupRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        SaveRequested?.Invoke(this, EventArgs.Empty);
     }
 }

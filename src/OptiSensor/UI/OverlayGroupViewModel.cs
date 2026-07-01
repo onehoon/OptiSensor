@@ -12,7 +12,10 @@ internal sealed class OverlayGroupViewModel : INotifyPropertyChanged
     private int _order;
     private bool _enabled;
 
-    public OverlayGroupViewModel(OverlayGroup group, Action changed)
+    public OverlayGroupViewModel(
+        OverlayGroup group,
+        Action changed,
+        Func<SelectedOverlaySensorViewModel, string, bool>? moveSensorToGroup = null)
     {
         _changed = changed;
         Id = group.Id;
@@ -21,7 +24,7 @@ internal sealed class OverlayGroupViewModel : INotifyPropertyChanged
         _enabled = group.Enabled;
 
         foreach (var sensor in group.Sensors.OrderBy(sensor => sensor.Order))
-            Sensors.Add(new SelectedOverlaySensorViewModel(sensor, changed));
+            Sensors.Add(new SelectedOverlaySensorViewModel(sensor, group.Id, changed, moveSensorToGroup));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

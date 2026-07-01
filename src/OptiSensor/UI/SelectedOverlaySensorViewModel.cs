@@ -9,17 +9,24 @@ namespace OptiSensor.UI;
 internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
 {
     private readonly Action _changed;
+    private readonly Func<SelectedOverlaySensorViewModel, string, bool>? _moveToGroup;
     private bool _enabled;
     private int _order;
     private string _displayName;
     private string _format;
+    private string _groupId;
     private bool _isAvailable;
     private bool _hasPossibleMatch;
     private string _currentValueText = "Not found";
 
-    public SelectedOverlaySensorViewModel(SelectedOverlaySensor sensor, Action changed)
+    public SelectedOverlaySensorViewModel(
+        SelectedOverlaySensor sensor,
+        string groupId,
+        Action changed,
+        Func<SelectedOverlaySensorViewModel, string, bool>? moveToGroup = null)
     {
         _changed = changed;
+        _moveToGroup = moveToGroup;
         SensorId = sensor.SensorId;
         HardwareType = sensor.HardwareType;
         HardwareName = sensor.HardwareName;
@@ -31,6 +38,7 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
         _order = sensor.Order;
         _displayName = sensor.DisplayName;
         _format = sensor.Format;
+        _groupId = groupId;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -43,6 +51,27 @@ internal sealed class SelectedOverlaySensorViewModel : INotifyPropertyChanged
     public OptiSensorCategory Category { get; }
     public string Unit { get; }
     public string AvailabilityText => IsAvailable ? "Yes" : HasPossibleMatch ? "Possible match (not used)" : "No";
+
+    public string GroupId
+    {
+        get => _groupId;
+        set
+        {
+            if (string.Equals(_groupId, value, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (string.IsNullOrWhiteSpace(value))
+                return;
+
+            if (_moveToGroup is null || _moveToGroup(this, value))
+                SetField(ref _groupId, value, markChanged: false);
+        }
+    }
+
+    public void SetGroupSilently(string groupId)
+    {
+        SetField(ref _groupId, groupId, markChanged: false, propertyName: nameof(GroupId));
+    }
 
     public bool Enabled
     {

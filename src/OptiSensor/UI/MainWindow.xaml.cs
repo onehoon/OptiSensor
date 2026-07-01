@@ -91,6 +91,7 @@ public partial class MainWindow : Window
         _overlayPage.MoveGroupUpRequested += (_, _) => MoveOverlayGroupUp();
         _overlayPage.MoveGroupDownRequested += (_, _) => MoveOverlayGroupDown();
         _overlayPage.RemoveGroupRequested += (_, _) => RemoveOverlayGroup();
+        _overlayPage.SaveRequested += (_, _) => SaveSettings();
 
         _settingsPage.SaveRequested += (_, _) => SaveSettings();
         _settingsPage.OpenSettingsFolderRequested += (_, _) => OpenSettingsFolder();
@@ -106,7 +107,7 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         var status = GetStatusText();
-        var lastOverlay = _publishService.LastOverlayLine ?? "No overlay line is currently published.";
+        var lastOverlay = _viewModel.GetOverlayPreviewText();
         var publishDetail =
             $"Interval {_settings.ClampedPublishIntervalMs} ms · Detected {_viewModel.DetectedSensorCount} · Selected {_viewModel.EnabledSelectedSensorCount}/{_viewModel.TotalSelectedSensorCount}";
         var settingsState = $"Settings: {_viewModel.SettingsStateText}";
@@ -150,7 +151,9 @@ public partial class MainWindow : Window
 
         try
         {
+            _sensorsPage.CaptureScrollPosition();
             await _viewModel.RefreshDetectedSensorsAsync();
+            _sensorsPage.RestoreScrollPosition();
             UpdateStatus();
         }
         catch (Exception ex)

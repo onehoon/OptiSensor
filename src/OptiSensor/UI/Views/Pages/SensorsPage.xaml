@@ -33,10 +33,13 @@
                     <GroupStyle>
                         <GroupStyle.ContainerStyle>
                             <Style TargetType="{x:Type GroupItem}">
+                                <EventSetter Event="Loaded" Handler="GroupItem_Loaded"/>
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="{x:Type GroupItem}">
                                             <Expander IsExpanded="True"
+                                                      Expanded="GroupExpander_Expanded"
+                                                      Collapsed="GroupExpander_Collapsed"
                                                       Margin="0,0,0,8"
                                                       Background="#F8FAFC"
                                                       BorderBrush="#E2E8F0"
