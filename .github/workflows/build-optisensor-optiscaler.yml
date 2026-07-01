@@ -1,0 +1,311 @@
+name: Build OptiSensor OptiScaler Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      optiscaler_repo:
+        description: "OptiScaler repository to build from, e.g. onehoon/OptiScaler"
+        required: true
+        default: "onehoon/OptiScaler"
+      optiscaler_ref:
+        description: "OptiScaler branch, tag, or commit SHA"
+        required: true
+        default: "main"
+      package_name:
+        description: "Output package base name"
+        required: true
+        default: "OptiSensor-OptiScaler"
+      release_tag:
+        description: "GitHub Release tag to upload asset to"
+        required: true
+        default: "optisensor-optiscaler-test"
+      prerelease:
+        description: "Mark GitHub Release as prerelease"
+        required: true
+        type: boolean
+        default: true
+      publish_release:
+        description: "Upload package to GitHub Release"
+        required: true
+        type: boolean
+        default: false
+      optiscaler_configuration:
+        description: "OptiScaler build configuration"
+        required: true
+        default: "Release"
+      optiscaler_platform:
+        description: "OptiScaler build platform"
+        required: true
+        default: "x64"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout OptiSensor
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Prepare workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path ".work", ".artifacts/package", ".artifacts/dist" | Out-Null
+
+      - name: Sanity check patch stack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $patchDir = Join-Path $env:GITHUB_WORKSPACE "optiscaler/patches"
+          $patches = Get-ChildItem $patchDir -Filter "*.patch" | Sort-Object Name
+          if ($patches.Count -eq 0) {
+            throw "No OptiScaler patches found in optiscaler/patches."
+          }
+
+          $patchText = ($patches | ForEach-Object { Get-Content $_.FullName -Raw }) -join "`n"
+          if ($patchText -notmatch "FpsOverlayType|FpsOverlay_FpsOnly") {
+            throw "Patch stack does not appear to modify FpsOverlayType/FPS Only."
+          }
+          if ($patchText -notmatch "AppendExternalOverlayText") {
+            throw "Patch stack does not appear to include AppendExternalOverlayText."
+          }
+          if ($patchText -notmatch "ShowFps") {
+            throw "Patch stack does not appear to include ShowFps."
+          }
+
+          Write-Host "Patch stack:"
+          $patches | ForEach-Object { Write-Host " - $($_.Name)" }
+
+      - name: Clone and checkout OptiScaler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repo = "${{ inputs.optiscaler_repo }}"
+          $ref = "${{ inputs.optiscaler_ref }}"
+          $repoUrl = "https://github.com/$repo.git"
+          $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
+
+          git clone $repoUrl $cloneDir
+          Set-Location $cloneDir
+          git fetch origin --tags --prune
+
+          git ls-remote --exit-code --heads origin $ref | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            git checkout -B $ref "origin/$ref"
+            git pull --ff-only origin $ref
+          }
+          else {
+            if ($ref -eq "main") {
+              $defaultRemote = git symbolic-ref --short refs/remotes/origin/HEAD
+              if ($LASTEXITCODE -eq 0 -and $defaultRemote) {
+                $defaultBranch = $defaultRemote -replace "^origin/", ""
+                Write-Host "Ref 'main' was not found. Falling back to remote default branch '$defaultBranch'."
+                git checkout -B $defaultBranch $defaultRemote
+                git pull --ff-only origin $defaultBranch
+              }
+              else {
+                git checkout $ref
+              }
+            }
+            else {
+              git checkout $ref
+            }
+          }
+
+          git submodule update --init --recursive
+
+          $commit = git rev-parse --short=12 HEAD
+          $fullCommit = git rev-parse HEAD
+          "OPTISCALER_COMMIT=$commit" >> $env:GITHUB_ENV
+          "OPTISCALER_FULL_COMMIT=$fullCommit" >> $env:GITHUB_ENV
+          Write-Host "OptiScaler commit: $fullCommit"
+
+      - name: Apply OptiScaler patches
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
+          Set-Location $cloneDir
+
+          $patches = Get-ChildItem "$env:GITHUB_WORKSPACE/optiscaler/patches" -Filter "*.patch" | Sort-Object Name
+          if ($patches.Count -eq 0) {
+            throw "No patches found. Patch stack is required."
+          }
+
+          foreach ($patch in $patches) {
+            Write-Host "Applying $($patch.Name)"
+            git am $patch.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Patch failed: $($patch.FullName)"
+            }
+          }
+
+          git log --oneline -10
+
+      - name: Build OptiScaler.vcxproj
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vcxproj = Get-ChildItem "$env:GITHUB_WORKSPACE/.work/OptiScaler" -Recurse -Filter "OptiScaler.vcxproj" | Select-Object -First 1
+          if (-not $vcxproj) {
+            throw "OptiScaler.vcxproj not found"
+          }
+
+          "OPTISCALER_VCXPROJ=$($vcxproj.FullName)" >> $env:GITHUB_ENV
+          Write-Host "Building $($vcxproj.FullName)"
+
+          msbuild $vcxproj.FullName `
+            /m `
+            /p:Configuration=${{ inputs.optiscaler_configuration }} `
+            /p:Platform=${{ inputs.optiscaler_platform }} `
+            /p:SolutionDir="$env:GITHUB_WORKSPACE\.work\OptiScaler\" `
+            /p:PostBuildEventUseInBuild=false
+
+      - name: Collect OptiScaler outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
+          $packageDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/package"
+
+          $dll = Get-ChildItem $cloneDir -Recurse -Filter "OptiScaler.dll" |
+            Where-Object { $_.FullName -match "\\x64\\" -or $_.FullName -match "\\Release\\" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $dll) {
+            throw "OptiScaler.dll not found after build"
+          }
+
+          $ini = Get-ChildItem $cloneDir -Recurse -Filter "OptiScaler.ini" |
+            Sort-Object { $_.FullName.Length } |
+            Select-Object -First 1
+          if (-not $ini) {
+            $fallbackIni = Join-Path $env:GITHUB_WORKSPACE "optiscaler/OptiScaler.ini"
+            if (Test-Path $fallbackIni) {
+              $ini = Get-Item $fallbackIni
+            }
+            else {
+              throw "OptiScaler.ini not found after patching and no fallback template exists"
+            }
+          }
+
+          Copy-Item $dll.FullName (Join-Path $packageDir "OptiScaler.dll") -Force
+          Copy-Item $ini.FullName (Join-Path $packageDir "OptiScaler.ini") -Force
+
+          "OPTISCALER_DLL=$($dll.FullName)" >> $env:GITHUB_ENV
+          "OPTISCALER_INI=$($ini.FullName)" >> $env:GITHUB_ENV
+          Write-Host "Collected DLL: $($dll.FullName)"
+          Write-Host "Collected INI: $($ini.FullName)"
+
+      - name: Publish OptiSensor helper
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $csproj = Get-ChildItem $env:GITHUB_WORKSPACE -Recurse -Filter "OptiSensor.csproj" |
+            Where-Object { $_.FullName -notmatch "\\.work\\" -and $_.FullName -notmatch "\\.artifacts\\" } |
+            Select-Object -First 1
+          if (-not $csproj) {
+            throw "OptiSensor.csproj not found"
+          }
+
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/optisensor-publish"
+          dotnet publish $csproj.FullName `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:PublishReadyToRun=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o $publishDir
+
+          $exe = Join-Path $publishDir "OptiSensor.exe"
+          if (-not (Test-Path $exe)) {
+            throw "OptiSensor.exe not found after publish"
+          }
+
+          Copy-Item $exe (Join-Path $env:GITHUB_WORKSPACE ".artifacts/package/OptiSensor.exe") -Force
+          "OPTISENSOR_CSPROJ=$($csproj.FullName)" >> $env:GITHUB_ENV
+          "OPTISENSOR_EXE=$exe" >> $env:GITHUB_ENV
+          Write-Host "Published helper: $exe"
+
+      - name: Create package zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ref = "${{ inputs.optiscaler_ref }}"
+          $safeRef = $ref -replace '[\\/:*?"<>|]+', '-'
+          $baseName = "${{ inputs.package_name }}-$safeRef-$env:OPTISCALER_COMMIT"
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE ".artifacts/dist/$baseName.zip"
+
+          $requiredFiles = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor.exe")
+          foreach ($file in $requiredFiles) {
+            $path = Join-Path $env:GITHUB_WORKSPACE ".artifacts/package/$file"
+            if (-not (Test-Path $path)) {
+              throw "Package file missing: $file"
+            }
+          }
+
+          Compress-Archive -Path "$env:GITHUB_WORKSPACE/.artifacts/package/*" -DestinationPath $zipPath -Force
+
+          "PACKAGE_FILE_NAME_WITHOUT_EXT=$baseName" >> $env:GITHUB_ENV
+          "PACKAGE_FILE_NAME=$baseName.zip" >> $env:GITHUB_ENV
+          "PACKAGE_ZIP=$zipPath" >> $env:GITHUB_ENV
+          Write-Host "Package: $zipPath"
+
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $entries = [System.IO.Compression.ZipFile]::OpenRead($env:PACKAGE_ZIP).Entries | ForEach-Object { $_.FullName } | Sort-Object
+          $entries | ForEach-Object { Write-Host " - $_" }
+          $expected = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor.exe")
+          $unexpected = @($entries | Where-Object { $expected -notcontains $_ })
+          foreach ($file in $expected) {
+            if ($entries -notcontains $file) {
+              throw "Expected package entry missing: $file"
+            }
+          }
+          if ($unexpected.Count -gt 0) {
+            throw "Unexpected package entries: $($unexpected -join ', ')"
+          }
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_FILE_NAME_WITHOUT_EXT }}
+          path: .artifacts/dist/*.zip
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.publish_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          prerelease: ${{ inputs.prerelease }}
+          files: .artifacts/dist/*.zip
+          body: |
+            OptiSensor + patched OptiScaler package
+
+            OptiScaler source:
+            - Repository: ${{ inputs.optiscaler_repo }}
+            - Ref: ${{ inputs.optiscaler_ref }}
+            - Commit: ${{ env.OPTISCALER_FULL_COMMIT }}
+
+            Package:
+            - ${{ env.PACKAGE_FILE_NAME }}
+
+            Notes:
+            - This package contains only OptiScaler.dll, OptiScaler.ini, and OptiSensor.exe.
+            - OptiScaler was patched using the patch stack stored in this OptiSensor repository.

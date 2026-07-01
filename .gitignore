@@ -1,6 +1,9 @@
 bin/
 obj/
 publish/
+.artifacts/
+.tmp/
+.work/
 
 *.user
 *.suo

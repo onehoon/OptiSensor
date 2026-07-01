@@ -1,0 +1,476 @@
+From 63f317d65b41ad111377608f15dc38c9f4e48540 Mon Sep 17 00:00:00 2001
+From: onehoon <onehoon@gmail.com>
+Date: Wed, 1 Jul 2026 10:32:29 +0900
+Subject: [PATCH] OptiSensor overlay integration
+
+---
+ OptiScaler.ini                          |  12 ++-
+ OptiScaler/Config.cpp                   |  11 ++
+ OptiScaler/Config.h                     |   6 +-
+ OptiScaler/OptiScaler.vcxproj           |   4 +-
+ OptiScaler/OptiScaler.vcxproj.filters   |   8 +-
+ OptiScaler/menu/menu_common.cpp         |  51 ++++++++--
+ OptiScaler/misc/ExternalOverlayFeed.cpp | 128 ++++++++++++++++++++++++
+ OptiScaler/misc/ExternalOverlayFeed.h   |  11 ++
+ 8 files changed, 214 insertions(+), 17 deletions(-)
+ create mode 100644 OptiScaler/misc/ExternalOverlayFeed.cpp
+ create mode 100644 OptiScaler/misc/ExternalOverlayFeed.h
+
+diff --git a/OptiScaler.ini b/OptiScaler.ini
+index ce61bf74..a894a8c6 100644
+--- a/OptiScaler.ini
++++ b/OptiScaler.ini
+@@ -809,7 +809,7 @@ DisableSplash=auto
+ 
+ ; Enables FPS overlay
+ ; true or false - Default (auto) is false
+-ShowFps=auto
++ShowFps=true
+ 
+ ; In-game FPS Overlay scale
+ ; 0.5 to 2.0 - Default (auto) is using the same scale as menu
+@@ -823,7 +823,7 @@ FpsOverlayPos=auto
+ ; FPS overlay type
+ ; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 Full | 5 Full + Graph | 6 Reflex timings
+ ; 0 to 6 - Default (auto) is 0
+-FpsOverlayType=auto
++FpsOverlayType=7
+ 
+ ; Shortcut key for FPS overlay
+ ; https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+@@ -1525,3 +1525,11 @@ OutputResourceBarrier=auto
+ ; 
+ ; All state values can be checked from here
+ ; https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_states
++
++
++; -------------------------------------------------------
++[ExternalOverlay]
++; -------------------------------------------------------
++; Append text published by OptiSensor to the FPS Only overlay
++; true or false - Default (auto) is true
++AppendExternalOverlayText=true
+diff --git a/OptiScaler/Config.cpp b/OptiScaler/Config.cpp
+index 896b9423..b10fba23 100644
+--- a/OptiScaler/Config.cpp
++++ b/OptiScaler/Config.cpp
+@@ -460,6 +460,11 @@ bool Config::Reload(std::filesystem::path iniPath)
+             if (auto setting = readFloat("Menu", "FpsScale"); setting.has_value())
+                 FpsScale.set_from_config(std::clamp(setting.value(), 0.5f, 2.0f));
+ 
++            auto appendExternalOverlayText = readBool("ExternalOverlay", "AppendExternalOverlayText");
++            if (!appendExternalOverlayText.has_value())
++                appendExternalOverlayText = readBool("ExternalOverlay", "Enabled");
++            AppendExternalOverlayText.set_from_config(appendExternalOverlayText);
++
+             FontSize.set_from_config(readFloat("Menu", "FontSize"));
+             TTFFontPath.set_from_config(readWString("Menu", "TTFFontPath"));
+ 
+@@ -1251,6 +1256,12 @@ bool Config::SaveIni()
+         ini.SetValue("Menu", "BGColorA", GetFloatValue(Instance()->MenuBGColorA.value_for_config()).c_str());
+     }
+ 
++    // ExternalOverlay
++    {
++        ini.SetValue("ExternalOverlay", "AppendExternalOverlayText",
++                     GetBoolValue(Instance()->AppendExternalOverlayText.value_for_config()).c_str());
++    }
++
+     // Hooks
+     {
+         ini.SetValue("Hooks", "HookOriginalNvngxOnly",
+diff --git a/OptiScaler/Config.h b/OptiScaler/Config.h
+index 220dee33..fdaa4cad 100644
+--- a/OptiScaler/Config.h
++++ b/OptiScaler/Config.h
+@@ -156,6 +156,7 @@ enum FpsOverlay : uint32_t
+     FpsOverlay_Full,
+     FpsOverlay_FullGraph,
+     FpsOverlay_ReflexTimings,
++    FpsOverlay_FpsOnly,
+     FpsOverlay_COUNT,
+ };
+ 
+@@ -321,18 +322,19 @@ class Config
+     CustomOptional<bool> OverlayMenu { true };
+     CustomOptional<int> ShortcutKey { VK_INSERT };
+     CustomOptional<bool> ExtendedLimits { false };
+-    CustomOptional<bool> ShowFps { false };
++    CustomOptional<bool> ShowFps { true };
+     /// 0 Top Left, 1 Top Right, 2 Bottom Left, 3 Bottom Right
+     CustomOptional<int> FpsOverlayPos { 0 };
+     /// 0 Only FPS, 1 +Avg FPS & Upscaler info 2 +Frame Time,
+     /// 3 +Upscaler Time, 4 +Frame Time Graph, 5 +Upscaler Time Graph
+     /// 6 +Reflex timings
+-    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_JustFPS };
++    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_FpsOnly };
+     CustomOptional<int> FpsShortcutKey { VK_PRIOR };
+     CustomOptional<int> FpsCycleShortcutKey { VK_NEXT };
+     CustomOptional<bool> FpsOverlayHorizontal { false };
+     CustomOptional<float> FpsOverlayAlpha { 0.4f };
+     CustomOptional<float, NoDefault> FpsScale; // No value means same as MenuScale
++    CustomOptional<bool> AppendExternalOverlayText { true };
+     CustomOptional<bool> UseHQFont { true };
+     CustomOptional<bool> DisableSplash { false };
+     CustomOptional<float> FontSize { 14.0f };
+diff --git a/OptiScaler/OptiScaler.vcxproj b/OptiScaler/OptiScaler.vcxproj
+index 9fd5c754..6cf6da54 100644
+--- a/OptiScaler/OptiScaler.vcxproj
++++ b/OptiScaler/OptiScaler.vcxproj
+@@ -368,6 +368,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+     <ClInclude Include="shaders\Shader_Common.h" />
+     <ClInclude Include="spoofing\User32_Spoofing.h" />
+     <ClInclude Include="hooks\VulkanwDx12_Hooks.h" />
++    <ClInclude Include="misc\ExternalOverlayFeed.h" />
+     <ClInclude Include="misc\IdentifyGpu.h" />
+     <ClInclude Include="inputs\FSR2_Dx11.h" />
+     <ClInclude Include="inputs\FSR2_Vk.h" />
+@@ -623,6 +624,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+     <ClCompile Include="menu\input\input_system_window.cpp" />
+     <ClCompile Include="menu\input\input_system_windows_hooks.cpp" />
+     <ClCompile Include="menu\input\input_system_xinput.cpp" />
++    <ClCompile Include="misc\ExternalOverlayFeed.cpp" />
+     <ClCompile Include="misc\IdentifyGpu.cpp" />
+     <ClCompile Include="inputs\FSR2_Dx11.cpp" />
+     <ClCompile Include="inputs\FSR2_Vk.cpp" />
+@@ -830,4 +832,4 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+   <ImportGroup Label="ExtensionTargets">
+   </ImportGroup>
+-</Project>
+\ No newline at end of file
++</Project>
+diff --git a/OptiScaler/OptiScaler.vcxproj.filters b/OptiScaler/OptiScaler.vcxproj.filters
+index 408a0049..cd79b5f6 100644
+--- a/OptiScaler/OptiScaler.vcxproj.filters
++++ b/OptiScaler/OptiScaler.vcxproj.filters
+@@ -311,6 +311,9 @@
+     <ClInclude Include="misc\FrameLimit.h">
+       <Filter>Header Files</Filter>
+     </ClInclude>
++    <ClInclude Include="misc\ExternalOverlayFeed.h">
++      <Filter>Header Files</Filter>
++    </ClInclude>
+     <ClInclude Include="inputs\FfxApi_Vk.h">
+       <Filter>Header Files</Filter>
+     </ClInclude>
+@@ -1109,6 +1112,9 @@
+     <ClCompile Include="misc\FrameLimit.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
++    <ClCompile Include="misc\ExternalOverlayFeed.cpp">
++      <Filter>Source Files</Filter>
++    </ClCompile>
+     <ClCompile Include="hooks\Reflex_Hooks.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
+@@ -1478,4 +1484,4 @@
+       <Filter>Source Files</Filter>
+     </None>
+   </ItemGroup>
+-</Project>
+\ No newline at end of file
++</Project>
+diff --git a/OptiScaler/menu/menu_common.cpp b/OptiScaler/menu/menu_common.cpp
+index ecc342a6..044bd1e9 100644
+--- a/OptiScaler/menu/menu_common.cpp
++++ b/OptiScaler/menu/menu_common.cpp
+@@ -29,6 +29,7 @@
+ #include <chrono>
+ #include <memory>
+ #include <type_traits>
++#include <misc/ExternalOverlayFeed.h>
+ #include <misc/IdentifyGpu.h>
+ #include <hooks/Xell_Hooks.h>
+ #include <low_latency/input/input_common.h>
+@@ -1776,6 +1777,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+             }
+ 
+             const auto overlayType = config->FpsOverlayType.value_or_default();
++            const bool isFpsOnlyOverlay = overlayType == FpsOverlay_FpsOnly;
+             const bool hasFeature = currentFeature && !currentFeature->IsFrozen();
+ 
+             // Prepare Line 1
+@@ -1798,6 +1800,10 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+ 
+                 switch (overlayType)
+                 {
++                case FpsOverlay_FpsOnly:
++                    fpsPart = StrFmt("FPS %.0f", frameRate);
++                    break;
++
+                 case FpsOverlay_JustFPS:
+                     fpsPart = StrFmt("FPS: %6.1f/%5.1f", frameRate, baseFps);
+                     break;
+@@ -1815,6 +1821,10 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+             {
+                 switch (overlayType)
+                 {
++                case FpsOverlay_FpsOnly:
++                    fpsPart = StrFmt("FPS %.0f", frameRate);
++                    break;
++
+                 case FpsOverlay_JustFPS:
+                     fpsPart = StrFmt("FPS: %6.1f", frameRate);
+                     break;
+@@ -1829,10 +1839,24 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+                 }
+             }
+ 
+-            firstLine = StrFmt("%s | %s%s%s", api.c_str(), fpsPart.c_str(), fgText.c_str(), featurePart.c_str());
++            if (isFpsOnlyOverlay)
++            {
++                firstLine = fpsPart;
++
++                if (config->AppendExternalOverlayText.value_or_default())
++                {
++                    std::string externalLine;
++                    if (ExternalOverlayFeed::TryReadLine(externalLine))
++                        firstLine += " | " + externalLine;
++                }
++            }
++            else
++            {
++                firstLine = StrFmt("%s | %s%s%s", api.c_str(), fpsPart.c_str(), fgText.c_str(), featurePart.c_str());
++            }
+ 
+             // Prepare Line 2
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
++            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                 {
+@@ -1849,7 +1873,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+             }
+ 
+             // Prepare Line 3
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
++            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
+             {
+                 thirdLine =
+                     StrFmt("Upscaler Time: %7.2f ms, Avg: %7.2f ms", state.upscaleTimes.back(), averageUpscalerFT);
+@@ -1880,9 +1904,9 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+             }
+ 
+             // Draw the overlay
+-            ImGui::Text(firstLine.c_str());
++            ImGui::TextUnformatted(firstLine.c_str());
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
++            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                 {
+@@ -1898,7 +1922,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+                 ImGui::Text(secondLine.c_str());
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_DetailedGraph)
++            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_DetailedGraph)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                     ImGui::SameLine(0.0f, 0.0f);
+@@ -1910,7 +1934,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+                     &gFrameTimes, plotWidth, 0, nullptr, 0.0f, 66.6f, plotSize);
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
++            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                 {
+@@ -1926,7 +1950,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+                 ImGui::Text(thirdLine.c_str());
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_FullGraph)
++            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_FullGraph)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                     ImGui::SameLine(0.0f, 0.0f);
+@@ -1938,7 +1962,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+                     &gUpscalerTimes, plotWidth, 0, nullptr, 0.0f, 20.0f, plotSize);
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_ReflexTimings)
++            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_ReflexTimings)
+             {
+                 constexpr auto delayBetweenPollsMs = 500;
+                 static auto previousPoll = 0.0;
+@@ -6206,8 +6230,8 @@ void MenuCommon::RenderFpsOverlaySettings(RenderMenuContext& ctx)
+             ImGui::EndCombo();
+         }
+ 
+-        const char* fpsType[] = { "Just FPS", "Simple",       "Detailed",      "Detailed + Graph",
+-                                  "Full",     "Full + Graph", "Reflex timings" };
++        const char* fpsType[] = { "Just FPS", "Simple",          "Detailed",       "Detailed + Graph",
++                                  "Full",     "Full + Graph",    "Reflex timings", "FPS Only" };
+         const char* selectedType = fpsType[config->FpsOverlayType.value_or_default()];
+ 
+         if (ImGui::BeginCombo("Overlay Type", selectedType))
+@@ -6240,6 +6264,11 @@ void MenuCommon::RenderFpsOverlaySettings(RenderMenuContext& ctx)
+                 config->FpsScale = values[currentIndex];
+         }
+ 
++        bool externalOverlayEnabled = config->AppendExternalOverlayText.value_or_default();
++        if (ImGui::Checkbox("Append External Overlay Text", &externalOverlayEnabled))
++            config->AppendExternalOverlayText = externalOverlayEnabled;
++        ShowTooltip("Reads best-effort text from Local\\OptiScalerExternalOverlay when FPS Only is selected.");
++
+         bool useTheme = config->OverlaysUseTheme.value_or_default();
+         if (ImGui::Checkbox("Use Theme Colors", &useTheme))
+             config->OverlaysUseTheme = useTheme;
+diff --git a/OptiScaler/misc/ExternalOverlayFeed.cpp b/OptiScaler/misc/ExternalOverlayFeed.cpp
+new file mode 100644
+index 00000000..adfbd887
+--- /dev/null
++++ b/OptiScaler/misc/ExternalOverlayFeed.cpp
+@@ -0,0 +1,128 @@
++#include "pch.h"
++#include "ExternalOverlayFeed.h"
++
++#include <array>
++#include <cstring>
++
++namespace
++{
++constexpr wchar_t MappingName[] = L"Local\\OptiScalerExternalOverlay";
++constexpr uint32_t PayloadMagic = 0x564F534F; // OSOV
++constexpr uint32_t PayloadVersion = 1;
++constexpr uint32_t MaxLines = 4;
++constexpr uint32_t MaxLineLength = 128;
++constexpr uint64_t StaleAfterMs = 2000;
++constexpr uint64_t OpenRetryMs = 1000;
++
++struct ExternalOverlayPayload
++{
++    uint32_t magic;
++    uint32_t version;
++    volatile uint32_t sequence;
++    uint64_t lastUpdateTickMs;
++    uint32_t lineCount;
++    char lines[MaxLines][MaxLineLength];
++};
++
++HANDLE g_mapping = nullptr;
++ExternalOverlayPayload* g_payload = nullptr;
++uint64_t g_nextOpenAttemptTick = 0;
++
++void CloseMapping()
++{
++    if (g_payload != nullptr)
++    {
++        UnmapViewOfFile(g_payload);
++        g_payload = nullptr;
++    }
++
++    if (g_mapping != nullptr)
++    {
++        CloseHandle(g_mapping);
++        g_mapping = nullptr;
++    }
++}
++
++bool EnsureMapped(uint64_t now)
++{
++    if (g_payload != nullptr)
++        return true;
++
++    if (now < g_nextOpenAttemptTick)
++        return false;
++
++    g_nextOpenAttemptTick = now + OpenRetryMs;
++
++    g_mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, MappingName);
++    if (g_mapping == nullptr)
++        return false;
++
++    g_payload = static_cast<ExternalOverlayPayload*>(MapViewOfFile(g_mapping, FILE_MAP_READ, 0, 0,
++                                                                   sizeof(ExternalOverlayPayload)));
++    if (g_payload == nullptr)
++    {
++        CloseMapping();
++        return false;
++    }
++
++    return true;
++}
++
++bool TryReadLineImpl(std::string& line)
++{
++    const auto now = GetTickCount64();
++    if (!EnsureMapped(now))
++        return false;
++
++    if (g_payload->magic != PayloadMagic || g_payload->version != PayloadVersion)
++    {
++        CloseMapping();
++        return false;
++    }
++
++    const auto sequenceBefore = g_payload->sequence;
++    if ((sequenceBefore & 1U) != 0)
++        return false;
++
++    MemoryBarrier();
++
++    const auto lastUpdateTickMs = g_payload->lastUpdateTickMs;
++    const auto lineCount = g_payload->lineCount;
++
++    if (lineCount == 0 || lineCount > MaxLines)
++        return false;
++
++    if (lastUpdateTickMs == 0 || lastUpdateTickMs > now || now - lastUpdateTickMs > StaleAfterMs)
++        return false;
++
++    std::array<char, MaxLineLength> buffer {};
++    memcpy(buffer.data(), g_payload->lines[0], buffer.size());
++
++    MemoryBarrier();
++
++    const auto sequenceAfter = g_payload->sequence;
++    if (sequenceBefore != sequenceAfter || (sequenceAfter & 1U) != 0)
++        return false;
++
++    const auto length = strnlen_s(buffer.data(), buffer.size());
++    if (length == 0)
++        return false;
++
++    line.assign(buffer.data(), length);
++    return true;
++}
++}
++
++bool ExternalOverlayFeed::TryReadLine(std::string& line)
++{
++    try
++    {
++        line.clear();
++        return TryReadLineImpl(line);
++    }
++    catch (...)
++    {
++        line.clear();
++        return false;
++    }
++}
+diff --git a/OptiScaler/misc/ExternalOverlayFeed.h b/OptiScaler/misc/ExternalOverlayFeed.h
+new file mode 100644
+index 00000000..dae587f4
+--- /dev/null
++++ b/OptiScaler/misc/ExternalOverlayFeed.h
+@@ -0,0 +1,11 @@
++#pragma once
++
++#include "SysUtils.h"
++
++#include <string>
++
++class ExternalOverlayFeed
++{
++  public:
++    static bool TryReadLine(std::string& line);
++};
+-- 
+2.53.0.windows.2
+
