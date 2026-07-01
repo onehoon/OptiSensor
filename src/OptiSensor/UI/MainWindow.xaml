@@ -28,7 +28,7 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel>
-                    <TextBlock Text="OptiSensor"
+                    <TextBlock Text="OptiSensor v0.1.0"
                                FontSize="23"
                                FontWeight="SemiBold"
                                Foreground="#0F172A"/>
