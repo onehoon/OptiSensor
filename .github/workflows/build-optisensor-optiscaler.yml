@@ -82,37 +82,51 @@ jobs:
           $repoUrl = "https://github.com/$repo.git"
           $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
 
-          git clone $repoUrl $cloneDir
+          function Invoke-Git {
+            git @args
+            if ($LASTEXITCODE -ne 0) {
+              throw "git $args failed with exit code $LASTEXITCODE"
+            }
+          }
+
+          function Resolve-GitCommit {
+            param([Parameter(Mandatory = $true)][string] $revision)
+
+            $commit = (git rev-parse --verify "$revision^{commit}").Trim()
+            if ($LASTEXITCODE -ne 0) {
+              throw "OptiScaler ref '$revision' could not be resolved to a commit (exit code $LASTEXITCODE)."
+            }
+
+            return $commit
+          }
+
+          Invoke-Git clone $repoUrl $cloneDir
           Set-Location $cloneDir
-          git fetch origin --tags --prune
+          Invoke-Git fetch origin --tags --prune
 
           git ls-remote --exit-code --heads origin $ref | Out-Null
-          if ($LASTEXITCODE -eq 0) {
-            git checkout -B $ref "origin/$ref"
-            git pull --ff-only origin $ref
+          $branchLookupExitCode = $LASTEXITCODE
+          if ($branchLookupExitCode -eq 0) {
+            $revision = "origin/$ref"
+          }
+          elseif ($branchLookupExitCode -eq 2) {
+            $revision = $ref
           }
           else {
-            if ($ref -eq "master" -or $ref -eq "main") {
-              $defaultRemote = git symbolic-ref --short refs/remotes/origin/HEAD
-              if ($LASTEXITCODE -eq 0 -and $defaultRemote) {
-                $defaultBranch = $defaultRemote -replace "^origin/", ""
-                Write-Host "Ref '$ref' was not found. Falling back to remote default branch '$defaultBranch'."
-                git checkout -B $defaultBranch $defaultRemote
-                git pull --ff-only origin $defaultBranch
-              }
-              else {
-                git checkout $ref
-              }
-            }
-            else {
-              git checkout $ref
-            }
+            throw "Unable to query OptiScaler ref '$ref' (exit code $branchLookupExitCode)."
           }
 
-          git submodule update --init --recursive
+          $expectedCommit = Resolve-GitCommit $revision
+          Invoke-Git checkout --detach $expectedCommit
+          $checkedOutCommit = Resolve-GitCommit "HEAD"
+          if ($checkedOutCommit -ne $expectedCommit) {
+            throw "Checked-out OptiScaler commit '$checkedOutCommit' does not match requested ref '$ref' ('$expectedCommit')."
+          }
 
-          $commit = git rev-parse --short=12 HEAD
-          $fullCommit = git rev-parse HEAD
+          Invoke-Git submodule update --init --recursive
+
+          $commit = (Invoke-Git rev-parse --short=12 HEAD).Trim()
+          $fullCommit = Resolve-GitCommit "HEAD"
           "OPTISCALER_COMMIT=$commit" >> $env:GITHUB_ENV
           "OPTISCALER_FULL_COMMIT=$fullCommit" >> $env:GITHUB_ENV
           Write-Host "OptiScaler commit: $fullCommit"
