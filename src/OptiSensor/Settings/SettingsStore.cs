@@ -29,9 +29,10 @@ internal static class SettingsStore
             }
 
             settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
-            settings.LibreProfile.OverlayGroups = settings.OverlayGroups;
-            settings.LibreProfile.SelectedSensors = settings.SelectedSensors;
-            settings.LibreProfile.SensorCategoryFilters = settings.SensorCategoryFilters;
+            var libreProfile = settings.LibreProfile ??= new();
+            libreProfile.OverlayGroups = settings.OverlayGroups ?? [];
+            libreProfile.SelectedSensors = settings.SelectedSensors ?? [];
+            libreProfile.SensorCategoryFilters = settings.SensorCategoryFilters ?? [];
             Save(settings);
             return settings;
         }

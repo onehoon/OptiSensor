@@ -25,10 +25,10 @@ jobs:
 
     steps:
       - name: Checkout OptiSensor
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -37,3 +37,37 @@ jobs:
 
       - name: Build OptiSensor
         run: dotnet build .\src\OptiSensor\OptiSensor.csproj -c Release --no-restore
+
+      - name: Prepare build artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/OptiSensor"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          dotnet publish .\src\OptiSensor\OptiSensor.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained false `
+            -p:PublishSingleFile=true `
+            -p:PublishReadyToRun=false `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o $artifactDir
+
+          $exe = Join-Path $artifactDir "OptiSensor.exe"
+          if (-not (Test-Path $exe)) {
+            throw "OptiSensor.exe not found after publish"
+          }
+
+          Compress-Archive -Path (Join-Path $artifactDir "*") `
+            -DestinationPath (Join-Path $env:GITHUB_WORKSPACE "OptiSensor-build.zip") `
+            -Force
+
+      - name: Upload OptiSensor artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiSensor-build
+          path: OptiSensor-build.zip
+          if-no-files-found: error
+          retention-days: 14
