@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly SensorsPage _sensorsPage;
     private readonly OverlayPage _overlayPage;
     private readonly SettingsPage _settingsPage;
+    private bool _hwInfoSharedMemoryWarningShown;
     private readonly DispatcherTimer _sensorRefreshTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(1000)
@@ -163,7 +164,23 @@ public partial class MainWindow : Window
         {
             SimpleLog.TryWrite($"RefreshDetectedSensorsAsync failed: {ex.Message}");
             SimpleLog.TryWriteException(ex);
-            System.Windows.MessageBox.Show(ex.Message, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Error);
+            var isHwInfoSharedMemoryFailure = _settings.SensorSource == Models.SensorSourceKind.HwInfo &&
+                !_hwInfoSharedMemoryWarningShown;
+            if (isHwInfoSharedMemoryFailure)
+            {
+                _hwInfoSharedMemoryWarningShown = true;
+                System.Windows.MessageBox.Show(
+                    "HWiNFO Shared Memory를 읽을 수 없습니다.\n\n" +
+                    "HWiNFO가 실행 중인지, Sensors 설정의 Shared Memory Support가 켜져 있는지 확인하세요.\n" +
+                    "설정을 변경했다면 HWiNFO를 다시 시작해야 합니다.",
+                    "HWiNFO Shared Memory",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            else if (_settings.SensorSource != Models.SensorSourceKind.HwInfo)
+            {
+                System.Windows.MessageBox.Show(ex.Message, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 

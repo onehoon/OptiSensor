@@ -38,7 +38,7 @@ internal sealed class ApplicationHost : IDisposable
         var settings = AppSettings.LoadOrCreate();
         if (settings.SensorSource == SensorSourceKind.HwInfo)
         {
-            try { SimpleLog.TryWrite(HWiNFOStartupConfigurator.EnsureSharedMemoryEnabled()); }
+            try { SimpleLog.TryWrite(HWiNFOStartupConfigurator.EnsureRunningWithSharedMemory()); }
             catch (Exception ex) { SimpleLog.TryWriteException(ex); }
         }
         var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
