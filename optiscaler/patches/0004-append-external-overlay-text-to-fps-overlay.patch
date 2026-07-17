@@ -78,7 +78,8 @@ index f8eb548..dfe54d8 100644
                      StrFmt("Upscaler Time: %7.2f ms, Avg: %7.2f ms", state.upscaleTimes.back(), averageUpscalerFT);
 @@ -1894,7 +1906,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
              // Draw the overlay
-             ImGui::Text(firstLine.c_str());
+-            ImGui::Text(firstLine.c_str());
++            ImGui::TextUnformatted(firstLine.c_str());
  
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
 +            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Detailed)
