@@ -10,6 +10,7 @@ internal sealed record HWiNFOSharedMemoryStartupResult(bool Ready, string Messag
 internal static class HWiNFOStartupConfigurator
 {
     private static readonly TimeSpan SharedMemoryReadyTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ExistingSharedMemoryProbeTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SharedMemoryProbeInterval = TimeSpan.FromMilliseconds(500);
 
     public static string EnsureSharedMemoryEnabled()
@@ -91,10 +92,25 @@ internal static class HWiNFOStartupConfigurator
 
     public static async Task<HWiNFOSharedMemoryStartupResult> EnsureRunningAndWaitForSharedMemoryAsync(CancellationToken cancellationToken)
     {
+        if (IsHWiNFO64Running())
+        {
+            var existingSharedMemory = await WaitForSharedMemoryAsync(ExistingSharedMemoryProbeTimeout, cancellationToken).ConfigureAwait(false);
+            if (existingSharedMemory.Ready)
+            {
+                return new HWiNFOSharedMemoryStartupResult(
+                    true,
+                    "HWiNFO shared memory is already ready; restart skipped.");
+            }
+        }
+
         HWiNFOStartupResult startup;
         try
         {
             startup = await Task.Run(EnsureRunningWithSharedMemory, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -139,6 +155,20 @@ internal static class HWiNFOStartupConfigurator
         return new HWiNFOSharedMemoryStartupResult(
             false,
             $"HWiNFO shared memory did not become ready within {timeout.TotalSeconds:0} seconds.{detail}");
+    }
+
+    private static bool IsHWiNFO64Running()
+    {
+        var processes = Process.GetProcessesByName("HWiNFO64");
+        try
+        {
+            return processes.Length > 0;
+        }
+        finally
+        {
+            foreach (var process in processes)
+                process.Dispose();
+        }
     }
 
     private static void SetSharedMemoryEnabled(string path)

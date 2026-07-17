@@ -289,6 +289,7 @@ public partial class MainWindow : Window
     private void SaveSettings()
     {
         _overlayPage.CommitEdits();
+        var previousSensorSource = _settings.SensorSource;
 
         if (!_settingsPage.ApplySettingsEdits(_settings, out var settingsErrorMessage))
         {
@@ -296,10 +297,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        var selectedSensorSource = _settings.SensorSource;
+        var sensorSourceChanged = selectedSensorSource != previousSensorSource;
+        if (sensorSourceChanged)
+            _settings.SensorSource = previousSensorSource;
+
         if (!_viewModel.TrySave(out var errorMessage))
         {
+            _settings.SensorSource = previousSensorSource;
             System.Windows.MessageBox.Show(errorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
+        }
+
+        if (sensorSourceChanged)
+        {
+            _settings.SensorSource = selectedSensorSource;
+            _settings.Save();
         }
 
         var startupResult = _settings.StartWithWindows
@@ -316,9 +329,17 @@ public partial class MainWindow : Window
                 "OptiSensor",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
-            return;
         }
 
+        if (sensorSourceChanged)
+        {
+            System.Windows.MessageBox.Show(
+                "Sensor source was saved. OptiSensor will now close; start it again to apply the new source.",
+                "OptiSensor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            _host.RequestExit();
+        }
     }
 
     private static void OpenSettingsFolder()

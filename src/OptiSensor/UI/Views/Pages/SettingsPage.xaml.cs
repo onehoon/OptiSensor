@@ -28,16 +28,15 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     internal bool ApplySettingsEdits(AppSettings settings, out string? errorMessage)
     {
         errorMessage = null;
-        settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
-        if (SensorSourceComboBox.SelectedItem is SensorSourceKind source)
-            settings.SensorSource = source;
-
         if (!int.TryParse(PublishIntervalTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var publishIntervalMs))
         {
             errorMessage = "Publish interval must be a whole number.";
             return false;
         }
 
+        settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
+        if (SensorSourceComboBox.SelectedItem is SensorSourceKind source)
+            settings.SensorSource = source;
         settings.PublishIntervalMs = Math.Clamp(publishIntervalMs, 100, 10000);
         PublishIntervalTextBox.Text = settings.PublishIntervalMs.ToString(CultureInfo.InvariantCulture);
         return true;

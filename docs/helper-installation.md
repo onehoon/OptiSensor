@@ -47,11 +47,11 @@ Policy:
 
 ```text
 Trigger: At user logon
-Run level: Least privilege
+Run level: Highest available
 Restart on failure: every 1 minute, up to 3 attempts
 ```
 
-No administrator rights are required. Legacy `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entries named `OptiSensor` are removed during install and uninstall to avoid duplicate launches.
+OptiSensor runs with administrator rights. The startup task uses the highest available run level so logon startup matches the application's required execution level. Legacy `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entries named `OptiSensor` are removed during install and uninstall to avoid duplicate launches.
 
 Tray `Exit` and the main window `Exit` button exit normally with code `0`, so Task Scheduler does not restart OptiSensor after an intentional user exit. A crash or non-zero process exit can be restarted by the task failure policy.
 
@@ -154,7 +154,7 @@ Command: %LocalAppData%\Programs\OptiSensor\OptiSensor.exe
 Arguments: --startup
 RestartOnFailure Interval: PT1M
 RestartOnFailure Count: 3
-RunLevel: LeastPrivilege
+RunLevel: HighestAvailable
 ```
 
 Check that the legacy HKCU Run value is absent:

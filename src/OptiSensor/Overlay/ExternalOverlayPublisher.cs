@@ -26,9 +26,9 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         if (_accessor is null)
             return;
 
-        var bytes = EncodeUtf8NullTerminatedLine(line);
+        var bytes = EncodeUtf8Line(line);
         Span<byte> lineBuffer = stackalloc byte[ExternalOverlayProtocol.MaxLineLength];
-
+        lineBuffer.Clear();
         bytes.CopyTo(lineBuffer);
 
         _sequence++;
@@ -66,7 +66,7 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         _accessor.Flush();
     }
 
-    private static byte[] EncodeUtf8NullTerminatedLine(string line)
+    private static byte[] EncodeUtf8Line(string line)
     {
         var utf8 = Encoding.UTF8;
         var encoder = utf8.GetEncoder();

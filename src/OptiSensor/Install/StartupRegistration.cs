@@ -121,7 +121,7 @@ internal static class StartupRegistration
                         new XAttribute("id", "Author"),
                         new XElement(ns + "UserId", currentUser),
                         new XElement(ns + "LogonType", "InteractiveToken"),
-                        new XElement(ns + "RunLevel", "LeastPrivilege"))),
+                        new XElement(ns + "RunLevel", "HighestAvailable"))),
                 new XElement(ns + "Settings",
                     new XElement(ns + "MultipleInstancesPolicy", "IgnoreNew"),
                     new XElement(ns + "DisallowStartIfOnBatteries", "false"),

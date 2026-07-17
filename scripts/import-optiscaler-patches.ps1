@@ -20,6 +20,20 @@ function Invoke-Git {
     }
 }
 
+function Resolve-GitCommit {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Ref
+    )
+
+    $commit = (git rev-parse --verify "$Ref^{commit}").Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "Git ref '$Ref' could not be resolved to a commit (exit code $LASTEXITCODE)."
+    }
+
+    return $commit
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $workRoot = Join-Path $repoRoot ".tmp"
 $cloneDir = Join-Path $workRoot "OptiScaler-patch-import"
@@ -44,20 +58,34 @@ try {
     Invoke-Git fetch origin --tags --prune
 
     git ls-remote --exit-code --heads origin $SourceRef | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Invoke-Git checkout -B $SourceRef "origin/$SourceRef"
-        Invoke-Git pull --ff-only origin $SourceRef
+    $sourceBranchLookupExitCode = $LASTEXITCODE
+    if ($sourceBranchLookupExitCode -eq 0) {
+        $sourceRevision = "origin/$SourceRef"
+    }
+    elseif ($sourceBranchLookupExitCode -eq 2) {
+        $sourceRevision = $SourceRef
     }
     else {
-        Invoke-Git checkout $SourceRef
+        throw "Unable to look up source branch '$SourceRef' on origin (exit code $sourceBranchLookupExitCode)."
     }
 
-    git rev-parse --verify "origin/$BaseRef" *> $null
-    if ($LASTEXITCODE -eq 0) {
-        $base = "origin/$BaseRef"
+    $expectedSourceCommit = Resolve-GitCommit $sourceRevision
+    Invoke-Git checkout --detach $expectedSourceCommit
+    $checkedOutCommit = Resolve-GitCommit "HEAD"
+    if ($checkedOutCommit -ne $expectedSourceCommit) {
+        throw "Checked out commit '$checkedOutCommit' does not match requested source ref '$SourceRef' ('$expectedSourceCommit')."
+    }
+
+    git show-ref --verify --quiet "refs/remotes/origin/$BaseRef"
+    $baseBranchLookupExitCode = $LASTEXITCODE
+    if ($baseBranchLookupExitCode -eq 0) {
+        $base = Resolve-GitCommit "origin/$BaseRef"
+    }
+    elseif ($baseBranchLookupExitCode -eq 1) {
+        $base = Resolve-GitCommit $BaseRef
     }
     else {
-        $base = $BaseRef
+        throw "Unable to look up base branch '$BaseRef' on origin (exit code $baseBranchLookupExitCode)."
     }
 
     Get-ChildItem $resolvedOutputDir -Filter "*.patch" -ErrorAction SilentlyContinue | Remove-Item -Force
