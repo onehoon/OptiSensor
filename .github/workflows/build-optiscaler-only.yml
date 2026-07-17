@@ -1,0 +1,84 @@
+name: Build OptiScaler Only
+
+on:
+  workflow_dispatch:
+    inputs:
+      optiscaler_ref:
+        description: "OptiScaler branch, tag, or commit SHA"
+        required: true
+        default: "master"
+
+env:
+  OPTISCALER_REPO: optiscaler/OptiScaler
+  OPTISCALER_CONFIGURATION: Release
+  OPTISCALER_PLATFORM: x64
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout OptiSensor patches
+        uses: actions/checkout@v6
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Clone and checkout OptiScaler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
+          git clone "https://github.com/$env:OPTISCALER_REPO.git" $cloneDir
+          Set-Location $cloneDir
+          git fetch origin --tags --prune
+          git checkout "${{ inputs.optiscaler_ref }}"
+          git submodule update --init --recursive
+
+      - name: Apply OptiSensor overlay patches
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
+          Set-Location $cloneDir
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          $patches = Get-ChildItem "$env:GITHUB_WORKSPACE/optiscaler/patches" -Filter "*.patch" | Sort-Object Name
+          if ($patches.Count -eq 0) { throw "No OptiScaler patches found." }
+          foreach ($patch in $patches) {
+            git am $patch.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Failed to apply $($patch.Name)." }
+          }
+
+      - name: Build OptiScaler DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vcxproj = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler/OptiScaler/OptiScaler.vcxproj"
+          msbuild $vcxproj /m `
+            /p:Configuration=$env:OPTISCALER_CONFIGURATION `
+            /p:Platform=$env:OPTISCALER_PLATFORM `
+            /p:SolutionDir="$env:GITHUB_WORKSPACE\.work\OptiScaler\" `
+            /p:PostBuildEventUseInBuild=false
+
+      - name: Collect OptiScaler DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dll = Get-ChildItem "$env:GITHUB_WORKSPACE/.work/OptiScaler" -Recurse -Filter "OptiScaler.dll" |
+            Where-Object { $_.FullName -match "\\x64\\" -and $_.FullName -match "\\Release\\" } |
+            Select-Object -First 1
+          if (-not $dll) { throw "OptiScaler.dll not found after build." }
+          Copy-Item $dll.FullName "$env:GITHUB_WORKSPACE/OptiScaler.dll"
+
+      - name: Upload OptiScaler DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiScaler.dll
+          path: OptiScaler.dll
+          if-no-files-found: error
+          retention-days: 14
