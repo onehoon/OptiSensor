@@ -2,18 +2,6 @@ name: Build OptiSensor Only
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "src/OptiSensor/**"
-      - "Directory.Build.*"
-      - "global.json"
-      - ".github/workflows/build-optisensor-only.yml"
-  pull_request:
-    paths:
-      - "src/OptiSensor/**"
-      - "Directory.Build.*"
-      - "global.json"
-      - ".github/workflows/build-optisensor-only.yml"
 
 permissions:
   contents: read
