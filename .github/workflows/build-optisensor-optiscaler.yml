@@ -121,6 +121,7 @@ jobs:
           Write-Host "OptiScaler commit: $fullCommit"
 
       - name: Apply OptiScaler patches
+        if: ${{ false }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
