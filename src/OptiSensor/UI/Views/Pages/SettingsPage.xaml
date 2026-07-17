@@ -17,6 +17,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="220"/>
@@ -26,17 +27,20 @@
                     <TextBlock Text="Start with Windows"
                                FontWeight="SemiBold"
                                Foreground="#0F172A"/>
+                    <TextBlock Grid.Row="0" Text="Sensor source" FontWeight="SemiBold" Foreground="#0F172A"/>
+                    <ComboBox x:Name="SensorSourceComboBox" Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"/>
                     <CheckBox x:Name="StartWithWindowsCheckBox"
+                              Grid.Row="1"
                               Grid.Column="1"
                               Content="Register startup task"
                               VerticalAlignment="Center"/>
 
-                    <TextBlock Grid.Row="1"
+                    <TextBlock Grid.Row="2"
                                Text="Publish interval"
                                Margin="0,18,0,0"
                                FontWeight="SemiBold"
                                Foreground="#0F172A"/>
-                    <StackPanel Grid.Row="1"
+                    <StackPanel Grid.Row="2"
                                 Grid.Column="1"
                                 Orientation="Horizontal"
                                 Margin="0,14,0,0">
@@ -48,7 +52,7 @@
                                    Foreground="#64748B"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="2"
+                    <TextBlock Grid.Row="3"
                                Grid.ColumnSpan="2"
                                Margin="0,18,0,0"
                                Foreground="#64748B"

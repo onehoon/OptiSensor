@@ -1,0 +1,39 @@
+name: Build OptiSensor Only
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/OptiSensor/**"
+      - "Directory.Build.*"
+      - "global.json"
+      - ".github/workflows/build-optisensor-only.yml"
+  pull_request:
+    paths:
+      - "src/OptiSensor/**"
+      - "Directory.Build.*"
+      - "global.json"
+      - ".github/workflows/build-optisensor-only.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build OptiSensor
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout OptiSensor
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore .\src\OptiSensor\OptiSensor.csproj
+
+      - name: Build OptiSensor
+        run: dotnet build .\src\OptiSensor\OptiSensor.csproj -c Release --no-restore

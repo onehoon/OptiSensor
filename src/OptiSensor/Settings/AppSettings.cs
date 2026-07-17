@@ -29,6 +29,15 @@ internal sealed class AppSettings
     [JsonPropertyName("publishIntervalMs")]
     public int PublishIntervalMs { get; set; } = 1000;
 
+    [JsonPropertyName("sensorSource")]
+    public SensorSourceKind SensorSource { get; set; } = SensorSourceKind.HwInfo;
+
+    [JsonPropertyName("libreProfile")]
+    public SensorSourceProfile LibreProfile { get; set; } = new();
+
+    [JsonPropertyName("hwInfoProfile")]
+    public SensorSourceProfile HwInfoProfile { get; set; } = new();
+
     [JsonPropertyName("selectedSensors")]
     public List<SelectedOverlaySensor> SelectedSensors { get; set; } = [];
 
@@ -44,6 +53,9 @@ internal sealed class AppSettings
     [JsonIgnore]
     public IReadOnlyList<SelectedOverlaySensor> EnabledSelectedSensors =>
         GetEnabledSelectedSensorsSnapshot();
+
+    [JsonIgnore]
+    public SensorSourceProfile ActiveProfile => SensorSource == SensorSourceKind.HwInfo ? HwInfoProfile : LibreProfile;
 
     public static AppSettings LoadOrCreate()
     {
@@ -90,9 +102,16 @@ internal sealed class AppSettings
     {
         var normalized = new Dictionary<OptiSensorCategory, bool>();
         foreach (var category in Enum.GetValues<OptiSensorCategory>())
-            normalized[category] = SensorCategoryFilters.TryGetValue(category, out var isChecked) ? isChecked : true;
+            normalized[category] = ActiveProfile.SensorCategoryFilters.TryGetValue(category, out var isChecked) ? isChecked : true;
 
         return normalized;
+    }
+
+    public IReadOnlyDictionary<OptiSensorCategory, bool> GetActiveSensorCategoryFilterSnapshot()
+    {
+        var filters = ActiveProfile.SensorCategoryFilters;
+        return Enum.GetValues<OptiSensorCategory>().ToDictionary(category => category,
+            category => !filters.TryGetValue(category, out var value) || value);
     }
 
     public void ReplaceSensorCategoryFilters(IEnumerable<KeyValuePair<OptiSensorCategory, bool>> filters)
@@ -104,14 +123,16 @@ internal sealed class AppSettings
         foreach (var filter in filters)
             normalized[filter.Key] = filter.Value;
 
-        SensorCategoryFilters = normalized;
+        ActiveProfile.SensorCategoryFilters = normalized;
+        if (SensorSource == SensorSourceKind.Libre)
+            SensorCategoryFilters = normalized;
     }
 
     public IReadOnlyList<OverlayGroup> GetOverlayGroupsSnapshot()
     {
         lock (_overlayGroupsLock)
         {
-            return OverlayGroups
+            return ActiveProfile.OverlayGroups
                 .OrderBy(group => group.Order)
                 .Select(group => group.Copy())
                 .ToArray();
@@ -122,7 +143,7 @@ internal sealed class AppSettings
     {
         lock (_overlayGroupsLock)
         {
-            OverlayGroups = groups
+            var normalizedGroups = groups
                 .OrderBy(group => group.Order)
                 .Select((group, groupIndex) =>
                 {
@@ -140,10 +161,15 @@ internal sealed class AppSettings
                     return clone;
                 })
                 .ToList();
+            ActiveProfile.OverlayGroups = normalizedGroups;
+            ActiveProfile.SelectedSensors = normalizedGroups.SelectMany(group => group.Sensors).Select(sensor => sensor.Copy()).ToList();
+            if (SensorSource == SensorSourceKind.Libre)
+                OverlayGroups = normalizedGroups;
 
             lock (_selectedSensorsLock)
             {
-                SelectedSensors = OverlayGroups.SelectMany(group => group.Sensors).Select(sensor => sensor.Copy()).ToList();
+                if (SensorSource == SensorSourceKind.Libre)
+                    SelectedSensors = ActiveProfile.SelectedSensors.Select(sensor => sensor.Copy()).ToList();
             }
         }
     }
@@ -154,6 +180,8 @@ internal sealed class AppSettings
         settings.SelectedSensors ??= [];
         settings.OverlayGroups ??= [];
         settings.SensorCategoryFilters ??= [];
+        settings.LibreProfile ??= new();
+        settings.HwInfoProfile ??= new();
         if (settings.OverlayGroups.Count == 0 && settings.SelectedSensors.Count > 0)
         {
             settings.OverlayGroups =
@@ -168,6 +196,13 @@ internal sealed class AppSettings
                 }
             ];
         }
+
+        if (settings.LibreProfile.OverlayGroups.Count == 0 && settings.OverlayGroups.Count > 0)
+            settings.LibreProfile.OverlayGroups = settings.OverlayGroups;
+        if (settings.LibreProfile.SelectedSensors.Count == 0 && settings.SelectedSensors.Count > 0)
+            settings.LibreProfile.SelectedSensors = settings.SelectedSensors;
+        if (settings.LibreProfile.SensorCategoryFilters.Count == 0 && settings.SensorCategoryFilters.Count > 0)
+            settings.LibreProfile.SensorCategoryFilters = settings.SensorCategoryFilters;
 
         return settings;
     }
