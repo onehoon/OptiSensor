@@ -27,7 +27,7 @@ internal sealed class AppSettings
     public bool StartMinimized { get; set; } = true;
 
     [JsonPropertyName("publishIntervalMs")]
-    public int PublishIntervalMs { get; set; } = 1000;
+    public int PublishIntervalMs { get; set; } = 500;
 
     [JsonPropertyName("sensorSource")]
     public SensorSourceKind SensorSource { get; set; } = SensorSourceKind.HwInfo;

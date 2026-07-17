@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Globalization;
 
 namespace OptiSensor.UI.Views.Pages;
 
@@ -39,6 +41,25 @@ public partial class OverlayPage : System.Windows.Controls.UserControl
     public void UpdatePreview(string preview)
     {
         PreviewTextBlock.Text = preview;
+    }
+
+    private void GroupNameTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.TextBox textBox)
+            return;
+
+        var sample = string.IsNullOrEmpty(textBox.Text) ? "MMMMM" : textBox.Text + " ";
+        var typeface = new Typeface(textBox.FontFamily, textBox.FontStyle, textBox.FontWeight, textBox.FontStretch);
+        var formattedText = new FormattedText(
+            sample,
+            CultureInfo.CurrentCulture,
+            textBox.FlowDirection,
+            typeface,
+            textBox.FontSize,
+            System.Windows.Media.Brushes.Transparent,
+            VisualTreeHelper.GetDpi(textBox).PixelsPerDip);
+        var horizontalChrome = textBox.Padding.Left + textBox.Padding.Right + textBox.BorderThickness.Left + textBox.BorderThickness.Right;
+        textBox.Width = Math.Ceiling(formattedText.WidthIncludingTrailingWhitespace + horizontalChrome);
     }
 
     private void MoveUpButton_Click(object sender, RoutedEventArgs e)

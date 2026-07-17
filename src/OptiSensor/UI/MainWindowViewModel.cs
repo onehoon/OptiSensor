@@ -312,11 +312,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public void AddOverlayGroup()
     {
-        var group = CreateGroup($"Group {VisibleOverlayGroups.Count + 1}", OverlayGroups.Count);
+        var group = CreateGroup(string.Empty, OverlayGroups.Count);
         OverlayGroups.Add(group);
         SelectedOverlayGroup = group;
         ReorderOverlayGroups(markChanged: true);
         SyncOverlayGroupsToSettings();
+        NotifyOverlayGroupCollectionsChanged();
     }
 
     public void RemoveOverlayGroup(OverlayGroupViewModel group)
@@ -332,6 +333,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         ReorderOverlayGroups(markChanged: true);
         RebuildAllSelectedSensors();
         SyncOverlayGroupsToSettings();
+        NotifyOverlayGroupCollectionsChanged();
         SyncDetectedSensorSelectionStates();
     }
 
@@ -344,6 +346,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         OverlayGroups.Move(index, index - 1);
         ReorderOverlayGroups(markChanged: true);
         SyncOverlayGroupsToSettings();
+        NotifyOverlayGroupCollectionsChanged();
     }
 
     public void MoveOverlayGroupDown(OverlayGroupViewModel group)
@@ -355,6 +358,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         OverlayGroups.Move(index, index + 1);
         ReorderOverlayGroups(markChanged: true);
         SyncOverlayGroupsToSettings();
+        NotifyOverlayGroupCollectionsChanged();
     }
 
     private void SyncSelectedSensorsToSettings()
@@ -370,14 +374,18 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private void SyncOverlayGroupsToSettings(bool markUnsaved)
     {
         _settings.ReplaceOverlayGroups(OverlayGroups.OrderBy(group => group.Order).Select(group => group.ToModel()));
-        OnPropertyChanged(nameof(VisibleOverlayGroups));
-        OnPropertyChanged(nameof(GroupSelectionGroups));
         RebuildVisibleSelectedSensors();
 
         if (markUnsaved)
             HasUnsavedChanges = true;
 
         OnCountsChanged();
+    }
+
+    private void NotifyOverlayGroupCollectionsChanged()
+    {
+        OnPropertyChanged(nameof(VisibleOverlayGroups));
+        OnPropertyChanged(nameof(GroupSelectionGroups));
     }
 
     private void EnsureSelectedGroup()

@@ -123,8 +123,9 @@
                                         <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                   VerticalAlignment="Center"
                                                   Margin="0,0,8,0"/>
-                                        <TextBox Width="180"
+                                        <TextBox MinWidth="0"
                                                  Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 TextChanged="GroupNameTextBox_TextChanged"
                                                  Style="{StaticResource FluentTextBoxStyle}"/>
                                     </StackPanel>
                                 </Border>
@@ -148,14 +149,12 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel>
+                        <StackPanel Grid.Column="0"
+                                    Margin="0,0,16,0">
                             <TextBlock Text="Group Sensors"
                                        FontSize="16"
                                        FontWeight="SemiBold"
                                        Foreground="#0F172A"/>
-                            <TextBlock Text="Sensors checked on the Sensors tab are added to Ungrouped. Use the Group dropdown to assign them."
-                                       Margin="0,4,0,0"
-                                       Foreground="#64748B"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1"
                                     Orientation="Horizontal"
