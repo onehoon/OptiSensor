@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     private readonly SettingsPage _settingsPage;
     private bool _hwInfoSharedMemoryWarningShown;
     private int _hwInfoSharedMemoryFailureCount;
+    private bool _sensorRefreshStarted;
     private readonly DispatcherTimer _sensorRefreshTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(1000)
@@ -42,14 +43,12 @@ public partial class MainWindow : Window
         WirePageEvents();
 
         _publishService.StatusChanged += PublishService_StatusChanged;
+        _host.SensorSourceReady += Host_SensorSourceReady;
+        _host.SensorSourceStartupFailed += Host_SensorSourceStartupFailed;
         _viewModel.PropertyChanged += (_, _) => UpdateStatus();
         _sensorRefreshTimer.Tick += async (_, _) => await RefreshDetectedSensorsAsync();
 
-        Loaded += async (_, _) =>
-        {
-            await RefreshDetectedSensorsAsync();
-            _sensorRefreshTimer.Start();
-        };
+        Loaded += (_, _) => StartSensorRefreshWhenReady();
         NavigateTo(_overlayPage, OverlayNavButton);
         UpdateStatus();
     }
@@ -80,6 +79,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _sensorRefreshTimer.Stop();
+        _host.SensorSourceReady -= Host_SensorSourceReady;
+        _host.SensorSourceStartupFailed -= Host_SensorSourceStartupFailed;
         _viewModel.Dispose();
         base.OnClosed(e);
     }
@@ -104,6 +105,37 @@ public partial class MainWindow : Window
     private void PublishService_StatusChanged(object? sender, EventArgs e)
     {
         Dispatcher.BeginInvoke(UpdateStatus);
+    }
+
+    private void Host_SensorSourceReady(object? sender, EventArgs e)
+    {
+        Dispatcher.BeginInvoke(StartSensorRefreshWhenReady);
+    }
+
+    private void Host_SensorSourceStartupFailed(object? sender, string message)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_hwInfoSharedMemoryWarningShown || _host.IsExitRequested)
+                return;
+
+            _hwInfoSharedMemoryWarningShown = true;
+            System.Windows.MessageBox.Show(
+                $"HWiNFO started, but Shared Memory did not become available.\n\n{message}\n\nCheck that Shared Memory Support is enabled in HWiNFO Sensors settings.",
+                "HWiNFO Shared Memory",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        });
+    }
+
+    private async void StartSensorRefreshWhenReady()
+    {
+        if (_sensorRefreshStarted || !_host.IsSensorSourceReady)
+            return;
+
+        _sensorRefreshStarted = true;
+        await RefreshDetectedSensorsAsync();
+        _sensorRefreshTimer.Start();
     }
 
     private void UpdateStatus()

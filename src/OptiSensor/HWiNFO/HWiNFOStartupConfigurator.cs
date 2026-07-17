@@ -1,9 +1,17 @@
 using System.Diagnostics;
+using OptiSensor.Libre;
 
 namespace OptiSensor.HWiNFO;
 
+internal sealed record HWiNFOStartupResult(bool Success, string Message);
+
+internal sealed record HWiNFOSharedMemoryStartupResult(bool Ready, string Message);
+
 internal static class HWiNFOStartupConfigurator
 {
+    private static readonly TimeSpan SharedMemoryReadyTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SharedMemoryProbeInterval = TimeSpan.FromMilliseconds(500);
+
     public static string EnsureSharedMemoryEnabled()
     {
         var path = FindSettingsPath();
@@ -28,14 +36,14 @@ internal static class HWiNFOStartupConfigurator
         return "HWiNFO shared memory startup option enabled.";
     }
 
-    public static string EnsureRunningWithSharedMemory()
+    public static HWiNFOStartupResult EnsureRunningWithSharedMemory()
     {
         var processes = Process.GetProcessesByName("HWiNFO64");
         var running = processes.FirstOrDefault();
         var executablePath = TryGetExecutablePath(running);
         var settingsPath = FindSettingsPath(executablePath);
         if (settingsPath is null)
-            return "HWiNFO settings file not found.";
+            return new HWiNFOStartupResult(false, "HWiNFO settings file not found.");
 
         SetSharedMemoryEnabled(settingsPath);
 
@@ -48,7 +56,7 @@ internal static class HWiNFOStartupConfigurator
                 {
                     running.Kill(entireProcessTree: true);
                     if (!running.WaitForExit(5000))
-                        return "HWiNFO could not be closed for restart.";
+                        return new HWiNFOStartupResult(false, "HWiNFO could not be closed for restart.");
                 }
             }
             finally
@@ -59,7 +67,7 @@ internal static class HWiNFOStartupConfigurator
 
         executablePath ??= FindExecutablePath();
         if (executablePath is null)
-            return "HWiNFO executable not found.";
+            return new HWiNFOStartupResult(false, "HWiNFO executable not found.");
 
         var started = Process.Start(new ProcessStartInfo
         {
@@ -70,13 +78,67 @@ internal static class HWiNFOStartupConfigurator
         });
 
         if (started is null)
-            return "HWiNFO process could not be started.";
+            return new HWiNFOStartupResult(false, "HWiNFO process could not be started.");
 
         started.Dispose();
 
-        return running is null
-            ? "HWiNFO started with shared memory enabled."
-            : "HWiNFO restarted with shared memory enabled.";
+        return new HWiNFOStartupResult(
+            true,
+            running is null
+                ? "HWiNFO started with shared memory enabled."
+                : "HWiNFO restarted with shared memory enabled.");
+    }
+
+    public static async Task<HWiNFOSharedMemoryStartupResult> EnsureRunningAndWaitForSharedMemoryAsync(CancellationToken cancellationToken)
+    {
+        HWiNFOStartupResult startup;
+        try
+        {
+            startup = await Task.Run(EnsureRunningWithSharedMemory, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            return new HWiNFOSharedMemoryStartupResult(false, $"HWiNFO startup failed: {ex.Message}");
+        }
+
+        if (!startup.Success)
+            return new HWiNFOSharedMemoryStartupResult(false, startup.Message);
+
+        return await WaitForSharedMemoryAsync(SharedMemoryReadyTimeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async Task<HWiNFOSharedMemoryStartupResult> WaitForSharedMemoryAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        Exception? lastReadException = null;
+        using var reader = new HwInfoSensorReader();
+
+        while (stopwatch.Elapsed < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                var snapshot = reader.ReadSnapshot();
+                if (snapshot.Sensors.Count > 0)
+                {
+                    return new HWiNFOSharedMemoryStartupResult(
+                        true,
+                        $"HWiNFO shared memory became ready after {stopwatch.ElapsedMilliseconds} ms.");
+                }
+            }
+            catch (Exception ex)
+            {
+                lastReadException = ex;
+            }
+
+            await Task.Delay(SharedMemoryProbeInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        var detail = lastReadException is null ? string.Empty : $" Last error: {lastReadException.Message}";
+        return new HWiNFOSharedMemoryStartupResult(
+            false,
+            $"HWiNFO shared memory did not become ready within {timeout.TotalSeconds:0} seconds.{detail}");
     }
 
     private static void SetSharedMemoryEnabled(string path)

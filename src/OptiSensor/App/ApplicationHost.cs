@@ -17,7 +17,9 @@ internal sealed class ApplicationHost : IDisposable
     private readonly SensorPublishService _publishService;
     private readonly TrayIconService _trayIcon;
     private readonly MainWindow _mainWindow;
+    private readonly CancellationTokenSource _startupCancellationTokenSource = new();
 
+    private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
     private bool _disposed;
 
     private ApplicationHost(SingleInstanceGuard singleInstance, AppSettings settings, SensorPublishService publishService)
@@ -32,19 +34,18 @@ internal sealed class ApplicationHost : IDisposable
     }
 
     public bool IsExitRequested { get; private set; }
+    public bool IsSensorSourceReady { get; private set; }
+
+    public event EventHandler? SensorSourceReady;
+    public event EventHandler<string>? SensorSourceStartupFailed;
 
     public static ApplicationHost Start(SingleInstanceGuard singleInstance, bool showMainWindow)
     {
         var settings = AppSettings.LoadOrCreate();
-        if (settings.SensorSource == SensorSourceKind.HwInfo)
-        {
-            try { SimpleLog.TryWrite(HWiNFOStartupConfigurator.EnsureRunningWithSharedMemory()); }
-            catch (Exception ex) { SimpleLog.TryWriteException(ex); }
-        }
         var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
-        publishService.Start(settings.ClampedPublishIntervalMs);
+        host.StartSensorServices();
         SimpleLog.TryWrite(showMainWindow ? "Application shell started." : "Startup mode shell started.");
 
         if (showMainWindow)
@@ -86,6 +87,7 @@ internal sealed class ApplicationHost : IDisposable
         IsExitRequested = true;
         SimpleLog.TryWrite("Application exit requested.");
 
+        _startupCancellationTokenSource.Cancel();
         await _publishService.StopAsync();
         Dispose();
         System.Windows.Application.Current.Shutdown(0);
@@ -97,6 +99,8 @@ internal sealed class ApplicationHost : IDisposable
             return;
 
         _disposed = true;
+        _startupCancellationTokenSource.Cancel();
+        _startupCancellationTokenSource.Dispose();
         _trayIcon.Dispose();
         _publishService.Dispose();
         _singleInstance.Dispose();
@@ -105,5 +109,79 @@ internal sealed class ApplicationHost : IDisposable
     private void OnPublishServiceStatusChanged(object? sender, EventArgs e)
     {
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() => _trayIcon.UpdateTooltip(_publishService.LastOverlayLine));
+    }
+
+    private void StartSensorServices()
+    {
+        if (_settings.SensorSource != SensorSourceKind.HwInfo)
+        {
+            StartPublishService();
+            return;
+        }
+
+        SimpleLog.TryWrite("HWiNFO startup and shared-memory readiness monitoring started.");
+        _ = StartHwInfoAndPublishWhenReadyAsync(_startupCancellationTokenSource.Token);
+    }
+
+    private async Task StartHwInfoAndPublishWhenReadyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var startupResult = await HWiNFOStartupConfigurator
+                .EnsureRunningAndWaitForSharedMemoryAsync(cancellationToken)
+                .ConfigureAwait(false);
+            SimpleLog.TryWrite(startupResult.Message);
+
+            if (_disposed || cancellationToken.IsCancellationRequested)
+                return;
+
+            if (!startupResult.Ready)
+            {
+                SensorSourceStartupFailed?.Invoke(this, startupResult.Message);
+                await ContinueWaitingForHwInfoSharedMemoryAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            StartPublishService();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            SimpleLog.TryWrite("HWiNFO startup monitoring canceled.");
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWriteException(ex);
+            if (!_disposed)
+                SensorSourceStartupFailed?.Invoke(this, $"HWiNFO startup failed: {ex.Message}");
+        }
+    }
+
+    private void StartPublishService()
+    {
+        if (_disposed)
+            return;
+
+        _publishService.Start(_settings.ClampedPublishIntervalMs);
+        IsSensorSourceReady = true;
+        SensorSourceReady?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task ContinueWaitingForHwInfoSharedMemoryAsync(CancellationToken cancellationToken)
+    {
+        SimpleLog.TryWrite("HWiNFO shared memory recovery monitoring started.");
+
+        while (!_disposed && !cancellationToken.IsCancellationRequested)
+        {
+            var recoveryResult = await HWiNFOStartupConfigurator
+                .WaitForSharedMemoryAsync(SharedMemoryRecoveryProbeWindow, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!recoveryResult.Ready)
+                continue;
+
+            SimpleLog.TryWrite("HWiNFO shared memory recovered after startup timeout.");
+            StartPublishService();
+            return;
+        }
     }
 }
