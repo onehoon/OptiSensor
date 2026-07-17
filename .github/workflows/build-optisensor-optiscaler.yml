@@ -63,14 +63,11 @@ jobs:
           }
 
           $patchText = ($patches | ForEach-Object { Get-Content $_.FullName -Raw }) -join "`n"
-          if ($patchText -notmatch "FpsOverlayType|FpsOverlay_FpsOnly") {
-            throw "Patch stack does not appear to modify FpsOverlayType/FPS Only."
+          if ($patchText -notmatch "FpsOverlay_JustFPSExternal") {
+            throw "Patch stack does not appear to include the Just FPS external overlay type."
           }
-          if ($patchText -notmatch "AppendExternalOverlayText") {
-            throw "Patch stack does not appear to include AppendExternalOverlayText."
-          }
-          if ($patchText -notmatch "ShowFps") {
-            throw "Patch stack does not appear to include ShowFps."
+          if ($patchText -notmatch "ExternalOverlayFeed") {
+            throw "Patch stack does not appear to include the external overlay feed."
           }
 
           Write-Host "Patch stack:"
@@ -121,7 +118,6 @@ jobs:
           Write-Host "OptiScaler commit: $fullCommit"
 
       - name: Apply OptiScaler patches
-        if: ${{ false }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"

@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private readonly OverlayPage _overlayPage;
     private readonly SettingsPage _settingsPage;
     private bool _hwInfoSharedMemoryWarningShown;
+    private int _hwInfoSharedMemoryFailureCount;
     private readonly DispatcherTimer _sensorRefreshTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(1000)
@@ -157,6 +158,7 @@ public partial class MainWindow : Window
         {
             _sensorsPage.CaptureScrollPosition();
             await _viewModel.RefreshDetectedSensorsAsync();
+            _hwInfoSharedMemoryFailureCount = 0;
             _sensorsPage.RestoreScrollPosition();
             UpdateStatus();
         }
@@ -164,7 +166,11 @@ public partial class MainWindow : Window
         {
             SimpleLog.TryWrite($"RefreshDetectedSensorsAsync failed: {ex.Message}");
             SimpleLog.TryWriteException(ex);
+            if (_settings.SensorSource == Models.SensorSourceKind.HwInfo)
+                _hwInfoSharedMemoryFailureCount++;
+
             var isHwInfoSharedMemoryFailure = _settings.SensorSource == Models.SensorSourceKind.HwInfo &&
+                _hwInfoSharedMemoryFailureCount >= 5 &&
                 !_hwInfoSharedMemoryWarningShown;
             if (isHwInfoSharedMemoryFailure)
             {

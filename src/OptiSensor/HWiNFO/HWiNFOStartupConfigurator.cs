@@ -43,9 +43,13 @@ internal static class HWiNFOStartupConfigurator
         {
             try
             {
-                running.CloseMainWindow();
-                if (!running.WaitForExit(5000))
-                    return "HWiNFO could not be closed for restart.";
+                var closed = running.CloseMainWindow() && running.WaitForExit(5000);
+                if (!closed)
+                {
+                    running.Kill(entireProcessTree: true);
+                    if (!running.WaitForExit(5000))
+                        return "HWiNFO could not be closed for restart.";
+                }
             }
             finally
             {
@@ -57,14 +61,18 @@ internal static class HWiNFOStartupConfigurator
         if (executablePath is null)
             return "HWiNFO executable not found.";
 
-        Process.Start(new ProcessStartInfo
+        var started = Process.Start(new ProcessStartInfo
         {
             FileName = executablePath,
             WorkingDirectory = Path.GetDirectoryName(executablePath)!,
-            UseShellExecute = false,
-            CreateNoWindow = true,
+            UseShellExecute = true,
             WindowStyle = ProcessWindowStyle.Hidden
         });
+
+        if (started is null)
+            return "HWiNFO process could not be started.";
+
+        started.Dispose();
 
         return running is null
             ? "HWiNFO started with shared memory enabled."

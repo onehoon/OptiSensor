@@ -1,5 +1,6 @@
 using System.Text.Json;
 using OptiSensor.Install;
+using OptiSensor.Models;
 
 namespace OptiSensor.Settings;
 
@@ -18,6 +19,9 @@ internal static class SettingsStore
             var settings = AppSettings.Deserialize(json);
             settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 10000);
 
+            var selectedSource = settings.SensorSource;
+            settings.SensorSource = SensorSourceKind.Libre;
+
             if (settings.OverlayGroups.Count > 0)
             {
                 settings.ReplaceOverlayGroups(settings.OverlayGroups);
@@ -29,10 +33,7 @@ internal static class SettingsStore
             }
 
             settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
-            var libreProfile = settings.LibreProfile ??= new();
-            libreProfile.OverlayGroups = settings.OverlayGroups ?? [];
-            libreProfile.SelectedSensors = settings.SelectedSensors ?? [];
-            libreProfile.SensorCategoryFilters = settings.SensorCategoryFilters ?? [];
+            settings.SensorSource = selectedSource;
             Save(settings);
             return settings;
         }

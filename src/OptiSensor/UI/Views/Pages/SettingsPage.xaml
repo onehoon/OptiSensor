@@ -24,7 +24,8 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="Start with Windows"
+                    <TextBlock Grid.Row="1"
+                               Text="Start with Windows"
                                FontWeight="SemiBold"
                                Foreground="#0F172A"/>
                     <TextBlock Grid.Row="0" Text="Sensor source" FontWeight="SemiBold" Foreground="#0F172A"/>

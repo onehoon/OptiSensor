@@ -1,132 +1,125 @@
-From f70267688f306ec1544cf90ae560b64beb8dd65e Mon Sep 17 00:00:00 2001
+From a8d71981bc8bfa0e01932de1162156b0d8e2cc3c Mon Sep 17 00:00:00 2001
 From: OptiSensor Patch Bot <optisensor@example.invalid>
-Date: Wed, 1 Jul 2026 11:42:08 +0900
-Subject: [PATCH 4/5] Append external overlay text to FPS overlay
+Date: Fri, 17 Jul 2026 17:24:13 +0900
+Subject: [PATCH 3/3] Append external text only for external FPS overlay
 
 ---
- OptiScaler/menu/menu_common.cpp | 36 +++++++++++++++++++++++++--------
- 1 file changed, 28 insertions(+), 8 deletions(-)
+ OptiScaler/menu/menu_common.cpp | 28 ++++++++++++++++++++--------
+ 1 file changed, 20 insertions(+), 8 deletions(-)
 
 diff --git a/OptiScaler/menu/menu_common.cpp b/OptiScaler/menu/menu_common.cpp
-index 92ca6c95..4819de4d 100644
+index f8eb548..dfe54d8 100644
 --- a/OptiScaler/menu/menu_common.cpp
 +++ b/OptiScaler/menu/menu_common.cpp
-@@ -29,6 +29,7 @@
- #include <chrono>
+@@ -34,6 +34,7 @@
  #include <memory>
  #include <type_traits>
-+#include <misc/ExternalOverlayFeed.h>
  #include <misc/IdentifyGpu.h>
++#include <misc/ExternalOverlayFeed.h>
  #include <hooks/Xell_Hooks.h>
  #include <low_latency/input/input_common.h>
-@@ -1777,6 +1778,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+ 
+@@ -1785,6 +1786,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
              }
  
              const auto overlayType = config->FpsOverlayType.value_or_default();
-+            const bool isFpsOnlyOverlay = overlayType == FpsOverlay_FpsOnly;
++            const bool isJustFpsOverlay = overlayType == FpsOverlay_JustFPS || overlayType == FpsOverlay_JustFPSExternal;
              const bool hasFeature = currentFeature && !currentFeature->IsFrozen();
  
              // Prepare Line 1
-@@ -1799,6 +1801,10 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
- 
+@@ -1808,6 +1810,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                  switch (overlayType)
                  {
-+                case FpsOverlay_FpsOnly:
-+                    fpsPart = StrFmt("FPS %.0f", frameRate);
-+                    break;
-+
                  case FpsOverlay_JustFPS:
++                case FpsOverlay_JustFPSExternal:
                      fpsPart = StrFmt("FPS: %6.1f/%5.1f", frameRate, baseFps);
                      break;
-@@ -1816,6 +1822,10 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
-             {
+ 
+@@ -1825,6 +1828,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                  switch (overlayType)
                  {
-+                case FpsOverlay_FpsOnly:
-+                    fpsPart = StrFmt("FPS %.0f", frameRate);
-+                    break;
-+
                  case FpsOverlay_JustFPS:
++                case FpsOverlay_JustFPSExternal:
                      fpsPart = StrFmt("FPS: %6.1f", frameRate);
                      break;
-@@ -1831,9 +1841,19 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+ 
+@@ -1838,13 +1842,21 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+                 }
              }
  
-             firstLine = StrFmt("%s | %s%s%s", api.c_str(), fpsPart.c_str(), fgText.c_str(), featurePart.c_str());
-+            if (isFpsOnlyOverlay)
+-            if (overlayType == FpsOverlay_JustFPS)
++            if (isJustFpsOverlay)
 +            {
-+                firstLine = fpsPart;
-+                if (config->AppendExternalOverlayText.value_or_default())
+                 firstLine = StrFmt("%s", fpsPart.c_str());
++                if (overlayType == FpsOverlay_JustFPSExternal)
 +                {
 +                    std::string externalLine;
 +                    if (ExternalOverlayFeed::TryReadLine(externalLine))
 +                        firstLine += " | " + externalLine;
 +                }
 +            }
+             else
+                 firstLine = StrFmt("%s | %s%s%s", api.c_str(), fpsPart.c_str(), fgText.c_str(), featurePart.c_str());
  
              // Prepare Line 2
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
-+            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Detailed)
              {
                  if (config->FpsOverlayHorizontal.value_or_default())
                  {
-@@ -1850,7 +1870,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+@@ -1861,7 +1873,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
              }
  
              // Prepare Line 3
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
-+            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Full)
              {
                  thirdLine =
                      StrFmt("Upscaler Time: %7.2f ms, Avg: %7.2f ms", state.upscaleTimes.back(), averageUpscalerFT);
-@@ -1881,9 +1901,9 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
-             }
- 
+@@ -1894,7 +1906,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
              // Draw the overlay
--            ImGui::Text(firstLine.c_str());
-+            ImGui::TextUnformatted(firstLine.c_str());
+             ImGui::Text(firstLine.c_str());
  
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
-+            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Detailed)
              {
                  if (config->FpsOverlayHorizontal.value_or_default())
                  {
-@@ -1899,7 +1919,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+@@ -1910,7 +1922,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                  ImGui::Text(secondLine.c_str());
              }
  
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_DetailedGraph)
-+            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_DetailedGraph)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_DetailedGraph)
              {
                  if (config->FpsOverlayHorizontal.value_or_default())
                      ImGui::SameLine(0.0f, 0.0f);
-@@ -1911,7 +1931,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+@@ -1922,7 +1934,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                      &gFrameTimes, plotWidth, 0, nullptr, 0.0f, 66.6f, plotSize);
              }
  
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
-+            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Full)
              {
                  if (config->FpsOverlayHorizontal.value_or_default())
                  {
-@@ -1927,7 +1947,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+@@ -1938,7 +1950,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                  ImGui::Text(thirdLine.c_str());
              }
  
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_FullGraph)
-+            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_FullGraph)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_FullGraph)
              {
                  if (config->FpsOverlayHorizontal.value_or_default())
                      ImGui::SameLine(0.0f, 0.0f);
-@@ -1939,7 +1959,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+@@ -1950,7 +1962,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                      &gUpscalerTimes, plotWidth, 0, nullptr, 0.0f, 20.0f, plotSize);
              }
  
 -            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_ReflexTimings)
-+            if (!isFpsOnlyOverlay && config->FpsOverlayType.value_or_default() >= FpsOverlay_ReflexTimings)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_ReflexTimings)
              {
                  constexpr auto delayBetweenPollsMs = 500;
                  static auto previousPoll = 0.0;
 -- 
 2.53.0.windows.2
-

@@ -46,17 +46,19 @@ internal sealed class HwInfoSensorReader : ISensorReader
 
     private static DetectedSensorInfo Map(SensorReading reading)
     {
-        var type = Get(reading, "SensorTypeUsage");
-        var name = Get(reading, "SensorNameUser");
-        if (string.IsNullOrWhiteSpace(name)) name = Get(reading, "SensorNameOrig");
-        var hardware = Get(reading, "SensorSection");
+        var type = Get(reading, "ReadingType");
+        var name = Get(reading, "LabelUser");
+        if (string.IsNullOrWhiteSpace(name)) name = Get(reading, "LabelOrig");
+        var hardware = Get(reading, "SensorNameUser");
+        if (string.IsNullOrWhiteSpace(hardware)) hardware = Get(reading, "SensorNameOrig");
         var sensorId = Get(reading, "SensorId");
         var instance = Get(reading, "SensorInstance");
+        var readingId = Get(reading, "ReadingId");
         var unit = Get(reading, "Unit");
         var value = double.TryParse(Get(reading, "Value"), out var parsed) ? (float?)parsed : null;
         var category = Classify(type, name, hardware);
         return new DetectedSensorInfo(
-            SensorId: $"hwinfo/{sensorId}/{instance}",
+            SensorId: $"hwinfo/{sensorId}/{instance}/{readingId}",
             HardwareType: hardware,
             HardwareName: hardware,
             SensorType: type,
@@ -70,12 +72,12 @@ internal sealed class HwInfoSensorReader : ISensorReader
 
     private static OptiSensorCategory Classify(string type, string sensorName, string hardwareName)
     {
-        if (hardwareName.Contains("GPU", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Gpu;
-        if (hardwareName.Contains("CPU", StringComparison.OrdinalIgnoreCase) || hardwareName.Contains("Processor", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Cpu;
         var typeName = type;
         if (typeName.Contains("Fan", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Fan;
         if (typeName.Contains("Power", StringComparison.OrdinalIgnoreCase) || typeName.Contains("Volt", StringComparison.OrdinalIgnoreCase) || typeName.Contains("Current", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Power;
-        if (typeName.Contains("Temp", StringComparison.OrdinalIgnoreCase) && sensorName.Contains("battery", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Battery;
+        if (hardwareName.Contains("Battery", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Battery;
+        if (hardwareName.Contains("GPU", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Gpu;
+        if (hardwareName.Contains("CPU", StringComparison.OrdinalIgnoreCase) || hardwareName.Contains("Processor", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Cpu;
         return OptiSensorCategory.Other;
     }
 }

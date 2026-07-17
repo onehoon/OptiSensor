@@ -11,7 +11,6 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     {
         InitializeComponent();
         SensorSourceComboBox.ItemsSource = Enum.GetValues<SensorSourceKind>();
-        SensorSourceComboBox.DisplayMemberPath = nameof(Enum.ToString);
     }
 
     public event EventHandler? SaveRequested;
