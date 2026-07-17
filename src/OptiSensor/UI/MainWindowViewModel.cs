@@ -16,7 +16,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private const string UngroupedGroupName = "Ungrouped";
     private readonly AppSettings _settings;
     private readonly OverlayLineBuilder _overlayLineBuilder = new();
-    private readonly SensorDiscoveryService _sensorDiscoveryService = new();
+    private readonly SensorDiscoveryService _sensorDiscoveryService;
     private readonly ObservableCollection<SelectedOverlaySensorViewModel> _emptySelectedSensors = [];
     private bool _hasUnsavedChanges;
     private bool _isRefreshing;
@@ -42,8 +42,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public MainWindowViewModel(AppSettings settings)
     {
         _settings = settings;
+        _sensorDiscoveryService = new SensorDiscoveryService(settings.SensorSource);
 
-        var categoryFilterSnapshot = _settings.GetSensorCategoryFilterSnapshot();
+        var categoryFilterSnapshot = _settings.GetActiveSensorCategoryFilterSnapshot();
         foreach (var category in Enum.GetValues<OptiSensorCategory>())
         {
             var filter = new SensorCategoryFilterViewModel(category, categoryFilterSnapshot[category]);

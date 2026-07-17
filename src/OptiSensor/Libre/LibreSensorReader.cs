@@ -4,7 +4,7 @@ using System.Diagnostics;
 
 namespace OptiSensor.Libre;
 
-internal sealed class LibreSensorReader : IDisposable
+internal sealed class LibreSensorReader : ISensorReader
 {
     private readonly Dictionary<string, DateTimeOffset> _lastHardwareUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
     private readonly Computer _computer = new()

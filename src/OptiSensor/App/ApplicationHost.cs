@@ -1,5 +1,7 @@
 using System.Windows;
 using OptiSensor.Install;
+using OptiSensor.HWiNFO;
+using OptiSensor.Models;
 using OptiSensor.Libre;
 using OptiSensor.Overlay;
 using OptiSensor.Publishing;
@@ -34,6 +36,11 @@ internal sealed class ApplicationHost : IDisposable
     public static ApplicationHost Start(SingleInstanceGuard singleInstance, bool showMainWindow)
     {
         var settings = AppSettings.LoadOrCreate();
+        if (settings.SensorSource == SensorSourceKind.HwInfo)
+        {
+            try { SimpleLog.TryWrite(HWiNFOStartupConfigurator.EnsureSharedMemoryEnabled()); }
+            catch (Exception ex) { SimpleLog.TryWriteException(ex); }
+        }
         var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
@@ -50,8 +57,11 @@ internal sealed class ApplicationHost : IDisposable
     {
         settings ??= AppSettings.LoadOrCreate();
 
+        ISensorReader sensorReader = settings.SensorSource == SensorSourceKind.HwInfo
+            ? new HwInfoSensorReader()
+            : new LibreSensorReader();
         return new SensorPublishRunner(
-            new LibreSensorReader(),
+            sensorReader,
             new OverlayLineBuilder(),
             new ExternalOverlayPublisher(),
             settings.GetOverlayGroupsSnapshot);

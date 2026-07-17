@@ -7,7 +7,7 @@ namespace OptiSensor.Publishing;
 internal sealed class SensorPublishRunner : IDisposable
 {
     private const int ClearDebounceCycles = 5;
-    private readonly LibreSensorReader _sensorReader;
+    private readonly ISensorReader _sensorReader;
     private readonly OverlayLineBuilder _lineBuilder;
     private readonly ExternalOverlayPublisher _publisher;
     private readonly Func<IReadOnlyCollection<OverlayGroup>> _overlayGroupsProvider;
@@ -16,7 +16,7 @@ internal sealed class SensorPublishRunner : IDisposable
     private int _emptyOverlayCycles;
 
     public SensorPublishRunner(
-        LibreSensorReader sensorReader,
+        ISensorReader sensorReader,
         OverlayLineBuilder lineBuilder,
         ExternalOverlayPublisher publisher,
         Func<IReadOnlyCollection<OverlayGroup>> overlayGroupsProvider)

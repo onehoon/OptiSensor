@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using OptiSensor.Settings;
+using OptiSensor.Models;
 
 namespace OptiSensor.UI.Views.Pages;
 
@@ -9,6 +10,8 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     public SettingsPage()
     {
         InitializeComponent();
+        SensorSourceComboBox.ItemsSource = Enum.GetValues<SensorSourceKind>();
+        SensorSourceComboBox.DisplayMemberPath = nameof(Enum.ToString);
     }
 
     public event EventHandler? SaveRequested;
@@ -19,6 +22,7 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     internal void LoadSettings(AppSettings settings)
     {
         StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
+        SensorSourceComboBox.SelectedItem = settings.SensorSource;
         PublishIntervalTextBox.Text = settings.ClampedPublishIntervalMs.ToString(CultureInfo.InvariantCulture);
     }
 
@@ -26,6 +30,8 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     {
         errorMessage = null;
         settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
+        if (SensorSourceComboBox.SelectedItem is SensorSourceKind source)
+            settings.SensorSource = source;
 
         if (!int.TryParse(PublishIntervalTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var publishIntervalMs))
         {
