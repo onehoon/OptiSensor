@@ -1,0 +1,388 @@
+From cb98af548ad81ec6f1cd631d98b226e2397acd6a Mon Sep 17 00:00:00 2001
+From: OptiSensor Patch Bot <optisensor@example.invalid>
+Date: Sat, 18 Jul 2026 11:09:09 +0900
+Subject: [PATCH] Add external overlay support for release 0.9
+
+---
+ OptiScaler.ini                          |   4 +-
+ OptiScaler/Config.h                     |   3 +-
+ OptiScaler/OptiScaler.vcxproj           |   4 +-
+ OptiScaler/OptiScaler.vcxproj.filters   |   8 +-
+ OptiScaler/menu/menu_common.cpp         |  33 ++++--
+ OptiScaler/misc/ExternalOverlayFeed.cpp | 135 ++++++++++++++++++++++++
+ OptiScaler/misc/ExternalOverlayFeed.h   |  11 ++
+ 7 files changed, 182 insertions(+), 16 deletions(-)
+ create mode 100644 OptiScaler/misc/ExternalOverlayFeed.cpp
+ create mode 100644 OptiScaler/misc/ExternalOverlayFeed.h
+
+diff --git a/OptiScaler.ini b/OptiScaler.ini
+index a9b7a88a..e2b850ee 100644
+--- a/OptiScaler.ini
++++ b/OptiScaler.ini
+@@ -781,8 +781,8 @@ FpsScale=auto
+ FpsOverlayPos=auto
+ 
+ ; FPS overlay type
+-; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 Full | 5 Full + Graph | 6 Reflex timings
+-; 0 to 6 - Default (auto) is 0
++; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 Full | 5 Full + Graph | 6 Reflex timings | 7 = Just FPS (+External)
++; 0 to 7 - Default (auto) is 7
+ FpsOverlayType=auto
+ 
+ ; Shortcut key for FPS overlay
+diff --git a/OptiScaler/Config.h b/OptiScaler/Config.h
+index d7909b76..8c216b06 100644
+--- a/OptiScaler/Config.h
++++ b/OptiScaler/Config.h
+@@ -167,6 +167,7 @@ enum FpsOverlay : uint32_t
+     FpsOverlay_Full,
+     FpsOverlay_FullGraph,
+     FpsOverlay_ReflexTimings,
++    FpsOverlay_JustFPSExternal,
+     FpsOverlay_COUNT,
+ };
+ 
+@@ -294,7 +295,7 @@ class Config
+     /// 0 Only FPS, 1 +Avg FPS & Upscaler info 2 +Frame Time,
+     /// 3 +Upscaler Time, 4 +Frame Time Graph, 5 +Upscaler Time Graph
+     /// 6 +Reflex timings
+-    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_JustFPS };
++    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_JustFPSExternal };
+     CustomOptional<int> FpsShortcutKey { VK_PRIOR };
+     CustomOptional<int> FpsCycleShortcutKey { VK_NEXT };
+     CustomOptional<bool> FpsOverlayHorizontal { false };
+
+diff --git a/OptiScaler/OptiScaler.vcxproj b/OptiScaler/OptiScaler.vcxproj
+index 082928b4..fb5b5d98 100644
+--- a/OptiScaler/OptiScaler.vcxproj
++++ b/OptiScaler/OptiScaler.vcxproj
+@@ -418,6 +418,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+     <ClInclude Include="inputs\XeSS_Proxy.h" />
+     <ClInclude Include="inputs\XeSS_Vulkan.h" />
+     <ClInclude Include="menu\font\Hack_Compressed.h" />
++    <ClInclude Include="misc\ExternalOverlayFeed.h" />
+     <ClInclude Include="misc\FrameLimit.h" />
+     <ClInclude Include="misc\Quirks.h" />
+     <ClInclude Include="OwnedMutex.h" />
+@@ -633,6 +634,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+     <ClCompile Include="inputs\XeSS_Common.cpp" />
+     <ClCompile Include="inputs\XeSS_Dbg.cpp" />
+     <ClCompile Include="inputs\XeSS_Vulkan.cpp" />
++    <ClCompile Include="misc\ExternalOverlayFeed.cpp" />
+     <ClCompile Include="misc\FrameLimit.cpp" />
+     <ClCompile Include="nvapi\fakenvapi.cpp" />
+     <ClCompile Include="nvapi\NvApiHooks.cpp" />
+@@ -747,4 +749,4 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+   <ImportGroup Label="ExtensionTargets">
+   </ImportGroup>
+-</Project>
+\ No newline at end of file
++</Project>
+diff --git a/OptiScaler/OptiScaler.vcxproj.filters b/OptiScaler/OptiScaler.vcxproj.filters
+index 961a6db0..0aaea085 100644
+--- a/OptiScaler/OptiScaler.vcxproj.filters
++++ b/OptiScaler/OptiScaler.vcxproj.filters
+@@ -329,6 +329,9 @@
+     <ClInclude Include="misc\FrameLimit.h">
+       <Filter>Header Files</Filter>
+     </ClInclude>
++    <ClInclude Include="misc\ExternalOverlayFeed.h">
++      <Filter>Header Files</Filter>
++    </ClInclude>
+     <ClInclude Include="inputs\FfxApi_Vk.h">
+       <Filter>Header Files</Filter>
+     </ClInclude>
+@@ -998,6 +1001,9 @@
+     <ClCompile Include="misc\FrameLimit.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
++    <ClCompile Include="misc\ExternalOverlayFeed.cpp">
++      <Filter>Source Files</Filter>
++    </ClCompile>
+     <ClCompile Include="hooks\Reflex_Hooks.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
+@@ -1214,4 +1220,4 @@
+       <Filter>Source Files</Filter>
+     </None>
+   </ItemGroup>
+-</Project>
+\ No newline at end of file
++</Project>
+diff --git a/OptiScaler/menu/menu_common.cpp b/OptiScaler/menu/menu_common.cpp
+index 8e60cb7f..9e9d764b 100644
+--- a/OptiScaler/menu/menu_common.cpp
++++ b/OptiScaler/menu/menu_common.cpp
+@@ -13,6 +13,7 @@
+ 
+ #include <nvapi/fakenvapi.h>
+ #include <hooks/Reflex_Hooks.h>
++#include <misc/ExternalOverlayFeed.h>
+ 
+ #include <version_check.h>
+ 
+@@ -2524,9 +2525,12 @@ bool MenuCommon::RenderMenu()
+             auto fg = state.currentFG;
+             auto fgText = (fg != nullptr && fg->IsActive() && !fg->IsPaused()) ? ("(" + std::string(fg->Name()) + ")")
+                                                                                : std::string();
++            const auto overlayType = config->FpsOverlayType.value_or_default();
++            const bool isJustFpsOverlay =
++                overlayType == FpsOverlay_JustFPS || overlayType == FpsOverlay_JustFPSExternal;
+ 
+             // Prepare Line 1
+-            if (config->FpsOverlayType.value_or_default() == FpsOverlay_JustFPS)
++            if (isJustFpsOverlay)
+             {
+                 if (fg != nullptr && fg->IsActive() && !fg->IsPaused())
+                 {
+@@ -2537,8 +2541,15 @@ bool MenuCommon::RenderMenu()
+                 {
+                     firstLine = StrFmt("%s | FPS: %6.1f %s", api.c_str(), frameRate, fgText.c_str());
+                 }
++
++                if (overlayType == FpsOverlay_JustFPSExternal)
++                {
++                    std::string externalLine;
++                    if (ExternalOverlayFeed::TryReadLine(externalLine))
++                        firstLine += " | " + externalLine;
++                }
+             }
+-            else if (config->FpsOverlayType.value_or_default() == FpsOverlay_Simple)
++            else if (overlayType == FpsOverlay_Simple)
+             {
+                 if (currentFeature != nullptr && !currentFeature->IsFrozen())
+                 {
+@@ -2612,7 +2623,7 @@ bool MenuCommon::RenderMenu()
+             }
+ 
+             // Prepare Line 2
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Detailed)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                 {
+@@ -2629,7 +2640,7 @@ bool MenuCommon::RenderMenu()
+             }
+ 
+             // Prepare Line 3
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Full)
+             {
+                 thirdLine =
+                     StrFmt("Upscaler Time: %7.2f ms, Avg: %7.2f ms", state.upscaleTimes.back(), averageUpscalerFT);
+@@ -2660,9 +2671,9 @@ bool MenuCommon::RenderMenu()
+             }
+ 
+             // Draw the overlay
+-            ImGui::Text(firstLine.c_str());
++            ImGui::TextUnformatted(firstLine.c_str());
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Detailed)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Detailed)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                 {
+@@ -2678,7 +2689,7 @@ bool MenuCommon::RenderMenu()
+                 ImGui::Text(secondLine.c_str());
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_DetailedGraph)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_DetailedGraph)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                     ImGui::SameLine(0.0f, 0.0f);
+@@ -2690,7 +2701,7 @@ bool MenuCommon::RenderMenu()
+                     &gFrameTimes, plotWidth, 0, nullptr, 0.0f, 66.6f, plotSize);
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_Full)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_Full)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                 {
+@@ -2706,7 +2717,7 @@ bool MenuCommon::RenderMenu()
+                 ImGui::Text(thirdLine.c_str());
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_FullGraph)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_FullGraph)
+             {
+                 if (config->FpsOverlayHorizontal.value_or_default())
+                     ImGui::SameLine(0.0f, 0.0f);
+@@ -2718,7 +2729,7 @@ bool MenuCommon::RenderMenu()
+                     &gUpscalerTimes, plotWidth, 0, nullptr, 0.0f, 20.0f, plotSize);
+             }
+ 
+-            if (config->FpsOverlayType.value_or_default() >= FpsOverlay_ReflexTimings)
++            if (!isJustFpsOverlay && overlayType >= FpsOverlay_ReflexTimings)
+             {
+                 constexpr auto delayBetweenPollsMs = 500;
+                 static auto previousPoll = 0.0;
+@@ -6487,7 +6498,7 @@ bool MenuCommon::RenderMenu()
+                     }
+ 
+                     const char* fpsType[] = { "Just FPS", "Simple",       "Detailed",      "Detailed + Graph",
+-                                              "Full",     "Full + Graph", "Reflex timings" };
++                                              "Full",     "Full + Graph", "Reflex timings", "Just FPS (+External)" };
+                     const char* selectedType = fpsType[config->FpsOverlayType.value_or_default()];
+ 
+                     if (ImGui::BeginCombo("Overlay Type", selectedType))
+diff --git a/OptiScaler/misc/ExternalOverlayFeed.cpp b/OptiScaler/misc/ExternalOverlayFeed.cpp
+new file mode 100644
+index 00000000..c4cf3851
+--- /dev/null
++++ b/OptiScaler/misc/ExternalOverlayFeed.cpp
+@@ -0,0 +1,135 @@
++#include "pch.h"
++#include "ExternalOverlayFeed.h"
++
++#include <array>
++#include <cstddef>
++#include <cstring>
++
++namespace
++{
++constexpr wchar_t MappingName[] = L"Local\\OptiScalerExternalOverlay";
++constexpr uint32_t PayloadMagic = 0x564F534F; // OSOV
++constexpr uint32_t PayloadVersion = 1;
++constexpr uint32_t MaxLines = 4;
++constexpr uint32_t MaxLineLength = 128;
++constexpr uint64_t StaleAfterMs = 2000;
++constexpr uint64_t OpenRetryMs = 1000;
++
++struct ExternalOverlayPayload
++{
++    uint32_t magic;
++    uint32_t version;
++    volatile uint32_t sequence;
++    uint64_t lastUpdateTickMs;
++    uint32_t lineCount;
++    // Lines are UTF-8, null-terminated byte strings written by OptiSensor.
++    char lines[MaxLines][MaxLineLength];
++};
++
++static_assert(offsetof(ExternalOverlayPayload, lastUpdateTickMs) == 16);
++static_assert(offsetof(ExternalOverlayPayload, lineCount) == 24);
++static_assert(offsetof(ExternalOverlayPayload, lines) == 28);
++static_assert(sizeof(ExternalOverlayPayload) == 544);
++
++HANDLE g_mapping = nullptr;
++ExternalOverlayPayload* g_payload = nullptr;
++uint64_t g_nextOpenAttemptTick = 0;
++
++void CloseMapping()
++{
++    if (g_payload != nullptr)
++    {
++        UnmapViewOfFile(g_payload);
++        g_payload = nullptr;
++    }
++
++    if (g_mapping != nullptr)
++    {
++        CloseHandle(g_mapping);
++        g_mapping = nullptr;
++    }
++}
++
++bool EnsureMapped(uint64_t now)
++{
++    if (g_payload != nullptr)
++        return true;
++
++    if (now < g_nextOpenAttemptTick)
++        return false;
++
++    g_nextOpenAttemptTick = now + OpenRetryMs;
++
++    g_mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, MappingName);
++    if (g_mapping == nullptr)
++        return false;
++
++    g_payload = static_cast<ExternalOverlayPayload*>(MapViewOfFile(g_mapping, FILE_MAP_READ, 0, 0,
++                                                                   sizeof(ExternalOverlayPayload)));
++    if (g_payload == nullptr)
++    {
++        CloseMapping();
++        return false;
++    }
++
++    return true;
++}
++
++bool TryReadLineImpl(std::string& line)
++{
++    const auto now = GetTickCount64();
++    if (!EnsureMapped(now))
++        return false;
++
++    if (g_payload->magic != PayloadMagic || g_payload->version != PayloadVersion)
++    {
++        CloseMapping();
++        return false;
++    }
++
++    const auto sequenceBefore = g_payload->sequence;
++    if ((sequenceBefore & 1U) != 0)
++        return false;
++
++    MemoryBarrier();
++
++    const auto lastUpdateTickMs = g_payload->lastUpdateTickMs;
++    const auto lineCount = g_payload->lineCount;
++
++    if (lineCount == 0 || lineCount > MaxLines)
++        return false;
++
++    if (lastUpdateTickMs == 0 || lastUpdateTickMs > now || now - lastUpdateTickMs > StaleAfterMs)
++        return false;
++
++    std::array<char, MaxLineLength> buffer {};
++    memcpy(buffer.data(), g_payload->lines[0], buffer.size());
++
++    MemoryBarrier();
++
++    const auto sequenceAfter = g_payload->sequence;
++    if (sequenceBefore != sequenceAfter || (sequenceAfter & 1U) != 0)
++        return false;
++
++    const auto length = strnlen_s(buffer.data(), buffer.size());
++    if (length == 0)
++        return false;
++
++    line.assign(buffer.data(), length);
++    return true;
++}
++}
++
++bool ExternalOverlayFeed::TryReadLine(std::string& line)
++{
++    try
++    {
++        line.clear();
++        return TryReadLineImpl(line);
++    }
++    catch (...)
++    {
++        line.clear();
++        return false;
++    }
++}
+diff --git a/OptiScaler/misc/ExternalOverlayFeed.h b/OptiScaler/misc/ExternalOverlayFeed.h
+new file mode 100644
+index 00000000..dae587f4
+--- /dev/null
++++ b/OptiScaler/misc/ExternalOverlayFeed.h
+@@ -0,0 +1,11 @@
++#pragma once
++
++#include "SysUtils.h"
++
++#include <string>
++
++class ExternalOverlayFeed
++{
++  public:
++    static bool TryReadLine(std::string& line);
++};
