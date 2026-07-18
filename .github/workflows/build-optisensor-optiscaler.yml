@@ -6,7 +6,7 @@ on:
       optiscaler_ref:
         description: "OptiScaler branch, tag, or commit SHA"
         required: true
-        default: "master"
+        default: "release/0.9"
       publish_release:
         description: "Upload package to GitHub Release"
         required: true
