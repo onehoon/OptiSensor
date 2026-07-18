@@ -95,12 +95,13 @@ jobs:
           function Resolve-GitCommit {
             param([Parameter(Mandatory = $true)][string] $revision)
 
-            $commit = (git rev-parse --verify "$revision^{commit}").Trim()
-            if ($LASTEXITCODE -ne 0) {
-              throw "OptiScaler ref '$revision' could not be resolved to a commit (exit code $LASTEXITCODE)."
+            $output = git rev-parse --verify "$revision^{commit}"
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) {
+              throw "OptiScaler ref '$revision' could not be resolved to a commit (exit code $exitCode)."
             }
 
-            return $commit
+            return ($output | Out-String).Trim()
           }
 
           Invoke-Git clone $repoUrl $cloneDir

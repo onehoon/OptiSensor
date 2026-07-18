@@ -31,12 +31,60 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $repo = "$env:OPTISCALER_REPO"
+          $ref = "${{ inputs.optiscaler_ref }}"
+          $repoUrl = "https://github.com/$repo.git"
           $cloneDir = Join-Path $env:GITHUB_WORKSPACE ".work/OptiScaler"
-          git clone "https://github.com/$env:OPTISCALER_REPO.git" $cloneDir
+
+          function Invoke-Git {
+            git @args
+            if ($LASTEXITCODE -ne 0) {
+              throw "git $args failed with exit code $LASTEXITCODE"
+            }
+          }
+
+          function Resolve-GitCommit {
+            param([Parameter(Mandatory = $true)][string] $revision)
+
+            $output = git rev-parse --verify "$revision^{commit}"
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) {
+              throw "OptiScaler ref '$revision' could not be resolved to a commit (exit code $exitCode)."
+            }
+
+            return ($output | Out-String).Trim()
+          }
+
+          Invoke-Git clone $repoUrl $cloneDir
           Set-Location $cloneDir
-          git fetch origin --tags --prune
-          git checkout "${{ inputs.optiscaler_ref }}"
-          git submodule update --init --recursive
+          Invoke-Git fetch origin --tags --prune
+
+          git ls-remote --exit-code --heads origin $ref | Out-Null
+          $branchLookupExitCode = $LASTEXITCODE
+          if ($branchLookupExitCode -eq 0) {
+            $revision = "origin/$ref"
+          }
+          elseif ($branchLookupExitCode -eq 2) {
+            $revision = $ref
+          }
+          else {
+            throw "Unable to query OptiScaler ref '$ref' (exit code $branchLookupExitCode)."
+          }
+
+          $expectedCommit = Resolve-GitCommit $revision
+          Invoke-Git checkout --detach $expectedCommit
+          $checkedOutCommit = Resolve-GitCommit "HEAD"
+          if ($checkedOutCommit -ne $expectedCommit) {
+            throw "Checked-out OptiScaler commit '$checkedOutCommit' does not match requested ref '$ref' ('$expectedCommit')."
+          }
+
+          Invoke-Git submodule update --init --recursive
+
+          $commit = (Invoke-Git rev-parse --short=12 HEAD).Trim()
+          $fullCommit = Resolve-GitCommit "HEAD"
+          "OPTISCALER_COMMIT=$commit" >> $env:GITHUB_ENV
+          "OPTISCALER_FULL_COMMIT=$fullCommit" >> $env:GITHUB_ENV
+          Write-Host "OptiScaler commit: $fullCommit"
 
       - name: Apply OptiSensor overlay patches
         shell: pwsh
