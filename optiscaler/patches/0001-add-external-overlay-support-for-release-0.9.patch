@@ -4,21 +4,29 @@ Date: Sat, 18 Jul 2026 11:09:09 +0900
 Subject: [PATCH] Add external overlay support for release 0.9
 
 ---
- OptiScaler.ini                          |   4 +-
- OptiScaler/Config.h                     |   3 +-
+ OptiScaler.ini                          |   6 ++--
+ OptiScaler/Config.h                     |   4 ++--
  OptiScaler/OptiScaler.vcxproj           |   4 +-
  OptiScaler/OptiScaler.vcxproj.filters   |   8 +-
  OptiScaler/menu/menu_common.cpp         |  33 ++++--
  OptiScaler/misc/ExternalOverlayFeed.cpp | 135 ++++++++++++++++++++++++
  OptiScaler/misc/ExternalOverlayFeed.h   |  11 ++
- 7 files changed, 182 insertions(+), 16 deletions(-)
+ 7 files changed, 184 insertions(+), 18 deletions(-)
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.cpp
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.h
 
 diff --git a/OptiScaler.ini b/OptiScaler.ini
-index a9b7a88a..e2b850ee 100644
+index a9b7a88a..5cb0e915 100644
 --- a/OptiScaler.ini
 +++ b/OptiScaler.ini
+@@ -767,6 +767,6 @@ DisableSplash=auto
+ 
+ ; Enables FPS overlay
+-; true or false - Default (auto) is false
++; true or false - Default (auto) is true
+ ShowFps=auto
+ 
+ ; In-game FPS Overlay scale
 @@ -781,8 +781,8 @@ FpsScale=auto
  FpsOverlayPos=auto
  
@@ -31,7 +39,7 @@ index a9b7a88a..e2b850ee 100644
  
  ; Shortcut key for FPS overlay
 diff --git a/OptiScaler/Config.h b/OptiScaler/Config.h
-index d7909b76..8c216b06 100644
+index d7909b76..70be10c2 100644
 --- a/OptiScaler/Config.h
 +++ b/OptiScaler/Config.h
 @@ -167,6 +167,7 @@ enum FpsOverlay : uint32_t
@@ -42,7 +50,14 @@ index d7909b76..8c216b06 100644
      FpsOverlay_COUNT,
  };
  
-@@ -294,7 +295,7 @@ class Config
+@@ -289,13 +290,13 @@ class Config
+     CustomOptional<bool> OverlayMenu { true };
+     CustomOptional<int> ShortcutKey { VK_INSERT };
+     CustomOptional<bool> ExtendedLimits { false };
+-    CustomOptional<bool> ShowFps { false };
++    CustomOptional<bool> ShowFps { true };
+     /// 0 Top Left, 1 Top Right, 2 Bottom Left, 3 Bottom Right
+     CustomOptional<int> FpsOverlayPos { 0 };
      /// 0 Only FPS, 1 +Avg FPS & Upscaler info 2 +Frame Time,
      /// 3 +Upscaler Time, 4 +Frame Time Graph, 5 +Upscaler Time Graph
      /// 6 +Reflex timings
@@ -72,13 +87,6 @@ index 082928b4..fb5b5d98 100644
      <ClCompile Include="misc\FrameLimit.cpp" />
      <ClCompile Include="nvapi\fakenvapi.cpp" />
      <ClCompile Include="nvapi\NvApiHooks.cpp" />
-@@ -747,4 +749,4 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
-   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-   <ImportGroup Label="ExtensionTargets">
-   </ImportGroup>
--</Project>
-\ No newline at end of file
-+</Project>
 diff --git a/OptiScaler/OptiScaler.vcxproj.filters b/OptiScaler/OptiScaler.vcxproj.filters
 index 961a6db0..0aaea085 100644
 --- a/OptiScaler/OptiScaler.vcxproj.filters
@@ -103,13 +111,6 @@ index 961a6db0..0aaea085 100644
      <ClCompile Include="hooks\Reflex_Hooks.cpp">
        <Filter>Source Files</Filter>
      </ClCompile>
-@@ -1214,4 +1220,4 @@
-       <Filter>Source Files</Filter>
-     </None>
-   </ItemGroup>
--</Project>
-\ No newline at end of file
-+</Project>
 diff --git a/OptiScaler/menu/menu_common.cpp b/OptiScaler/menu/menu_common.cpp
 index 8e60cb7f..9e9d764b 100644
 --- a/OptiScaler/menu/menu_common.cpp
