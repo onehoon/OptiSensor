@@ -10,7 +10,7 @@ constexpr uint32_t PayloadMagic = 0x564F534F; // OSOV
 constexpr uint32_t PayloadVersion = 1;
 constexpr uint32_t MaxLines = 4;
 constexpr uint32_t MaxLineLength = 128;
-constexpr uint64_t StaleAfterMs = 2000;
+constexpr uint64_t StaleAfterMs = 5000;
 
 struct Payload
 {
