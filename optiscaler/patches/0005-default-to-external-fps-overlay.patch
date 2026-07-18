@@ -1,0 +1,36 @@
+From baf960a99a86e1cc8e805af8914d7e0f6fc6a9c3 Mon Sep 17 00:00:00 2001
+From: OptiSensor Patch Bot <optisensor@example.invalid>
+Date: Sat, 18 Jul 2026 11:33:06 +0900
+Subject: [PATCH] Default to external FPS overlay
+
+---
+ OptiScaler.ini      | 2 +-
+ OptiScaler/Config.h | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/OptiScaler.ini b/OptiScaler.ini
+index 47e41a8..257a095 100644
+--- a/OptiScaler.ini
++++ b/OptiScaler.ini
+@@ -822,7 +822,7 @@ FpsOverlayPos=auto
+ 
+ ; FPS overlay type
+ ; 0 = Just FPS | 1 = Simple | 2 = Detailed | 3 = Detailed + Graph | 4 Full | 5 Full + Graph | 6 Reflex timings | 7 = Just FPS (+External)
+-; 0 to 7 - Default (auto) is 0
++; 0 to 7 - Default (auto) is 7
+ FpsOverlayType=auto
+ 
+ ; Shortcut key for FPS overlay
+diff --git a/OptiScaler/Config.h b/OptiScaler/Config.h
+index 5a9a35e..7f6536a 100644
+--- a/OptiScaler/Config.h
++++ b/OptiScaler/Config.h
+@@ -328,7 +328,7 @@ class Config
+     /// 0 Only FPS, 1 +Avg FPS & Upscaler info 2 +Frame Time,
+     /// 3 +Upscaler Time, 4 +Frame Time Graph, 5 +Upscaler Time Graph
+     /// 6 +Reflex timings
+-    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_JustFPS };
++    CustomOptional<FpsOverlay> FpsOverlayType { FpsOverlay_JustFPSExternal };
+     CustomOptional<int> FpsShortcutKey { VK_PRIOR };
+     CustomOptional<int> FpsCycleShortcutKey { VK_NEXT };
+     CustomOptional<bool> FpsOverlayHorizontal { false };
