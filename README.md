@@ -2,12 +2,12 @@
 
 OptiSensor is a lightweight Windows hardware sensor helper for OptiScaler's external overlay.
 
-It reads local hardware sensor values with LibreHardwareMonitor and publishes a compact overlay line through shared memory, so a patched OptiScaler build can append the values to its FPS-only overlay.
+It reads local hardware sensor values with LibreHardwareMonitor and publishes a compact overlay line through the `Local\OptiScalerExternalOverlay` shared-memory mapping. A patched OptiScaler build appends the first UTF-8 line to its FPS overlay. The shared-memory payload format is fixed; only the text content is updated.
 
 Example overlay:
 
 ```text
-FPS 111 | GPU 44C | 115W | 62%
+D3D12 | FPS: 111.0 | GPU 44C | 115W | 62%
 ```
 
 ## Current Scope
@@ -93,6 +93,24 @@ OptiScaler changes are stored as a patch stack under:
 optiscaler/patches/
 ```
 
+This is an unofficial OptiScaler integration. It builds OptiScaler from the upstream `release/0.9` branch and applies this repository's release-specific patch stack; it is not an upstream OptiScaler release.
+
+### release/0.9 Overlay Behavior
+
+- Upstream target: `optiscaler/OptiScaler` `release/0.9`
+- Overlay type: `7 = Just FPS (+External)`
+- The release/0.9 patch appends the shared-memory text to OptiScaler's existing Just FPS output.
+- There is no `AppendExternalOverlayText` INI key or separate toggle.
+
+For a new or unchanged INI file, the compiled defaults are:
+
+```ini
+ShowFps=auto        ; compiled default: true
+FpsOverlayType=auto ; compiled default: 7 = Just FPS (+External)
+```
+
+Users can explicitly set `ShowFps=true` and `FpsOverlayType=7` if they do not want to rely on `auto`. When OptiSensor stops publishing, the external sensor text expires after about 5 seconds while the FPS portion remains visible.
+
 The manual package workflow:
 
 1. Checks out this OptiSensor repository.
@@ -119,7 +137,7 @@ Use the patch import helper when the OptiScaler integration branch changes:
 .\scripts\import-optiscaler-patches.ps1 `
   -SourceRepo "onehoon/OptiScaler" `
   -SourceRef "optisensor-overlay" `
-  -BaseRef "master" `
+  -BaseRef "release/0.9" `
   -OutputDir "optiscaler/patches"
 ```
 
