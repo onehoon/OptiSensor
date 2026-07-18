@@ -48,7 +48,7 @@ internal sealed class AppSettings
     public Dictionary<OptiSensorCategory, bool> SensorCategoryFilters { get; set; } = [];
 
     [JsonIgnore]
-    public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 10000);
+    public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 2000);
 
     [JsonIgnore]
     public IReadOnlyList<SelectedOverlaySensor> EnabledSelectedSensors =>

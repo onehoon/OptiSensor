@@ -67,7 +67,7 @@ internal sealed class SensorPublishRunner : IDisposable
 
     public async Task RunLoopAsync(int publishIntervalMs, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)
     {
-        var interval = Math.Clamp(publishIntervalMs, 100, 10000);
+        var interval = Math.Clamp(publishIntervalMs, 100, 2000);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -90,7 +90,7 @@ internal sealed class SensorPublishRunner : IDisposable
         int publishIntervalMs)
     {
         var now = Environment.TickCount64;
-        var cacheLifetimeMs = Math.Clamp(publishIntervalMs, 100, 10000) * CachedSensorLifetimeIntervals;
+        var cacheLifetimeMs = Math.Clamp(publishIntervalMs, 100, 2000) * CachedSensorLifetimeIntervals;
         foreach (var sensor in snapshot.Sensors)
             _lastKnownSensorById[sensor.SensorId] = new CachedSensor(sensor, now);
 

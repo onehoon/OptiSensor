@@ -37,7 +37,7 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
         settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
         if (SensorSourceComboBox.SelectedItem is SensorSourceKind source)
             settings.SensorSource = source;
-        settings.PublishIntervalMs = Math.Clamp(publishIntervalMs, 100, 10000);
+        settings.PublishIntervalMs = Math.Clamp(publishIntervalMs, 100, 2000);
         PublishIntervalTextBox.Text = settings.PublishIntervalMs.ToString(CultureInfo.InvariantCulture);
         return true;
     }

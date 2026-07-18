@@ -17,7 +17,7 @@ internal static class SettingsStore
         {
             var json = File.ReadAllText(AppPaths.SettingsFilePath);
             var settings = AppSettings.Deserialize(json);
-            settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 10000);
+            settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 2000);
 
             var selectedSource = settings.SensorSource;
             settings.SensorSource = SensorSourceKind.Libre;
