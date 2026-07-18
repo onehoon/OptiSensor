@@ -32,13 +32,6 @@ index 7f19050b..5bc6f67a 100644
      <ClCompile Include="misc\IdentifyGpu.cpp" />
      <ClCompile Include="inputs\FSR2_Dx11.cpp" />
      <ClCompile Include="inputs\FSR2_Vk.cpp" />
-@@ -830,4 +832,4 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
-   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-   <ImportGroup Label="ExtensionTargets">
-   </ImportGroup>
--</Project>
-\ No newline at end of file
-+</Project>
 diff --git a/OptiScaler/OptiScaler.vcxproj.filters b/OptiScaler/OptiScaler.vcxproj.filters
 index 408a0049..cd79b5f6 100644
 --- a/OptiScaler/OptiScaler.vcxproj.filters
@@ -63,13 +56,6 @@ index 408a0049..cd79b5f6 100644
      <ClCompile Include="hooks\Reflex_Hooks.cpp">
        <Filter>Source Files</Filter>
      </ClCompile>
-@@ -1478,4 +1484,4 @@
-       <Filter>Source Files</Filter>
-     </None>
-   </ItemGroup>
--</Project>
-\ No newline at end of file
-+</Project>
 diff --git a/OptiScaler/misc/ExternalOverlayFeed.cpp b/OptiScaler/misc/ExternalOverlayFeed.cpp
 new file mode 100644
 index 00000000..cbd996bd

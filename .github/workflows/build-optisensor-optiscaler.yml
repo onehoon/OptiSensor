@@ -69,6 +69,9 @@ jobs:
           if ($patchText -notmatch "ExternalOverlayFeed") {
             throw "Patch stack does not appear to include the external overlay feed."
           }
+          if ($patchText -notmatch "CustomOptional<bool> ShowFps \{ true \};") {
+            throw "Patch stack does not default the FPS overlay to enabled."
+          }
 
           Write-Host "Patch stack:"
           $patches | ForEach-Object { Write-Host " - $($_.Name)" }
