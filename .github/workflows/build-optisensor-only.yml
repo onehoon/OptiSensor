@@ -101,11 +101,3 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           files: .artifacts/release/*
-
-      - name: Upload Velopack artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: OptiSensor-${{ steps.version.outputs.version }}
-          path: .artifacts/release/*
-          if-no-files-found: error
-          retention-days: 14
