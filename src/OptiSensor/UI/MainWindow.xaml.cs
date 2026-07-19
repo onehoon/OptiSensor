@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Windows;
 using OptiSensor.App;
 using OptiSensor.Install;
@@ -30,6 +31,7 @@ public partial class MainWindow : Window
     internal MainWindow(ApplicationHost host, SensorPublishService publishService, AppSettings settings)
     {
         InitializeComponent();
+        Title = $"OptiSensor v{GetApplicationVersion()}";
 
         _host = host;
         _publishService = publishService;
@@ -105,6 +107,18 @@ public partial class MainWindow : Window
         _settingsPage.SaveGitHubTokenRequested += (_, token) => SaveGitHubToken(token);
         _settingsPage.RemoveGitHubTokenRequested += (_, _) => RemoveGitHubToken();
         _settingsPage.CheckForUpdatesRequested += async (_, _) => await CheckForUpdatesAsync();
+    }
+
+    private static string GetApplicationVersion()
+    {
+        var assembly = Assembly.GetEntryAssembly() ?? typeof(MainWindow).Assembly;
+        var informationalVersion = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+            return informationalVersion.Split('+')[0];
+
+        return assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     }
 
     private void PublishService_StatusChanged(object? sender, EventArgs e)
