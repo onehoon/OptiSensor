@@ -292,7 +292,7 @@ jobs:
           dotnet tool install vpk --tool-path .tools --version 1.2.0
           $releaseDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/optisensor-release"
           & ".\.tools\vpk.exe" pack `
-            --packId "onehoon.OptiSensor" `
+            --packId "OptiSensor" `
             --packVersion $env:OPTISENSOR_VERSION `
             --packDir $publishDir `
             --mainExe "OptiSensor.exe" `

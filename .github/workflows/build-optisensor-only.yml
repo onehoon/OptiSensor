@@ -70,7 +70,7 @@ jobs:
 
           dotnet tool install vpk --tool-path .tools --version 1.2.0
           & ".\.tools\vpk.exe" pack `
-            --packId "onehoon.OptiSensor" `
+            --packId "OptiSensor" `
             --packVersion $version `
             --packDir $publishDir `
             --mainExe "OptiSensor.exe" `
