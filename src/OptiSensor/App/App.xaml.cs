@@ -1,10 +1,21 @@
 using System.Windows;
+using Velopack;
 
 namespace OptiSensor.App;
 
 public partial class App : System.Windows.Application
 {
     private ApplicationHost? _host;
+
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        VelopackApp.Build().Run();
+
+        var app = new App();
+        app.InitializeComponent();
+        app.Run();
+    }
 
     public App()
     {

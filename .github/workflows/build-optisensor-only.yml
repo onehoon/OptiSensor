@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -14,48 +14,98 @@ jobs:
     steps:
       - name: Checkout OptiSensor
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
+      - name: Determine next OptiSensor version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git fetch --tags --force
+          $patches = git tag -l "v0.1.*" | ForEach-Object {
+            if ($_ -match '^v0\.1\.(\d+)$') { [int]$Matches[1] }
+          }
+          $nextPatch = if ($patches) { (($patches | Measure-Object -Maximum).Maximum + 1) } else { 1 }
+          $version = "0.1.$nextPatch"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          Write-Host "OptiSensor version: $version"
+
       - name: Restore
         run: dotnet restore .\src\OptiSensor\OptiSensor.csproj
 
       - name: Build OptiSensor
-        run: dotnet build .\src\OptiSensor\OptiSensor.csproj -c Release --no-restore
+        run: dotnet build .\src\OptiSensor\OptiSensor.csproj -c Release --no-restore -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }}.0 -p:FileVersion=${{ steps.version.outputs.version }}.0 -p:InformationalVersion=${{ steps.version.outputs.version }}
 
-      - name: Prepare build artifact
+      - name: Publish and package Velopack release
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/OptiSensor"
-          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $version = "${{ steps.version.outputs.version }}"
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/publish"
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/release"
           dotnet publish .\src\OptiSensor\OptiSensor.csproj `
             -c Release `
             -r win-x64 `
             --self-contained false `
+            -p:Version=$version `
+            -p:AssemblyVersion=$version.0 `
+            -p:FileVersion=$version.0 `
+            -p:InformationalVersion=$version `
             -p:PublishSingleFile=true `
             -p:PublishReadyToRun=false `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=None `
             -p:DebugSymbols=false `
-            -o $artifactDir
+            -o $publishDir
 
-          $exe = Join-Path $artifactDir "OptiSensor.exe"
-          if (-not (Test-Path $exe)) {
-            throw "OptiSensor.exe not found after publish"
+          $exe = Join-Path $publishDir "OptiSensor.exe"
+          if (-not (Test-Path $exe)) { throw "OptiSensor.exe not found after publish." }
+
+          dotnet tool install vpk --tool-path .tools --version 1.2.0
+          & ".\.tools\vpk.exe" pack `
+            --packId "onehoon.OptiSensor" `
+            --packVersion $version `
+            --packDir $publishDir `
+            --mainExe "OptiSensor.exe" `
+            --packTitle "OptiSensor" `
+            --packAuthors "onehoon" `
+            --runtime "win-x64" `
+            --framework "net10-x64-desktop" `
+            --icon ".\src\OptiSensor\Assets\OptiSensor.ico" `
+            --outputDir $releaseDir
+
+          if (-not (Get-ChildItem $releaseDir -Filter "*-Setup.exe" -File)) {
+            throw "Velopack Setup.exe was not produced."
           }
 
-          Compress-Archive -Path (Join-Path $artifactDir "*") `
-            -DestinationPath (Join-Path $env:GITHUB_WORKSPACE "OptiSensor-build.zip") `
-            -Force
+      - name: Tag Velopack release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ steps.version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a $tag -m "OptiSensor $tag"
+          git push origin $tag
 
-      - name: Upload OptiSensor artifact
+      - name: Publish GitHub Release feed
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: .artifacts/release/*
+
+      - name: Upload Velopack artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OptiSensor-build
-          path: OptiSensor-build.zip
+          name: OptiSensor-${{ steps.version.outputs.version }}
+          path: .artifacts/release/*
           if-no-files-found: error
           retention-days: 14

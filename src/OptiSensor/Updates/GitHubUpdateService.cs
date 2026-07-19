@@ -1,0 +1,60 @@
+using Velopack;
+using Velopack.Sources;
+
+namespace OptiSensor.Updates;
+
+internal static class GitHubUpdateService
+{
+    private const string RepositoryUrl = "https://github.com/onehoon/OptiSensor";
+
+    public static async Task<PreparedUpdateResult> DownloadLatestAsync(Action<string>? reportProgress = null)
+    {
+        if (!GitHubTokenStore.TryLoad(out var token) || string.IsNullOrWhiteSpace(token))
+            return PreparedUpdateResult.NoToken();
+
+        var manager = new UpdateManager(new GithubSource(RepositoryUrl, token, prerelease: false));
+        if (!manager.IsInstalled)
+            return PreparedUpdateResult.NotInstalled();
+
+        reportProgress?.Invoke("Checking GitHub Releases...");
+        var update = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
+        if (update is null)
+            return PreparedUpdateResult.UpToDate();
+
+        var version = update.TargetFullRelease.Version.ToString();
+        reportProgress?.Invoke($"Downloading version {version}...");
+        await manager.DownloadUpdatesAsync(
+            update,
+            percent => reportProgress?.Invoke($"Downloading version {version}: {percent}%"))
+            .ConfigureAwait(false);
+
+        return PreparedUpdateResult.Ready(manager, update.TargetFullRelease, version);
+    }
+
+    public static void ApplyAndRestart(PreparedUpdateResult result)
+    {
+        if (result.Manager is null || result.Asset is null)
+            throw new InvalidOperationException("No downloaded update is available to apply.");
+
+        result.Manager.ApplyUpdatesAndRestart(result.Asset);
+    }
+}
+
+internal sealed record PreparedUpdateResult(
+    UpdateManager? Manager,
+    VelopackAsset? Asset,
+    string Message,
+    bool IsReady)
+{
+    public static PreparedUpdateResult NoToken() =>
+        new(null, null, "Save a GitHub update token first.", false);
+
+    public static PreparedUpdateResult NotInstalled() =>
+        new(null, null, "Updates are available after installing OptiSensor with the Velopack Setup.exe.", false);
+
+    public static PreparedUpdateResult UpToDate() =>
+        new(null, null, "OptiSensor is already up to date.", false);
+
+    public static PreparedUpdateResult Ready(UpdateManager manager, VelopackAsset asset, string version) =>
+        new(manager, asset, $"Version {version} is ready. Restart OptiSensor to apply it.", true);
+}

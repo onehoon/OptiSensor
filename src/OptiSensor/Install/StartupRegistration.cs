@@ -19,16 +19,16 @@ internal static class StartupRegistration
 
     private static readonly TimeSpan RestartInterval = TimeSpan.FromMinutes(1);
 
-    public static string StartupCommand => $"\"{AppPaths.InstalledExecutablePath}\" {StartupArgument}";
+    public static string StartupCommand => $"\"{AppPaths.CurrentExecutablePath}\" {StartupArgument}";
 
     public static StartupRegistrationResult Register()
     {
         SimpleLog.TryWrite("Task Scheduler registration started.");
         RemoveLegacyRunEntry();
 
-        if (!File.Exists(AppPaths.InstalledExecutablePath))
+        if (!File.Exists(AppPaths.CurrentExecutablePath))
         {
-            var missingExecutableError = $"Installed executable was not found: {AppPaths.InstalledExecutablePath}";
+            var missingExecutableError = $"Current executable was not found: {AppPaths.CurrentExecutablePath}";
             SimpleLog.TryWrite($"Task Scheduler registration skipped: {missingExecutableError}");
             return StartupRegistrationResult.Failed(missingExecutableError);
         }
@@ -74,8 +74,6 @@ internal static class StartupRegistration
 
     private static bool TryRegister(out string? error)
     {
-        Directory.CreateDirectory(AppPaths.InstallDirectory);
-
         var xmlPath = Path.Combine(Path.GetTempPath(), $"OptiSensor-task-{Guid.NewGuid():N}.xml");
         try
         {
@@ -115,6 +113,7 @@ internal static class StartupRegistration
                 new XElement(ns + "Triggers",
                     new XElement(ns + "LogonTrigger",
                         new XElement(ns + "Enabled", "true"),
+                        new XElement(ns + "Delay", "PT5M"),
                         new XElement(ns + "UserId", currentUser))),
                 new XElement(ns + "Principals",
                     new XElement(ns + "Principal",
@@ -145,9 +144,9 @@ internal static class StartupRegistration
                 new XElement(ns + "Actions",
                     new XAttribute("Context", "Author"),
                     new XElement(ns + "Exec",
-                        new XElement(ns + "Command", AppPaths.InstalledExecutablePath),
+                        new XElement(ns + "Command", AppPaths.CurrentExecutablePath),
                         new XElement(ns + "Arguments", StartupArgument),
-                        new XElement(ns + "WorkingDirectory", AppPaths.InstallDirectory)))));
+                        new XElement(ns + "WorkingDirectory", Path.GetDirectoryName(AppPaths.CurrentExecutablePath) ?? AppContext.BaseDirectory)))));
 
         using var writer = XmlWriter.Create(path, new XmlWriterSettings
         {

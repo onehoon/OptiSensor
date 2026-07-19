@@ -5,6 +5,7 @@ using OptiSensor.Install;
 using OptiSensor.Publishing;
 using OptiSensor.Settings;
 using OptiSensor.UI.Views.Pages;
+using OptiSensor.Updates;
 using System.Windows.Threading;
 
 namespace OptiSensor.UI;
@@ -39,6 +40,7 @@ public partial class MainWindow : Window
         _overlayPage = new OverlayPage { DataContext = _viewModel };
         _settingsPage = new SettingsPage { DataContext = _viewModel };
         _settingsPage.LoadSettings(_settings);
+        _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken());
 
         WirePageEvents();
 
@@ -100,6 +102,9 @@ public partial class MainWindow : Window
         _settingsPage.OpenSettingsFolderRequested += (_, _) => OpenSettingsFolder();
         _settingsPage.HideRequested += (_, _) => Hide();
         _settingsPage.ExitRequested += (_, _) => _host.RequestExit();
+        _settingsPage.SaveGitHubTokenRequested += (_, token) => SaveGitHubToken(token);
+        _settingsPage.RemoveGitHubTokenRequested += (_, _) => RemoveGitHubToken();
+        _settingsPage.CheckForUpdatesRequested += async (_, _) => await CheckForUpdatesAsync();
     }
 
     private void PublishService_StatusChanged(object? sender, EventArgs e)
@@ -350,6 +355,61 @@ public partial class MainWindow : Window
             FileName = AppPaths.DataDirectory,
             UseShellExecute = true
         });
+    }
+
+    private void SaveGitHubToken(string token)
+    {
+        if (!GitHubTokenStore.Save(token, out var errorMessage))
+        {
+            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
+            return;
+        }
+
+        _settingsPage.UpdateGitHubTokenState(true, "Token saved in Windows Credential Manager. The update feed is not configured yet.");
+    }
+
+    private void RemoveGitHubToken()
+    {
+        if (!GitHubTokenStore.Delete(out var errorMessage))
+        {
+            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
+            return;
+        }
+
+        _settingsPage.UpdateGitHubTokenState(false, "Token removed from Windows Credential Manager.");
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        _settingsPage.SetUpdateCheckInProgress(true);
+        try
+        {
+            var result = await GitHubUpdateService.DownloadLatestAsync(message =>
+                Dispatcher.BeginInvoke(() => _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), message)));
+
+            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
+            if (!result.IsReady)
+                return;
+
+            var applyUpdate = System.Windows.MessageBox.Show(
+                $"{result.Message}\n\nApply the update now?",
+                "OptiSensor update",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information) == MessageBoxResult.Yes;
+            if (applyUpdate)
+                GitHubUpdateService.ApplyAndRestart(result);
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"GitHub update check failed: {ex.Message}");
+            _settingsPage.UpdateGitHubTokenState(
+                GitHubTokenStore.HasToken(),
+                "Could not check GitHub Releases. Verify the token has read access to this repository.");
+        }
+        finally
+        {
+            _settingsPage.SetUpdateCheckInProgress(false);
+        }
     }
 
     private void SensorsNavButton_Click(object sender, RoutedEventArgs e)
