@@ -81,13 +81,24 @@ internal sealed class ApplicationHost : IDisposable
 
     public void ShowMainWindow()
     {
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (!dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(ShowMainWindow);
+            return;
+        }
+
         if (!_mainWindow.IsVisible)
             _mainWindow.Show();
 
         if (_mainWindow.WindowState == WindowState.Minimized)
             _mainWindow.WindowState = WindowState.Normal;
 
+        _mainWindow.ShowInTaskbar = true;
         _mainWindow.Activate();
+        _mainWindow.Topmost = true;
+        _mainWindow.Topmost = false;
+        _mainWindow.Focus();
     }
 
     public async void RequestExit()
