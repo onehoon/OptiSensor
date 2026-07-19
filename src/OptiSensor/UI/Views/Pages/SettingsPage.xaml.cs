@@ -25,15 +25,16 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     {
         StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
         SensorSourceComboBox.SelectedItem = settings.SensorSource;
-        PublishIntervalTextBox.Text = settings.ClampedPublishIntervalMs.ToString(CultureInfo.InvariantCulture);
+        PublishIntervalComboBox.SelectedValue = settings.ClampedPublishIntervalMs.ToString(CultureInfo.InvariantCulture);
     }
 
     internal bool ApplySettingsEdits(AppSettings settings, out string? errorMessage)
     {
         errorMessage = null;
-        if (!int.TryParse(PublishIntervalTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var publishIntervalMs))
+        if (PublishIntervalComboBox.SelectedValue is not string selectedInterval ||
+            !int.TryParse(selectedInterval, NumberStyles.Integer, CultureInfo.InvariantCulture, out var publishIntervalMs))
         {
-            errorMessage = "Publish interval must be a whole number.";
+            errorMessage = "Select a publish interval.";
             return false;
         }
 
@@ -41,18 +42,7 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
         if (SensorSourceComboBox.SelectedItem is SensorSourceKind source)
             settings.SensorSource = source;
         settings.PublishIntervalMs = Math.Clamp(publishIntervalMs, 100, 2000);
-        PublishIntervalTextBox.Text = settings.PublishIntervalMs.ToString(CultureInfo.InvariantCulture);
         return true;
-    }
-
-    internal void UpdateRuntime(AppSettings settings, MainWindowViewModel viewModel)
-    {
-        RuntimeTextBlock.Text =
-            $"Start with Windows: {(settings.StartWithWindows ? "Enabled" : "Disabled")}\n" +
-            $"Publish interval: {settings.ClampedPublishIntervalMs} ms\n" +
-            $"Detected sensors: {viewModel.DetectedSensorCount}\n" +
-            $"Selected sensors: {viewModel.EnabledSelectedSensorCount} / {viewModel.TotalSelectedSensorCount}";
-        SettingsStateTextBlock.Text = $"Settings: {viewModel.SettingsStateText}";
     }
 
     internal void UpdateGitHubTokenState(bool hasToken, string? message = null)

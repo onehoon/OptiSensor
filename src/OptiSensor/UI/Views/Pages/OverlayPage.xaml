@@ -123,7 +123,8 @@
                                         <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                   VerticalAlignment="Center"
                                                   Margin="0,0,8,0"/>
-                                        <TextBox MinWidth="0"
+                                        <TextBox MinWidth="32"
+                                                 Padding="5,0"
                                                  Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                  TextChanged="GroupNameTextBox_TextChanged"
                                                  Style="{StaticResource FluentTextBoxStyle}"/>

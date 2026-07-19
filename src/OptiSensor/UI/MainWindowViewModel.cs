@@ -87,6 +87,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public int TotalSelectedSensorCount => OverlayGroups.Sum(group => group.Sensors.Count);
     public int OverlayGroupCount => VisibleOverlayGroups.Count;
     public string SettingsStateText => HasUnsavedChanges ? "Unsaved changes" : "Saved";
+    public string SensorsTitle => _settings.SensorSource == SensorSourceKind.HwInfo
+        ? "Sensors (HWiNFO)"
+        : "Sensors (Libre)";
 
     public OverlayGroupViewModel? SelectedOverlayGroup
     {

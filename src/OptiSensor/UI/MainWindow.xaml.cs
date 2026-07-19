@@ -172,7 +172,6 @@ public partial class MainWindow : Window
             status = "Refreshing sensors...";
 
         _overlayPage.UpdatePreview(lastOverlay);
-        _settingsPage.UpdateRuntime(_settings, _viewModel);
     }
 
     private string GetStatusText()

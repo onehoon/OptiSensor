@@ -14,10 +14,9 @@
             <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="48"/>
+                        <RowDefinition Height="48"/>
+                        <RowDefinition Height="48"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="220"/>
@@ -26,10 +25,11 @@
 
                     <TextBlock Grid.Row="1"
                                Text="Start with Windows"
+                               VerticalAlignment="Center"
                                FontWeight="SemiBold"
                                Foreground="#0F172A"/>
-                    <TextBlock Grid.Row="0" Text="Sensor source" FontWeight="SemiBold" Foreground="#0F172A"/>
-                    <ComboBox x:Name="SensorSourceComboBox" Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"/>
+                    <TextBlock Grid.Row="0" Text="Sensor source" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#0F172A"/>
+                    <ComboBox x:Name="SensorSourceComboBox" Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                     <CheckBox x:Name="StartWithWindowsCheckBox"
                               Grid.Row="1"
                               Grid.Column="1"
@@ -38,27 +38,21 @@
 
                     <TextBlock Grid.Row="2"
                                Text="Publish interval"
-                               Margin="0,18,0,0"
+                               VerticalAlignment="Center"
                                FontWeight="SemiBold"
                                Foreground="#0F172A"/>
-                    <StackPanel Grid.Row="2"
-                                Grid.Column="1"
-                                Orientation="Horizontal"
-                                Margin="0,14,0,0">
-                        <TextBox x:Name="PublishIntervalTextBox"
-                                 Width="128"
-                                 Style="{StaticResource FluentTextBoxStyle}"/>
-                        <TextBlock Text="ms"
-                                   Margin="10,8,0,0"
-                                   Foreground="#64748B"/>
-                    </StackPanel>
-
-                    <TextBlock Grid.Row="3"
-                               Grid.ColumnSpan="2"
-                               Margin="0,18,0,0"
-                               Foreground="#64748B"
-                               TextWrapping="Wrap"
-                               Text="Sensor edits apply immediately for this session. Save persists them to settings.json. Publish interval changes are used on the next helper start."/>
+                    <ComboBox x:Name="PublishIntervalComboBox"
+                              Grid.Row="2"
+                              Grid.Column="1"
+                              Width="128"
+                              HorizontalAlignment="Left"
+                              VerticalAlignment="Center"
+                              SelectedValuePath="Tag">
+                        <ComboBoxItem Content="500ms" Tag="500"/>
+                        <ComboBoxItem Content="1000ms" Tag="1000"/>
+                        <ComboBoxItem Content="1500ms" Tag="1500"/>
+                        <ComboBoxItem Content="2000ms" Tag="2000"/>
+                    </ComboBox>
                 </Grid>
             </Border>
 
@@ -96,22 +90,6 @@
                                 Click="CheckForUpdatesButton_Click"/>
                     </StackPanel>
                     <TextBlock x:Name="GitHubTokenStateTextBlock"
-                               Margin="0,8,0,0"
-                               Foreground="#64748B"/>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
-                <StackPanel>
-                    <TextBlock Text="Runtime"
-                               FontSize="16"
-                               FontWeight="SemiBold"
-                               Foreground="#0F172A"/>
-                    <TextBlock x:Name="RuntimeTextBlock"
-                               Margin="0,10,0,0"
-                               Foreground="#334155"
-                               TextWrapping="Wrap"/>
-                    <TextBlock x:Name="SettingsStateTextBlock"
                                Margin="0,8,0,0"
                                Foreground="#64748B"/>
                 </StackPanel>

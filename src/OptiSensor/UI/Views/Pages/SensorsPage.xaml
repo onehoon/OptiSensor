@@ -9,13 +9,10 @@
 
         <DockPanel Margin="0,0,0,16">
             <StackPanel>
-                <TextBlock Text="Sensors"
+                <TextBlock Text="{Binding SensorsTitle}"
                            FontSize="28"
                            FontWeight="SemiBold"
                            Foreground="#0F172A"/>
-                <TextBlock Text="All LibreHardwareMonitor sensors detected on this PC. Check a row to add or remove it from the overlay."
-                           Margin="0,6,0,0"
-                           Foreground="#64748B"/>
                 <ItemsControl ItemsSource="{Binding SensorCategoryFilters}" Margin="0,10,0,0">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
