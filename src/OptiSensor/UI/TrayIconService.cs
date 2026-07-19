@@ -21,7 +21,11 @@ internal sealed class TrayIconService : IDisposable
             ContextMenuStrip = BuildMenu(showWindow, exitApplication)
         };
 
-        _notifyIcon.DoubleClick += (_, _) => showWindow();
+        _notifyIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == Forms.MouseButtons.Left)
+                showWindow();
+        };
     }
 
     public void UpdateTooltip(string? lastOverlayLine)
