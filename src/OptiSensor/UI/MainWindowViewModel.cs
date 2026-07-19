@@ -53,7 +53,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         }
 
         foreach (var group in _settings.GetOverlayGroupsSnapshot())
-            OverlayGroups.Add(new OverlayGroupViewModel(group, SyncOverlayGroupsToSettings, MoveSensorToGroup));
+            OverlayGroups.Add(new OverlayGroupViewModel(
+                group,
+                SyncOverlayGroupsToSettings,
+                SyncSelectedSensorsToSettings,
+                MoveSensorToGroup));
 
         EnsureUngroupedGroup();
 
@@ -366,7 +370,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private void SyncSelectedSensorsToSettings()
     {
-        SyncOverlayGroupsToSettings();
+        _settings.ReplaceOverlayGroups(OverlayGroups.OrderBy(group => group.Order).Select(group => group.ToModel()));
+        HasUnsavedChanges = true;
+        OnCountsChanged();
     }
 
     private void SyncOverlayGroupsToSettings()
@@ -429,6 +435,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 Sensors = []
             },
             SyncOverlayGroupsToSettings,
+            SyncSelectedSensorsToSettings,
             MoveSensorToGroup);
 
         OverlayGroups.Insert(0, ungrouped);
@@ -447,6 +454,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 Sensors = []
             },
             SyncOverlayGroupsToSettings,
+            SyncSelectedSensorsToSettings,
             MoveSensorToGroup);
     }
 
