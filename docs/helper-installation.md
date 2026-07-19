@@ -25,11 +25,13 @@ Policy:
 
 ```text
 Trigger: At user logon, delayed by 5 minutes
-Run level: Highest available
+Run level: Least privilege
 Restart on failure: every 1 minute, up to 3 attempts
 ```
 
 The task action remains valid after a Velopack update because the app's `current` path is updated in place. Legacy `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entries named `OptiSensor` are removed when the task is registered or unregistered.
+
+OptiSensor normally runs without administrator rights. If HWiNFO shared memory is unavailable and OptiSensor must change HWiNFO's setting or restart HWiNFO, it requests UAC only for that short configuration operation.
 
 Check the task:
 

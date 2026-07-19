@@ -33,6 +33,12 @@ internal static class StartupRegistration
             return StartupRegistrationResult.Failed(missingExecutableError);
         }
 
+        if (IsCurrentRegistration())
+        {
+            SimpleLog.TryWrite("Task Scheduler registration already matches the current configuration.");
+            return StartupRegistrationResult.Ok(registered: true);
+        }
+
         if (!TryRegister(out var error))
         {
             SimpleLog.TryWrite($"Task Scheduler registration failed: {error}");
@@ -70,6 +76,37 @@ internal static class StartupRegistration
     {
         var result = RunSchTasks($"/Query /TN {Quote(TaskName)}");
         return result.ExitCode == 0;
+    }
+
+    private static bool IsCurrentRegistration()
+    {
+        var result = RunSchTasks($"/Query /TN {Quote(TaskName)} /XML");
+        if (result.ExitCode != 0)
+            return false;
+
+        try
+        {
+            var document = XDocument.Parse(result.Output);
+            XNamespace ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
+
+            var command = document.Descendants(ns + "Command").FirstOrDefault()?.Value;
+            var arguments = document.Descendants(ns + "Arguments").FirstOrDefault()?.Value;
+            var workingDirectory = document.Descendants(ns + "WorkingDirectory").FirstOrDefault()?.Value;
+            var delay = document.Descendants(ns + "LogonTrigger").Elements(ns + "Delay").FirstOrDefault()?.Value;
+            var runLevel = document.Descendants(ns + "Principal").Elements(ns + "RunLevel").FirstOrDefault()?.Value;
+
+            var expectedWorkingDirectory = Path.GetDirectoryName(AppPaths.CurrentExecutablePath) ?? AppContext.BaseDirectory;
+            return PathsEqual(command, AppPaths.CurrentExecutablePath) &&
+                   string.Equals(arguments?.Trim(), StartupArgument, StringComparison.OrdinalIgnoreCase) &&
+                   PathsEqual(workingDirectory, expectedWorkingDirectory) &&
+                   string.Equals(delay?.Trim(), "PT5M", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(runLevel?.Trim(), "LeastPrivilege", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is XmlException or InvalidOperationException)
+        {
+            SimpleLog.TryWrite($"Task Scheduler configuration check failed: {ex.Message}");
+            return false;
+        }
     }
 
     private static bool TryRegister(out string? error)
@@ -120,7 +157,7 @@ internal static class StartupRegistration
                         new XAttribute("id", "Author"),
                         new XElement(ns + "UserId", currentUser),
                         new XElement(ns + "LogonType", "InteractiveToken"),
-                        new XElement(ns + "RunLevel", "HighestAvailable"))),
+                        new XElement(ns + "RunLevel", "LeastPrivilege"))),
                 new XElement(ns + "Settings",
                     new XElement(ns + "MultipleInstancesPolicy", "IgnoreNew"),
                     new XElement(ns + "DisallowStartIfOnBatteries", "false"),
@@ -209,6 +246,16 @@ internal static class StartupRegistration
     private static string Quote(string value)
     {
         return $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
+    }
+
+    private static bool PathsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        var fullLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fullRight = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(fullLeft, fullRight, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ToIsoDuration(TimeSpan value)

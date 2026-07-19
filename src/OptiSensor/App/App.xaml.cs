@@ -38,7 +38,7 @@ public partial class App : System.Windows.Application
             SimpleLog.TryWriteException(ex);
 
             var options = CommandLineOptions.Parse(e.Args);
-            if (!options.Startup)
+            if (!options.SuppressErrorDialog)
                 System.Windows.MessageBox.Show(ex.Message, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Error);
 
             Shutdown(1);

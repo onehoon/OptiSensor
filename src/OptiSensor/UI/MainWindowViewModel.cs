@@ -554,7 +554,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         _settings.ReplaceSensorCategoryFilters(SensorCategoryFilters.Select(filter =>
             new KeyValuePair<OptiSensorCategory, bool>(filter.Category, filter.IsChecked)));
-        _settings.Save();
+        HasUnsavedChanges = true;
     }
 
     private void SyncDetectedSensorSelectionStates()
