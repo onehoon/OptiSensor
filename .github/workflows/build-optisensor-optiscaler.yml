@@ -28,13 +28,15 @@ jobs:
 
     steps:
       - name: Checkout OptiSensor
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -45,6 +47,20 @@ jobs:
           $sensorCommit = git rev-parse HEAD
           "OPTISENSOR_COMMIT=$sensorCommit" >> $env:GITHUB_ENV
           Write-Host "OptiSensor commit: $sensorCommit"
+
+      - name: Determine next OptiSensor version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git fetch --tags --force
+          $patches = git tag -l "v0.1.*" | ForEach-Object {
+            if ($_ -match '^v0\.1\.(\d+)$') { [int]$Matches[1] }
+          }
+          $nextPatch = if ($patches) { (($patches | Measure-Object -Maximum).Maximum + 1) } else { 1 }
+          $version = "0.1.$nextPatch"
+          "OPTISENSOR_VERSION=$version" >> $env:GITHUB_ENV
+          "OPTISENSOR_TAG=v$version" >> $env:GITHUB_ENV
 
       - name: Prepare workspace
         shell: pwsh
@@ -257,6 +273,10 @@ jobs:
             -c Release `
             -r win-x64 `
             --self-contained false `
+            -p:Version=$env:OPTISENSOR_VERSION `
+            -p:AssemblyVersion=$env:OPTISENSOR_VERSION.0 `
+            -p:FileVersion=$env:OPTISENSOR_VERSION.0 `
+            -p:InformationalVersion=$env:OPTISENSOR_VERSION `
             -p:PublishSingleFile=true `
             -p:PublishReadyToRun=false `
             -p:IncludeNativeLibrariesForSelfExtract=true `
@@ -269,7 +289,23 @@ jobs:
             throw "OptiSensor.exe not found after publish"
           }
 
-          Copy-Item $exe (Join-Path $env:GITHUB_WORKSPACE ".artifacts/package/OptiSensor.exe") -Force
+          dotnet tool install vpk --tool-path .tools --version 1.2.0
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/optisensor-release"
+          & ".\.tools\vpk.exe" pack `
+            --packId "onehoon.OptiSensor" `
+            --packVersion $env:OPTISENSOR_VERSION `
+            --packDir $publishDir `
+            --mainExe "OptiSensor.exe" `
+            --packTitle "OptiSensor" `
+            --packAuthors "onehoon" `
+            --runtime "win-x64" `
+            --framework "net10-x64-desktop" `
+            --icon "$env:GITHUB_WORKSPACE\src\OptiSensor\Assets\OptiSensor.ico" `
+            --outputDir $releaseDir
+
+          $setup = Get-ChildItem $releaseDir -Filter "*-Setup.exe" -File | Select-Object -First 1
+          if (-not $setup) { throw "Velopack Setup.exe was not produced." }
+          Copy-Item $setup.FullName (Join-Path $env:GITHUB_WORKSPACE ".artifacts/package/OptiSensor-Setup.exe") -Force
           "OPTISENSOR_CSPROJ=$csproj" >> $env:GITHUB_ENV
           "OPTISENSOR_EXE=$exe" >> $env:GITHUB_ENV
           Write-Host "Published helper: $exe"
@@ -280,10 +316,10 @@ jobs:
           $ErrorActionPreference = "Stop"
           $ref = "${{ inputs.optiscaler_ref }}"
           $safeRef = $ref -replace '[\\/:*?"<>|]+', '-'
-          $baseName = "$env:PACKAGE_PREFIX-$safeRef-$env:OPTISCALER_COMMIT"
+          $baseName = "$env:PACKAGE_PREFIX-$env:OPTISENSOR_VERSION-$safeRef-$env:OPTISCALER_COMMIT"
           $zipPath = Join-Path $env:GITHUB_WORKSPACE ".artifacts/dist/$baseName.zip"
 
-          $requiredFiles = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor.exe")
+          $requiredFiles = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor-Setup.exe")
           foreach ($file in $requiredFiles) {
             $path = Join-Path $env:GITHUB_WORKSPACE ".artifacts/package/$file"
             if (-not (Test-Path $path)) {
@@ -296,11 +332,9 @@ jobs:
           "PACKAGE_FILE_NAME_WITHOUT_EXT=$baseName" >> $env:GITHUB_ENV
           "PACKAGE_FILE_NAME=$baseName.zip" >> $env:GITHUB_ENV
           "PACKAGE_ZIP=$zipPath" >> $env:GITHUB_ENV
-          $timestamp = Get-Date -Format "yyyy-MM-dd-HHmm"
-          $releaseTag = "$safeRef-$timestamp"
-          "RELEASE_TAG=$releaseTag" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$env:OPTISENSOR_TAG" >> $env:GITHUB_ENV
           Write-Host "Package: $zipPath"
-          Write-Host "Release tag: $releaseTag"
+          Write-Host "Release tag: $env:OPTISENSOR_TAG"
 
       - name: Verify package contents
         shell: pwsh
@@ -308,7 +342,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $entries = [System.IO.Compression.ZipFile]::OpenRead($env:PACKAGE_ZIP).Entries | ForEach-Object { $_.FullName } | Sort-Object
           $entries | ForEach-Object { Write-Host " - $_" }
-          $expected = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor.exe")
+          $expected = @("OptiScaler.dll", "OptiScaler.ini", "OptiSensor-Setup.exe")
           $unexpected = @($entries | Where-Object { $expected -notcontains $_ })
           foreach ($file in $expected) {
             if ($entries -notcontains $file) {
@@ -325,13 +359,31 @@ jobs:
           name: ${{ env.PACKAGE_FILE_NAME_WITHOUT_EXT }}
           path: .artifacts/package/*
 
-      - name: Upload to GitHub Release
+      - name: Tag Velopack release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a $env:OPTISENSOR_TAG -m "OptiSensor $env:OPTISENSOR_TAG"
+          git push origin $env:OPTISENSOR_TAG
+
+      - name: Publish GitHub Release feed
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          prerelease: false
+          generate_release_notes: true
+          files: .artifacts/optisensor-release/*
+
+      - name: Upload combined package to GitHub Release
         if: ${{ inputs.publish_release }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           prerelease: false
-          files: .artifacts/dist/*.zip
+          files: |
+            .artifacts/dist/*.zip
           body: |
             OptiSensor + patched OptiScaler package
 
@@ -347,5 +399,5 @@ jobs:
             - ${{ env.PACKAGE_FILE_NAME }}
 
             Notes:
-            - This package contains only OptiScaler.dll, OptiScaler.ini, and OptiSensor.exe.
+            - This package contains OptiScaler.dll, OptiScaler.ini, and the OptiSensor Velopack installer.
             - OptiScaler was patched using the patch stack stored in this OptiSensor repository.

@@ -42,6 +42,7 @@ internal sealed class ApplicationHost : IDisposable
     public static ApplicationHost Start(SingleInstanceGuard singleInstance, bool showMainWindow)
     {
         var settings = AppSettings.LoadOrCreate();
+        EnsureStartupTaskForInstalledApp(settings);
         var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
@@ -52,6 +53,16 @@ internal sealed class ApplicationHost : IDisposable
             host.ShowMainWindow();
 
         return host;
+    }
+
+    private static void EnsureStartupTaskForInstalledApp(AppSettings settings)
+    {
+        if (!settings.StartWithWindows || !AppPaths.IsRunningFromVelopackCurrentDirectory)
+            return;
+
+        var result = StartupRegistration.Register();
+        if (!result.Success)
+            SimpleLog.TryWrite($"Startup task refresh failed: {result.ErrorMessage}");
     }
 
     public static SensorPublishRunner CreatePublishRunner(AppSettings? settings = null)

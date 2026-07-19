@@ -15,16 +15,17 @@ D3D12 | FPS: 111.0 | GPU 44C | 115W | 62%
 This repository currently serves two purposes:
 
 - `OptiSensor.exe`: a WPF tray helper with LibreHardwareMonitor sensor discovery, selected overlay sensor editing, and shared memory publishing.
-- OptiScaler package hub: a manual GitHub Actions workflow that applies the OptiScaler patch stack, builds `OptiScaler.dll`, publishes `OptiSensor.exe`, and creates a small release zip.
+- Velopack packaging: each manual OptiSensor CI build creates a current-user installer and automatically assigns the next `0.1.x` version and matching `v0.1.x` tag.
+- OptiScaler package hub: a manual GitHub Actions workflow that applies the OptiScaler patch stack, builds `OptiScaler.dll`, and includes the OptiSensor Velopack installer in its package.
 
-Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, PawnIO handling, automatic helper updates, and game or OptiScaler activity based publishing.
+Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, private GitHub update-feed activation, and game or OptiScaler activity based publishing.
 
 The helper source is organized under `src/OptiSensor` by role:
 
 ```text
 App/         WPF startup coordination and single-instance lifetime
 Cli/         --once and --watch diagnostic commands
-Install/     LocalAppData install paths and Task Scheduler startup registration
+Install/     LocalAppData data paths and Task Scheduler startup registration
 Libre/       LibreHardwareMonitor reading and sensor classification
 Models/      Detected and selected sensor models
 Overlay/     Overlay line formatting and shared memory publishing
@@ -75,15 +76,15 @@ dotnet publish .\src\OptiSensor\OptiSensor.csproj `
   -o .\publish\win-x64
 ```
 
-The packaged helper expects the .NET 10 Desktop Runtime to be installed separately. Native helper libraries are still bundled into `OptiSensor.exe` so the package can keep a single helper executable.
+The local publish output expects the .NET 10 Desktop Runtime to be installed separately. Native helper libraries are still bundled into `OptiSensor.exe` so the output can keep a single helper executable. CI then turns this publish output into a Velopack installer.
 
 ## Startup
 
 OptiSensor registers a current-user Windows Task Scheduler task named `OptiSensor` when `startWithWindows` is enabled.
-The task launches the installed helper with `--startup` at user logon and is configured to restart on failure up to 3 times at 1 minute intervals.
+The task launches the Velopack `current` helper with `--startup` at user logon after a 5-minute delay and is configured to restart on failure up to 3 times at 1-minute intervals.
 
 Tray `Exit` and the main window `Exit` button perform a normal exit with code `0`, so Task Scheduler does not restart the helper after an intentional user exit.
-Legacy HKCU Run startup entries are removed during install/uninstall to avoid duplicate launches.
+Legacy HKCU Run startup entries are removed during task registration/unregistration to avoid duplicate launches.
 
 ## OptiScaler Integration
 
@@ -118,13 +119,13 @@ The manual package workflow:
 3. Applies `optiscaler/patches/*.patch` with `git am`.
 4. Builds only `OptiScaler.vcxproj`.
 5. Collects `OptiScaler.dll` and `OptiScaler.ini`.
-6. Publishes `OptiSensor.exe`.
+6. Packages the published `OptiSensor.exe` as a Velopack installer.
 7. Creates a zip containing only:
 
 ```text
 OptiScaler.dll
 OptiScaler.ini
-OptiSensor.exe
+OptiSensor-Setup.exe
 ```
 
 Detailed build and release notes are in [docs/build-optisensor-optiscaler.md](docs/build-optisensor-optiscaler.md).

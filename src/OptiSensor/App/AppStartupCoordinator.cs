@@ -1,6 +1,5 @@
 using System.Windows;
 using OptiSensor.Cli;
-using OptiSensor.Install;
 
 namespace OptiSensor.App;
 
@@ -17,22 +16,6 @@ internal sealed class AppStartupCoordinator
     {
         var options = CommandLineOptions.Parse(args);
 
-        if (options.Install)
-        {
-            ConsoleBridge.AttachForCliMode();
-            var installed = AppInstaller.Install(verbose: true);
-            _application.Shutdown(installed ? 0 : 1);
-            return null;
-        }
-
-        if (options.Uninstall)
-        {
-            ConsoleBridge.AttachForCliMode();
-            AppInstaller.Uninstall();
-            _application.Shutdown(0);
-            return null;
-        }
-
         if (options.Once)
         {
             ConsoleBridge.AttachForCliMode();
@@ -45,12 +28,6 @@ internal sealed class AppStartupCoordinator
         {
             ConsoleBridge.AttachForCliMode();
             CliCommands.RunWatch(() => ApplicationHost.CreatePublishRunner());
-            _application.Shutdown(0);
-            return null;
-        }
-
-        if (AppInstaller.EnsureInstalledAndRelaunchIfNeeded(options.Startup))
-        {
             _application.Shutdown(0);
             return null;
         }

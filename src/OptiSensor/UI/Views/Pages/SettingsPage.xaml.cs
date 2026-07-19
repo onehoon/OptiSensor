@@ -17,6 +17,9 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     public event EventHandler? OpenSettingsFolderRequested;
     public event EventHandler? HideRequested;
     public event EventHandler? ExitRequested;
+    public event EventHandler<string>? SaveGitHubTokenRequested;
+    public event EventHandler? RemoveGitHubTokenRequested;
+    public event EventHandler? CheckForUpdatesRequested;
 
     internal void LoadSettings(AppSettings settings)
     {
@@ -52,6 +55,19 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
         SettingsStateTextBlock.Text = $"Settings: {viewModel.SettingsStateText}";
     }
 
+    internal void UpdateGitHubTokenState(bool hasToken, string? message = null)
+    {
+        GitHubTokenStateTextBlock.Text = message ?? (hasToken
+            ? "A token is stored in Windows Credential Manager. The update feed is not configured yet."
+            : "No token is stored. This is optional until a private update feed is configured.");
+        GitHubTokenPasswordBox.Password = string.Empty;
+    }
+
+    internal void SetUpdateCheckInProgress(bool isInProgress)
+    {
+        CheckForUpdatesButton.IsEnabled = !isInProgress;
+    }
+
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         SaveRequested?.Invoke(this, EventArgs.Empty);
@@ -70,5 +86,20 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     private void ExitButton_Click(object sender, RoutedEventArgs e)
     {
         ExitRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SaveGitHubTokenButton_Click(object sender, RoutedEventArgs e)
+    {
+        SaveGitHubTokenRequested?.Invoke(this, GitHubTokenPasswordBox.Password);
+    }
+
+    private void RemoveGitHubTokenButton_Click(object sender, RoutedEventArgs e)
+    {
+        RemoveGitHubTokenRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        CheckForUpdatesRequested?.Invoke(this, EventArgs.Empty);
     }
 }
