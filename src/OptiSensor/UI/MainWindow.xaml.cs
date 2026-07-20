@@ -131,7 +131,14 @@ public partial class MainWindow : Window
 
     private void PublishService_StatusChanged(object? sender, EventArgs e)
     {
-        Dispatcher.BeginInvoke(UpdateStatus);
+        if (!IsVisible)
+            return;
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (IsVisible)
+                UpdateStatus();
+        });
     }
 
     private void Host_SensorSourceReady(object? sender, EventArgs e)
