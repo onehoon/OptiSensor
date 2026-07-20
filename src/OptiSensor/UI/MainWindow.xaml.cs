@@ -51,6 +51,13 @@ public partial class MainWindow : Window
         _sensorRefreshTimer.Tick += async (_, _) => await RefreshDetectedSensorsAsync();
 
         Loaded += (_, _) => StartSensorRefreshWhenReady();
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible)
+                StartSensorRefreshWhenReady();
+            else
+                StopSensorRefresh();
+        };
         NavigateTo(_overlayPage, OverlayNavButton);
         UpdateStatus();
     }
@@ -60,6 +67,7 @@ public partial class MainWindow : Window
         if (!_host.IsExitRequested)
         {
             e.Cancel = true;
+            StopSensorRefresh();
             Hide();
             return;
         }
@@ -135,12 +143,23 @@ public partial class MainWindow : Window
 
     private async void StartSensorRefreshWhenReady()
     {
-        if (_sensorRefreshStarted || !_host.IsSensorSourceReady)
+        if (_sensorRefreshStarted ||
+            !_host.IsSensorSourceReady ||
+            !IsVisible ||
+            !ReferenceEquals(PageContentControl.Content, _sensorsPage))
             return;
 
         _sensorRefreshStarted = true;
         await RefreshDetectedSensorsAsync();
-        _sensorRefreshTimer.Start();
+
+        if (IsVisible && ReferenceEquals(PageContentControl.Content, _sensorsPage))
+            _sensorRefreshTimer.Start();
+    }
+
+    private void StopSensorRefresh()
+    {
+        _sensorRefreshTimer.Stop();
+        _sensorRefreshStarted = false;
     }
 
     private void UpdateStatus()
@@ -415,15 +434,18 @@ public partial class MainWindow : Window
     private void SensorsNavButton_Click(object sender, RoutedEventArgs e)
     {
         NavigateTo(_sensorsPage, SensorsNavButton);
+        StartSensorRefreshWhenReady();
     }
 
     private void OverlayNavButton_Click(object sender, RoutedEventArgs e)
     {
         NavigateTo(_overlayPage, OverlayNavButton);
+        StopSensorRefresh();
     }
 
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
     {
         NavigateTo(_settingsPage, SettingsNavButton);
+        StopSensorRefresh();
     }
 }

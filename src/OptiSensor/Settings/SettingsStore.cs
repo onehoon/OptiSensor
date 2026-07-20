@@ -34,7 +34,6 @@ internal static class SettingsStore
 
             settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
             settings.SensorSource = selectedSource;
-            Save(settings);
             return settings;
         }
         catch (JsonException)
@@ -52,7 +51,9 @@ internal static class SettingsStore
     public static void Save(AppSettings settings)
     {
         AppPaths.EnsureDataDirectories();
-        File.WriteAllText(AppPaths.SettingsFilePath, AppSettings.Serialize(settings));
+        var tempPath = $"{AppPaths.SettingsFilePath}.tmp";
+        File.WriteAllText(tempPath, AppSettings.Serialize(settings));
+        File.Move(tempPath, AppPaths.SettingsFilePath, overwrite: true);
     }
 
     private static AppSettings CreateDefaults()

@@ -1,4 +1,5 @@
 using LibreHardwareMonitor.Hardware;
+using OptiSensor.App;
 using OptiSensor.Models;
 using System.Diagnostics;
 
@@ -7,6 +8,7 @@ namespace OptiSensor.Libre;
 internal sealed class LibreSensorReader : ISensorReader
 {
     private readonly Dictionary<string, DateTimeOffset> _lastHardwareUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> _lastHardwareErrorLogUtc = new(StringComparer.OrdinalIgnoreCase);
     private readonly Computer _computer = new()
     {
         IsCpuEnabled = true,
@@ -36,13 +38,32 @@ internal sealed class LibreSensorReader : ISensorReader
             .ToArray();
 
         var updateStopwatch = Stopwatch.StartNew();
+        var updatedHardwareCount = 0;
         foreach (var hardware in hardwareToUpdate)
         {
-            hardware.Update();
-            foreach (var subHardware in hardware.SubHardware)
-                subHardware.Update();
+            try
+            {
+                hardware.Update();
 
-            _lastHardwareUpdateUtc[GetHardwareKey(hardware)] = nowUtc;
+                foreach (var subHardware in hardware.SubHardware)
+                {
+                    try
+                    {
+                        subHardware.Update();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHardwareFailure(subHardware, "update", ex);
+                    }
+                }
+
+                _lastHardwareUpdateUtc[GetHardwareKey(hardware)] = nowUtc;
+                updatedHardwareCount++;
+            }
+            catch (Exception ex)
+            {
+                LogHardwareFailure(hardware, "update", ex);
+            }
         }
         updateStopwatch.Stop();
 
@@ -52,34 +73,43 @@ internal sealed class LibreSensorReader : ISensorReader
 
         var projectionStopwatch = Stopwatch.StartNew();
         var fallbackSensorIdCount = 0;
-        var sensors = allHardware
-            .SelectMany(hardware => GetDetectedSensors(hardware, includeAllSensors, includedCategorySet))
-            .Select(sensor =>
+        var sensors = new List<DetectedSensorInfo>();
+        foreach (var hardware in allHardware)
+        {
+            try
             {
-                if (sensor.SensorId.StartsWith("fallback/", StringComparison.Ordinal))
-                    fallbackSensorIdCount++;
+                foreach (var sensor in GetDetectedSensors(hardware, includeAllSensors, includedCategorySet))
+                {
+                    if (sensor.SensorId.StartsWith("fallback/", StringComparison.Ordinal))
+                        fallbackSensorIdCount++;
 
-                return sensor;
-            })
-            .Where(sensor => sensor.Value.HasValue)
-            .ToArray();
+                    if (sensor.Value.HasValue)
+                        sensors.Add(sensor);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHardwareFailure(hardware, "projection", ex);
+            }
+        }
         projectionStopwatch.Stop();
 
-        var duplicateSensorIdCount = sensors
+        var sensorArray = sensors.ToArray();
+        var duplicateSensorIdCount = sensorArray
             .GroupBy(sensor => sensor.SensorId, StringComparer.OrdinalIgnoreCase)
             .Count(group => group.Count() > 1);
 
         var metrics = new LibreReadMetrics(
             HardwareCount: allHardware.Length,
-            UpdatedHardwareCount: hardwareToUpdate.Length,
-            SensorCount: sensors.Length,
+            UpdatedHardwareCount: updatedHardwareCount,
+            SensorCount: sensorArray.Length,
             FallbackSensorIdCount: fallbackSensorIdCount,
             DuplicateSensorIdCount: duplicateSensorIdCount,
             UpdateMs: updateStopwatch.ElapsedMilliseconds,
             ProjectionMs: projectionStopwatch.ElapsedMilliseconds,
             FastStartApplied: fastStart);
 
-        return new LibreSensorSnapshot(sensors, metrics);
+        return new LibreSensorSnapshot(sensorArray, metrics);
     }
 
     public void Dispose()
@@ -197,5 +227,19 @@ internal sealed class LibreSensorReader : ISensorReader
             return identifier;
 
         return $"{hardware.HardwareType}/{Sanitize(hardware.Name)}";
+    }
+
+    private void LogHardwareFailure(IHardware hardware, string operation, Exception exception)
+    {
+        var key = $"{operation}:{GetHardwareKey(hardware)}";
+        var nowUtc = DateTimeOffset.UtcNow;
+        if (_lastHardwareErrorLogUtc.TryGetValue(key, out var lastLoggedUtc) &&
+            nowUtc - lastLoggedUtc < TimeSpan.FromMinutes(1))
+        {
+            return;
+        }
+
+        _lastHardwareErrorLogUtc[key] = nowUtc;
+        SimpleLog.TryWrite($"Libre sensor {operation} failed for {GetHardwareKey(hardware)}: {exception.Message}");
     }
 }
