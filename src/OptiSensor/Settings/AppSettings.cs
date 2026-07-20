@@ -182,6 +182,8 @@ internal sealed class AppSettings
         settings.SensorCategoryFilters ??= [];
         settings.LibreProfile ??= new();
         settings.HwInfoProfile ??= new();
+        NormalizeProfile(settings.LibreProfile);
+        NormalizeProfile(settings.HwInfoProfile);
         if (settings.OverlayGroups.Count == 0 && settings.SelectedSensors.Count > 0)
         {
             settings.OverlayGroups =
@@ -205,6 +207,13 @@ internal sealed class AppSettings
             settings.LibreProfile.SensorCategoryFilters = settings.SensorCategoryFilters;
 
         return settings;
+    }
+
+    private static void NormalizeProfile(SensorSourceProfile profile)
+    {
+        profile.SelectedSensors ??= [];
+        profile.OverlayGroups ??= [];
+        profile.SensorCategoryFilters ??= [];
     }
 
     internal static string Serialize(AppSettings settings)

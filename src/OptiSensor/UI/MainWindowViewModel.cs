@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using OptiSensor.App;
 using OptiSensor.Libre;
@@ -21,23 +20,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private bool _hasUnsavedChanges;
     private bool _isRefreshing;
     private OverlayGroupViewModel? _selectedOverlayGroup;
-    private long _refreshBenchmarkCount;
-    private long _refreshBenchmarkTotalMs;
-    private long _refreshBenchmarkMaxMs;
-    private long _refreshBenchmarkReaderUpdateTotalMs;
-    private long _refreshBenchmarkReaderProjectionTotalMs;
-    private long _refreshBenchmarkFallbackSensorIdTotal;
-    private long _refreshBenchmarkDuplicateSensorIdTotal;
-    private long _refreshBenchmarkAllocatedBytesTotal;
-    private long _refreshBenchmarkFastStartAppliedCount;
-    private long _refreshBenchmarkUpdatedHardwareTotal;
-    private long _refreshBenchmarkCpuSensorCountTotal;
-    private long _refreshBenchmarkGpuSensorCountTotal;
-    private long _refreshBenchmarkPowerSensorCountTotal;
-    private long _refreshBenchmarkFanSensorCountTotal;
-    private long _refreshBenchmarkBatterySensorCountTotal;
-    private long _refreshBenchmarkOtherSensorCountTotal;
-    private int _refreshBenchmarkSensorCountMax;
+    private bool _initialSensorRefreshCompleted;
 
     public MainWindowViewModel(AppSettings settings)
     {
@@ -144,9 +127,6 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         IsRefreshing = true;
         try
         {
-            var refreshStopwatch = Stopwatch.StartNew();
-            var allocatedBefore = GC.GetTotalAllocatedBytes(false);
-
             var includedCategories = SensorCategoryFilters
                 .Where(filter => filter.IsChecked)
                 .Select(filter => filter.Category)
@@ -159,17 +139,15 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 includedCategories.Add(category);
             }
 
-            var useFastStart = _refreshBenchmarkCount < 5;
+            var useFastStart = !_initialSensorRefreshCompleted;
             var snapshot = await Task.Run(() => _sensorDiscoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart)).ConfigureAwait(true);
+            _initialSensorRefreshCompleted = true;
 
             SyncDetectedSensors(snapshot.Sensors);
 
             UpdateSelectedSensorAvailability(snapshot.Sensors);
             OnCountsChanged();
 
-            refreshStopwatch.Stop();
-            var allocatedAfter = GC.GetTotalAllocatedBytes(false);
-            RecordRefreshBenchmark(snapshot.Sensors, snapshot.Metrics, refreshStopwatch.ElapsedMilliseconds, Math.Max(0L, allocatedAfter - allocatedBefore));
         }
         finally
         {
@@ -673,82 +651,4 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    private void RecordRefreshBenchmark(IReadOnlyCollection<DetectedSensorInfo> sensors, LibreReadMetrics metrics, long refreshMs, long allocatedBytes)
-    {
-        _refreshBenchmarkCount++;
-        _refreshBenchmarkTotalMs += refreshMs;
-        _refreshBenchmarkMaxMs = Math.Max(_refreshBenchmarkMaxMs, refreshMs);
-        _refreshBenchmarkReaderUpdateTotalMs += metrics.UpdateMs;
-        _refreshBenchmarkReaderProjectionTotalMs += metrics.ProjectionMs;
-        _refreshBenchmarkFallbackSensorIdTotal += metrics.FallbackSensorIdCount;
-        _refreshBenchmarkDuplicateSensorIdTotal += metrics.DuplicateSensorIdCount;
-        _refreshBenchmarkAllocatedBytesTotal += allocatedBytes;
-        _refreshBenchmarkUpdatedHardwareTotal += metrics.UpdatedHardwareCount;
-        if (metrics.FastStartApplied)
-            _refreshBenchmarkFastStartAppliedCount++;
-        _refreshBenchmarkSensorCountMax = Math.Max(_refreshBenchmarkSensorCountMax, metrics.SensorCount);
-
-        var cpuCount = 0;
-        var gpuCount = 0;
-        var powerCount = 0;
-        var fanCount = 0;
-        var batteryCount = 0;
-        var otherCount = 0;
-        foreach (var sensor in sensors)
-        {
-            switch (sensor.Category)
-            {
-                case OptiSensorCategory.Cpu:
-                    cpuCount++;
-                    break;
-                case OptiSensorCategory.Gpu:
-                    gpuCount++;
-                    break;
-                case OptiSensorCategory.Power:
-                    powerCount++;
-                    break;
-                case OptiSensorCategory.Fan:
-                    fanCount++;
-                    break;
-                case OptiSensorCategory.Battery:
-                    batteryCount++;
-                    break;
-                default:
-                    otherCount++;
-                    break;
-            }
-        }
-
-        _refreshBenchmarkCpuSensorCountTotal += cpuCount;
-        _refreshBenchmarkGpuSensorCountTotal += gpuCount;
-        _refreshBenchmarkPowerSensorCountTotal += powerCount;
-        _refreshBenchmarkFanSensorCountTotal += fanCount;
-        _refreshBenchmarkBatterySensorCountTotal += batteryCount;
-        _refreshBenchmarkOtherSensorCountTotal += otherCount;
-
-        const int summaryInterval = 30;
-        if (_refreshBenchmarkCount % summaryInterval != 0)
-            return;
-
-        var avgRefreshMs = _refreshBenchmarkTotalMs / _refreshBenchmarkCount;
-        var avgUpdateMs = _refreshBenchmarkReaderUpdateTotalMs / _refreshBenchmarkCount;
-        var avgProjectionMs = _refreshBenchmarkReaderProjectionTotalMs / _refreshBenchmarkCount;
-        var avgFallback = _refreshBenchmarkFallbackSensorIdTotal / _refreshBenchmarkCount;
-        var avgDuplicate = _refreshBenchmarkDuplicateSensorIdTotal / _refreshBenchmarkCount;
-        var avgUpdatedHardware = _refreshBenchmarkUpdatedHardwareTotal / _refreshBenchmarkCount;
-        var avgAllocatedKb = (_refreshBenchmarkAllocatedBytesTotal / _refreshBenchmarkCount) / 1024d;
-        var avgCpuCount = _refreshBenchmarkCpuSensorCountTotal / _refreshBenchmarkCount;
-        var avgGpuCount = _refreshBenchmarkGpuSensorCountTotal / _refreshBenchmarkCount;
-        var avgPowerCount = _refreshBenchmarkPowerSensorCountTotal / _refreshBenchmarkCount;
-        var avgFanCount = _refreshBenchmarkFanSensorCountTotal / _refreshBenchmarkCount;
-        var avgBatteryCount = _refreshBenchmarkBatterySensorCountTotal / _refreshBenchmarkCount;
-        var avgOtherCount = _refreshBenchmarkOtherSensorCountTotal / _refreshBenchmarkCount;
-
-        SimpleLog.TryWrite(
-            $"Refresh benchmark (n={_refreshBenchmarkCount}): avg={avgRefreshMs}ms max={_refreshBenchmarkMaxMs}ms " +
-            $"reader(update/projection)={avgUpdateMs}/{avgProjectionMs}ms " +
-            $"avgFallbackId={avgFallback} avgDuplicateId={avgDuplicate} avgUpdatedHw={avgUpdatedHardware} fastStartRuns={_refreshBenchmarkFastStartAppliedCount} maxSensors={_refreshBenchmarkSensorCountMax} " +
-            $"avgByCategory(cpu/gpu/power/fan/battery/other)={avgCpuCount}/{avgGpuCount}/{avgPowerCount}/{avgFanCount}/{avgBatteryCount}/{avgOtherCount} " +
-            $"avgAlloc={avgAllocatedKb:0.0}KB");
-    }
 }
