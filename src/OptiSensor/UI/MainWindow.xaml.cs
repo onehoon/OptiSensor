@@ -159,8 +159,7 @@ public partial class MainWindow : Window
     {
         if (_sensorRefreshStarted ||
             !_host.IsSensorSourceReady ||
-            !IsVisible ||
-            !ReferenceEquals(PageContentControl.Content, _sensorsPage))
+            !IsVisible)
             return;
 
         _sensorRefreshStarted = true;
@@ -442,6 +441,7 @@ public partial class MainWindow : Window
     private void SensorsNavButton_Click(object sender, RoutedEventArgs e)
     {
         NavigateTo(_sensorsPage, SensorsNavButton);
+        StopSensorRefresh();
         StartSensorRefreshWhenReady();
     }
 
