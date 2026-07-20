@@ -423,13 +423,8 @@ public partial class MainWindow : Window
             if (!result.IsReady)
                 return;
 
-            var applyUpdate = System.Windows.MessageBox.Show(
-                $"{result.Message}\n\nApply the update now?",
-                "OptiSensor update",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Information) == MessageBoxResult.Yes;
-            if (applyUpdate)
-                GitHubUpdateService.ApplyAndRestart(result);
+            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
+            GitHubUpdateService.ApplyAndRestart(result);
         }
         catch (Exception ex)
         {
