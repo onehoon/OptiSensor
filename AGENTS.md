@@ -1,5 +1,11 @@
 # OptiSensor Build Instructions
 
+## Branch policy
+
+- Modify OptiSensor application source only on the `main` branch by default.
+- Do not copy application-source changes to `release/0.9` unless the user explicitly requests that branch.
+- Keep `release/0.9` limited to its independent OptiScaler patch-stack maintenance unless explicitly directed otherwise.
+
 ## Default local build
 
 When the user asks to build OptiSensor without specifying another format, produce the following output:
