@@ -32,11 +32,11 @@ public class OverlayOutputComposerTests
     [Fact]
     public void Compose_ConfiguredSensorsAllDisabled_DoesNotFallBackToDefault()
     {
-        var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 65f));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 65f);
+        var snapshot = SensorFixture.CreateSnapshot(gpuTemp);
         var disabledSensorInEnabledGroup = SensorFixture.CreateGroup(
             "g1", "GPU", 0, enabled: true,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "GPU", "{0:0}C", 0, enabled: false));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "GPU", "{0:0}C", 0, enabled: false));
 
         var result = _composer.Compose(snapshot, [disabledSensorInEnabledGroup]);
 
@@ -49,11 +49,11 @@ public class OverlayOutputComposerTests
     [Fact]
     public void Compose_ConfiguredGroupDisabled_DoesNotFallBackToDefault()
     {
-        var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 65f));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 65f);
+        var snapshot = SensorFixture.CreateSnapshot(gpuTemp);
         var enabledSensorInDisabledGroup = SensorFixture.CreateGroup(
             "g1", "GPU", 0, enabled: false,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "GPU", "{0:0}C", 0, enabled: true));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "GPU", "{0:0}C", 0, enabled: true));
 
         var result = _composer.Compose(snapshot, [enabledSensorInDisabledGroup]);
 
@@ -66,13 +66,14 @@ public class OverlayOutputComposerTests
     [Fact]
     public void Compose_OnlyUngroupedHasSensor_PreventsDefaultFallback()
     {
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 65f);
         var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 65f),
+            gpuTemp,
             SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f),
             SensorFixture.CreateDetectedSensor("gpu-load", "Load", "GPU Core", 80f));
         var ungroupedWithSensor = SensorFixture.CreateGroup(
             "ungrouped", "Ungrouped", 0, enabled: false,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "GPU", "{0:0}C", 0));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "GPU", "{0:0}C", 0));
 
         var result = _composer.Compose(snapshot, [ungroupedWithSensor]);
 
@@ -85,17 +86,17 @@ public class OverlayOutputComposerTests
     [Fact]
     public void Compose_MixedEnabledState_CountsMatchGroupAndSensorEnabledFlags()
     {
-        var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("a", "Temperature", "A", 1f),
-            SensorFixture.CreateDetectedSensor("b", "Temperature", "B", 2f),
-            SensorFixture.CreateDetectedSensor("c", "Temperature", "C", 3f));
+        var sensorA = SensorFixture.CreateDetectedSensor("a", "Temperature", "A", 1f);
+        var sensorB = SensorFixture.CreateDetectedSensor("b", "Temperature", "B", 2f);
+        var sensorC = SensorFixture.CreateDetectedSensor("c", "Temperature", "C", 3f);
+        var snapshot = SensorFixture.CreateSnapshot(sensorA, sensorB, sensorC);
 
         var enabledGroupEnabledSensor = SensorFixture.CreateGroup("g1", "G1", 0, enabled: true,
-            SensorFixture.CreateSelectedSensor("a", "A", "{0:0}", 0, enabled: true));
+            SensorFixture.CreateSelectedSensor(sensorA, "A", "{0:0}", 0, enabled: true));
         var enabledGroupDisabledSensor = SensorFixture.CreateGroup("g2", "G2", 1, enabled: true,
-            SensorFixture.CreateSelectedSensor("b", "B", "{0:0}", 0, enabled: false));
+            SensorFixture.CreateSelectedSensor(sensorB, "B", "{0:0}", 0, enabled: false));
         var disabledGroupEnabledSensor = SensorFixture.CreateGroup("g3", "G3", 2, enabled: false,
-            SensorFixture.CreateSelectedSensor("c", "C", "{0:0}", 0, enabled: true));
+            SensorFixture.CreateSelectedSensor(sensorC, "C", "{0:0}", 0, enabled: true));
 
         var result = _composer.Compose(snapshot, [enabledGroupEnabledSensor, enabledGroupDisabledSensor, disabledGroupEnabledSensor]);
 
@@ -107,16 +108,16 @@ public class OverlayOutputComposerTests
     [Fact]
     public void Compose_GroupsSuppliedOutOfOrder_OutputsInOrderFieldSequence()
     {
-        var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("cpu", "Temperature", "CPU", 55f, hardwareType: SensorFixture.CpuHardwareType, category: OptiSensorCategory.Cpu),
-            SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU", 65f),
-            SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU", 120f));
+        var cpuTemp = SensorFixture.CreateDetectedSensor("cpu", "Temperature", "CPU", 55f, hardwareType: SensorFixture.CpuHardwareType, category: OptiSensorCategory.Cpu);
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU", 65f);
+        var gpuPower = SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU", 120f, unit: "W");
+        var snapshot = SensorFixture.CreateSnapshot(cpuTemp, gpuTemp, gpuPower);
 
         var cpuGroup = SensorFixture.CreateGroup("g-cpu", "CPU", 1, true,
-            SensorFixture.CreateSelectedSensor("cpu", "", "{0:0}°C", 0));
+            SensorFixture.CreateSelectedSensor(cpuTemp, "", "{0:0}°C", 0));
         var gpuGroup = SensorFixture.CreateGroup("g-gpu", "GPU", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-power", "", "{0:0}W", 1),
-            SensorFixture.CreateSelectedSensor("gpu-temp", "", "{0:0}°C", 0));
+            SensorFixture.CreateSelectedSensor(gpuPower, "", "{0:0}W", 1),
+            SensorFixture.CreateSelectedSensor(gpuTemp, "", "{0:0}°C", 0));
 
         // Supplied out of Order: cpuGroup (Order=1) before gpuGroup (Order=0);
         // sensors inside gpuGroup are also supplied power-then-temperature though temperature has the lower Order.
@@ -128,11 +129,12 @@ public class OverlayOutputComposerTests
     [Fact]
     public void Compose_SensorMissingFromSnapshot_IsSkippedButOthersRender()
     {
-        var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 65f);
+        var gpuPower = SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f, unit: "W");
+        var snapshot = SensorFixture.CreateSnapshot(gpuPower);
         var group = SensorFixture.CreateGroup("g1", "GPU", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "", "{0:0}°C", 0),
-            SensorFixture.CreateSelectedSensor("gpu-power", "", "{0:0}W", 1));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "", "{0:0}°C", 0),
+            SensorFixture.CreateSelectedSensor(gpuPower, "", "{0:0}W", 1));
 
         var result = _composer.Compose(snapshot, [group]);
 

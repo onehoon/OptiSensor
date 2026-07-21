@@ -12,20 +12,20 @@ public class OverlayLineBuilderTests
     [Fact]
     public void BuildLine_MultipleGroups_JoinsSensorsWithSpaceAndGroupsWithPipe()
     {
-        var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 44f),
-            SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 115f),
-            SensorFixture.CreateDetectedSensor("gpu-load", "Load", "GPU Core", 62f),
-            SensorFixture.CreateDetectedSensor("cpu-temp", "Temperature", "CPU Core", 71f, hardwareType: SensorFixture.CpuHardwareType, category: OptiSensorCategory.Cpu),
-            SensorFixture.CreateDetectedSensor("cpu-load", "Load", "CPU Core", 38f, hardwareType: SensorFixture.CpuHardwareType, category: OptiSensorCategory.Cpu));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 44f);
+        var gpuPower = SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 115f, unit: "W");
+        var gpuLoad = SensorFixture.CreateDetectedSensor("gpu-load", "Load", "GPU Core", 62f, unit: "%");
+        var cpuTemp = SensorFixture.CreateDetectedSensor("cpu-temp", "Temperature", "CPU Core", 71f, hardwareType: SensorFixture.CpuHardwareType, category: OptiSensorCategory.Cpu);
+        var cpuLoad = SensorFixture.CreateDetectedSensor("cpu-load", "Load", "CPU Core", 38f, hardwareType: SensorFixture.CpuHardwareType, category: OptiSensorCategory.Cpu, unit: "%");
+        var snapshot = SensorFixture.CreateSnapshot(gpuTemp, gpuPower, gpuLoad, cpuTemp, cpuLoad);
 
         var gpuGroup = SensorFixture.CreateGroup("g-gpu", "GPU", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "", "{0:0}°C", 0),
-            SensorFixture.CreateSelectedSensor("gpu-power", "", "{0:0}W", 1),
-            SensorFixture.CreateSelectedSensor("gpu-load", "", "{0:0}%", 2));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "", "{0:0}°C", 0),
+            SensorFixture.CreateSelectedSensor(gpuPower, "", "{0:0}W", 1),
+            SensorFixture.CreateSelectedSensor(gpuLoad, "", "{0:0}%", 2));
         var cpuGroup = SensorFixture.CreateGroup("g-cpu", "CPU", 1, true,
-            SensorFixture.CreateSelectedSensor("cpu-temp", "", "{0:0}°C", 0),
-            SensorFixture.CreateSelectedSensor("cpu-load", "", "{0:0}%", 1));
+            SensorFixture.CreateSelectedSensor(cpuTemp, "", "{0:0}°C", 0),
+            SensorFixture.CreateSelectedSensor(cpuLoad, "", "{0:0}%", 1));
 
         var line = _builder.BuildLine(snapshot, new[] { gpuGroup, cpuGroup });
 
@@ -37,9 +37,10 @@ public class OverlayLineBuilderTests
     [InlineData("{0:0}°C")]
     public void BuildLine_TemperatureFormats_NormalizeToSingleDegreeSymbol(string format)
     {
-        var snapshot = SensorFixture.CreateSnapshot(SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 44f));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 44f);
+        var snapshot = SensorFixture.CreateSnapshot(gpuTemp);
         var group = SensorFixture.CreateGroup("g1", "", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "", format, 0));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "", format, 0));
 
         var line = _builder.BuildLine(snapshot, new[] { group });
 
@@ -51,9 +52,10 @@ public class OverlayLineBuilderTests
     [Fact]
     public void BuildLine_InvalidFormat_FallsBackToIntegerWithUnitInsteadOfThrowing()
     {
-        var snapshot = SensorFixture.CreateSnapshot(SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 44f));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 44f);
+        var snapshot = SensorFixture.CreateSnapshot(gpuTemp);
         var group = SensorFixture.CreateGroup("g1", "", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "", "{0:0", 0));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "", "{0:0", 0));
 
         var line = _builder.BuildLine(snapshot, new[] { group });
 
@@ -63,9 +65,10 @@ public class OverlayLineBuilderTests
     [Fact]
     public void BuildLine_InvalidFormatNonTemperature_FallsBackToIntegerWithSensorUnit()
     {
-        var snapshot = SensorFixture.CreateSnapshot(SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f, unit: "W"));
+        var gpuPower = SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f, unit: "W");
+        var snapshot = SensorFixture.CreateSnapshot(gpuPower);
         var group = SensorFixture.CreateGroup("g1", "", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-power", "", "{0:0", 0, sensorType: "Power", unit: "W"));
+            SensorFixture.CreateSelectedSensor(gpuPower, "", "{0:0", 0));
 
         var line = _builder.BuildLine(snapshot, new[] { group });
 
@@ -75,12 +78,12 @@ public class OverlayLineBuilderTests
     [Fact]
     public void BuildLine_NullSensorValue_IsSkipped()
     {
-        var snapshot = SensorFixture.CreateSnapshot(
-            SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", null),
-            SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", null);
+        var gpuPower = SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f, unit: "W");
+        var snapshot = SensorFixture.CreateSnapshot(gpuTemp, gpuPower);
         var group = SensorFixture.CreateGroup("g1", "", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "", "{0:0}°C", 0),
-            SensorFixture.CreateSelectedSensor("gpu-power", "", "{0:0}W", 1));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "", "{0:0}°C", 0),
+            SensorFixture.CreateSelectedSensor(gpuPower, "", "{0:0}W", 1));
 
         var line = _builder.BuildLine(snapshot, new[] { group });
 
@@ -90,10 +93,12 @@ public class OverlayLineBuilderTests
     [Fact]
     public void BuildLine_SensorMissingFromSnapshot_IsSkipped()
     {
-        var snapshot = SensorFixture.CreateSnapshot(SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f));
+        var gpuTemp = SensorFixture.CreateDetectedSensor("gpu-temp", "Temperature", "GPU Core", 44f);
+        var gpuPower = SensorFixture.CreateDetectedSensor("gpu-power", "Power", "GPU Package", 120f, unit: "W");
+        var snapshot = SensorFixture.CreateSnapshot(gpuPower);
         var group = SensorFixture.CreateGroup("g1", "", 0, true,
-            SensorFixture.CreateSelectedSensor("gpu-temp", "", "{0:0}°C", 0),
-            SensorFixture.CreateSelectedSensor("gpu-power", "", "{0:0}W", 1));
+            SensorFixture.CreateSelectedSensor(gpuTemp, "", "{0:0}°C", 0),
+            SensorFixture.CreateSelectedSensor(gpuPower, "", "{0:0}W", 1));
 
         var line = _builder.BuildLine(snapshot, new[] { group });
 

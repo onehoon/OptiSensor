@@ -49,6 +49,35 @@ internal static class SensorFixture
         };
     }
 
+    /// <summary>
+    /// Builds a selected-sensor entry from an actual detected sensor's metadata, so
+    /// tests for a Power/Load/CPU sensor can't accidentally end up modeled as a
+    /// Temperature/Gpu sensor (which would hide type-dependent formatting regressions,
+    /// e.g. the temperature-suffix normalization only applying to SensorType="Temperature").
+    /// </summary>
+    public static SelectedOverlaySensor CreateSelectedSensor(
+        DetectedSensorInfo detected,
+        string displayName,
+        string format,
+        int order,
+        bool enabled = true)
+    {
+        return new SelectedOverlaySensor
+        {
+            SensorId = detected.SensorId,
+            HardwareType = detected.HardwareType,
+            HardwareName = detected.HardwareName,
+            SensorType = detected.SensorType,
+            SensorName = detected.SensorName,
+            Category = detected.Category,
+            DisplayName = displayName,
+            Unit = detected.Unit,
+            Format = format,
+            Order = order,
+            Enabled = enabled
+        };
+    }
+
     public static OverlayGroup CreateGroup(string id, string name, int order, bool enabled, params SelectedOverlaySensor[] sensors)
     {
         return new OverlayGroup
