@@ -9,7 +9,7 @@ internal sealed class SensorPublishRunner : IDisposable
     private const int ClearDebounceCycles = 5;
     private const int CachedSensorLifetimeIntervals = 3;
     private readonly ISensorReader _sensorReader;
-    private readonly OverlayLineBuilder _lineBuilder;
+    private readonly OverlayOutputComposer _outputComposer;
     private readonly ExternalOverlayPublisher _publisher;
     private readonly Func<IReadOnlyCollection<OverlayGroup>> _overlayGroupsProvider;
     private readonly Dictionary<string, CachedSensor> _lastKnownSensorById = new(StringComparer.OrdinalIgnoreCase);
@@ -18,12 +18,12 @@ internal sealed class SensorPublishRunner : IDisposable
 
     public SensorPublishRunner(
         ISensorReader sensorReader,
-        OverlayLineBuilder lineBuilder,
+        OverlayOutputComposer outputComposer,
         ExternalOverlayPublisher publisher,
         Func<IReadOnlyCollection<OverlayGroup>> overlayGroupsProvider)
     {
         _sensorReader = sensorReader;
-        _lineBuilder = lineBuilder;
+        _outputComposer = outputComposer;
         _publisher = publisher;
         _overlayGroupsProvider = overlayGroupsProvider;
     }
@@ -39,11 +39,8 @@ internal sealed class SensorPublishRunner : IDisposable
         var snapshot = _sensorReader.ReadSnapshot();
         var overlayGroups = _overlayGroupsProvider();
         var effectiveSnapshot = CreateEffectiveSnapshot(snapshot, overlayGroups, publishIntervalMs);
-        var totalSelectedSensorCount = overlayGroups.Sum(group => group.Sensors.Count);
-        var enabledSelectedSensorCount = overlayGroups.Where(group => group.Enabled).Sum(group => group.Sensors.Count(sensor => sensor.Enabled));
-        var overlayLine = totalSelectedSensorCount == 0
-            ? _lineBuilder.BuildDefaultLine(effectiveSnapshot)
-            : _lineBuilder.BuildLine(effectiveSnapshot, overlayGroups);
+        var composition = _outputComposer.Compose(effectiveSnapshot, overlayGroups);
+        var overlayLine = composition.Line;
 
         if (overlayLine is not null)
         {
@@ -62,7 +59,7 @@ internal sealed class SensorPublishRunner : IDisposable
             }
         }
 
-        return new SensorPublishResult(overlayLine, effectiveSnapshot.Sensors.Count, enabledSelectedSensorCount, totalSelectedSensorCount);
+        return new SensorPublishResult(overlayLine, effectiveSnapshot.Sensors.Count, composition.EnabledSelectedSensorCount, composition.TotalSelectedSensorCount);
     }
 
     public Task RunLoopAsync(int publishIntervalMs, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)
