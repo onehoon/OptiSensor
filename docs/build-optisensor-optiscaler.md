@@ -34,7 +34,7 @@ Use the helper script when the OptiScaler integration branch has new commits:
 .\scripts\import-optiscaler-patches.ps1 `
   -SourceRepo "onehoon/OptiScaler" `
   -SourceRef "optisensor-overlay" `
-  -BaseRef "master" `
+  -BaseRef "release/0.9" `
   -OutputDir "optiscaler/patches"
 ```
 
@@ -113,7 +113,7 @@ publish_release=false
 
 This creates the combined package zip, verifies its contents, and uploads it as a GitHub Actions artifact. No git tag is created and no GitHub Release is uploaded.
 
-Downloading the artifact from the Actions run gives a GitHub-generated artifact archive containing exactly one file: the combined package zip (for example, `OptiSensor-0.1.12-master-a1b2c3d4e5f6.zip`). You must unzip that archive again to reach `OptiScaler.dll`, `OptiScaler.ini`, and `OptiSensor-Setup.exe`.
+Downloading the artifact from the Actions run gives a GitHub-generated artifact archive containing exactly one file: the combined package zip (for example, `OptiSensor-0.1.12-release-0.9-a1b2c3d4e5f6.zip`). You must unzip that archive again to reach `OptiScaler.dll`, `OptiScaler.ini`, and `OptiSensor-Setup.exe`.
 
 Release build:
 
@@ -138,7 +138,7 @@ OptiSensor-<optisensor_version>-<sanitized_optiscaler_ref>-<optiscaler_commit>.z
 Example:
 
 ```text
-OptiSensor-0.1.12-master-a1b2c3d4e5f6.zip
+OptiSensor-0.1.12-release-0.9-a1b2c3d4e5f6.zip
 ```
 
 ## Overlay Defaults
@@ -152,7 +152,7 @@ ShowFps=auto        ; compiled default: true
 FpsOverlayType=auto ; compiled default: 7 = Just FPS (+External)
 ```
 
-There is no separate `AppendExternalOverlayText` INI key or toggle in the main patch stack. Selecting overlay type `7` adds the shared-memory external text to OptiScaler's existing Just FPS output.
+There is no separate `AppendExternalOverlayText` INI key or toggle in the release/0.9 patch stack. Selecting overlay type `7` adds the shared-memory external text to OptiScaler's existing Just FPS output.
 
 ## Out of Scope
 
