@@ -8,6 +8,7 @@ namespace OptiSensor.UI;
 internal sealed class OverlayGroupViewModel : INotifyPropertyChanged
 {
     private readonly Action _changed;
+    private readonly Action _sensorChanged;
     private string _name;
     private int _order;
     private bool _enabled;
@@ -15,16 +16,18 @@ internal sealed class OverlayGroupViewModel : INotifyPropertyChanged
     public OverlayGroupViewModel(
         OverlayGroup group,
         Action changed,
+        Action sensorChanged,
         Func<SelectedOverlaySensorViewModel, string, bool>? moveSensorToGroup = null)
     {
         _changed = changed;
+        _sensorChanged = sensorChanged;
         Id = group.Id;
         _name = group.Name;
         _order = group.Order;
         _enabled = group.Enabled;
 
         foreach (var sensor in group.Sensors.OrderBy(sensor => sensor.Order))
-            Sensors.Add(new SelectedOverlaySensorViewModel(sensor, group.Id, changed, moveSensorToGroup));
+            Sensors.Add(new SelectedOverlaySensorViewModel(sensor, group.Id, sensorChanged, moveSensorToGroup));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

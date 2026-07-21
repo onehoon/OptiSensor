@@ -36,7 +36,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         }
 
         foreach (var group in _settings.GetOverlayGroupsSnapshot())
-            OverlayGroups.Add(new OverlayGroupViewModel(group, SyncOverlayGroupsToSettings, MoveSensorToGroup));
+            OverlayGroups.Add(new OverlayGroupViewModel(
+                group,
+                SyncOverlayGroupsToSettings,
+                SyncSelectedSensorsToSettings,
+                MoveSensorToGroup));
 
         EnsureUngroupedGroup();
 
@@ -70,6 +74,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public int TotalSelectedSensorCount => OverlayGroups.Sum(group => group.Sensors.Count);
     public int OverlayGroupCount => VisibleOverlayGroups.Count;
     public string SettingsStateText => HasUnsavedChanges ? "Unsaved changes" : "Saved";
+    public string SensorsTitle => _settings.SensorSource == SensorSourceKind.HwInfo
+        ? "Sensors (HWiNFO)"
+        : "Sensors (Libre)";
 
     public OverlayGroupViewModel? SelectedOverlayGroup
     {
@@ -241,18 +248,35 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         SyncOverlayGroupsToSettings();
     }
 
-    public bool TrySave(out string? errorMessage)
+    /// <summary>
+    /// Validates and normalizes the current Draft, then writes a deep snapshot into
+    /// <paramref name="candidate"/>'s active source profile. Never touches the live
+    /// AppSettings this view model was constructed with, and never saves to disk.
+    /// </summary>
+    public bool TryApplyDraftTo(AppSettings candidate, out string? errorMessage)
     {
         foreach (var group in OverlayGroups)
             ReorderSensors(group.Sensors, markChanged: true);
         if (!ValidateFormats(out errorMessage))
             return false;
 
-        SyncOverlayGroupsToSettings();
-        _settings.Save();
-        HasUnsavedChanges = false;
+        var orderedGroups = OverlayGroups.OrderBy(group => group.Order).Select(group => group.ToModel()).ToArray();
+        var categoryFilters = SensorCategoryFilters
+            .Select(filter => new KeyValuePair<OptiSensorCategory, bool>(filter.Category, filter.IsChecked))
+            .ToArray();
+
+        candidate.ReplaceOverlayGroups(orderedGroups);
+        candidate.ReplaceSensorCategoryFilters(categoryFilters);
+
         errorMessage = null;
         return true;
+    }
+
+    /// <summary>Called by MainWindow only after the candidate has been saved to disk and applied to the live AppSettings.</summary>
+    public void MarkSaved()
+    {
+        RebuildVisibleSelectedSensors();
+        HasUnsavedChanges = false;
     }
 
     public string GetOverlayPreviewText()
@@ -339,9 +363,13 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         NotifyOverlayGroupCollectionsChanged();
     }
 
+    // Despite the name (kept for the existing OverlayGroupViewModel/SelectedOverlaySensorViewModel
+    // callback wiring), these no longer touch AppSettings: they only update in-memory Draft/UI
+    // state. AppSettings is only written once, by TryApplyDraftTo, after Save validation succeeds.
     private void SyncSelectedSensorsToSettings()
     {
-        SyncOverlayGroupsToSettings();
+        HasUnsavedChanges = true;
+        OnCountsChanged();
     }
 
     private void SyncOverlayGroupsToSettings()
@@ -351,7 +379,6 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private void SyncOverlayGroupsToSettings(bool markUnsaved)
     {
-        _settings.ReplaceOverlayGroups(OverlayGroups.OrderBy(group => group.Order).Select(group => group.ToModel()));
         RebuildVisibleSelectedSensors();
 
         if (markUnsaved)
@@ -404,6 +431,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 Sensors = []
             },
             SyncOverlayGroupsToSettings,
+            SyncSelectedSensorsToSettings,
             MoveSensorToGroup);
 
         OverlayGroups.Insert(0, ungrouped);
@@ -422,6 +450,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 Sensors = []
             },
             SyncOverlayGroupsToSettings,
+            SyncSelectedSensorsToSettings,
             MoveSensorToGroup);
     }
 
@@ -530,9 +559,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         if (e.PropertyName != nameof(SensorCategoryFilterViewModel.IsChecked))
             return;
 
-        _settings.ReplaceSensorCategoryFilters(SensorCategoryFilters.Select(filter =>
-            new KeyValuePair<OptiSensorCategory, bool>(filter.Category, filter.IsChecked)));
-        _settings.Save();
+        HasUnsavedChanges = true;
     }
 
     private void SyncDetectedSensorSelectionStates()
