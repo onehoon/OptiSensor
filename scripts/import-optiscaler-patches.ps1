@@ -11,6 +11,7 @@ param(
     [string] $OutputDir = "optiscaler/patches"
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Invoke-Git {
@@ -26,80 +27,373 @@ function Resolve-GitCommit {
         [string] $Ref
     )
 
-    $commit = (git rev-parse --verify "$Ref^{commit}").Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw "Git ref '$Ref' could not be resolved to a commit (exit code $LASTEXITCODE)."
+    $output = git rev-parse --verify "$Ref^{commit}"
+    $exitCode = $LASTEXITCODE
+
+    if ($exitCode -ne 0) {
+        throw "Git ref '$Ref' could not be resolved to a commit (exit code $exitCode)."
+    }
+
+    $commit = ($output | Out-String).Trim()
+    if ([string]::IsNullOrWhiteSpace($commit)) {
+        throw "Git ref '$Ref' resolved to an empty commit SHA."
     }
 
     return $commit
 }
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$workRoot = Join-Path $repoRoot ".tmp"
-$cloneDir = Join-Path $workRoot "OptiScaler-patch-import"
-$resolvedOutputDir = Join-Path $repoRoot $OutputDir
+function Resolve-GitTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Ref
+    )
 
-if ($SourceRepo -match "^https?://") {
-    $repoUrl = $SourceRepo
+    $output = git rev-parse --verify "$Ref^{tree}"
+    $exitCode = $LASTEXITCODE
+
+    if ($exitCode -ne 0) {
+        throw "Git ref '$Ref' could not be resolved to a tree (exit code $exitCode)."
+    }
+
+    $tree = ($output | Out-String).Trim()
+    if ([string]::IsNullOrWhiteSpace($tree)) {
+        throw "Git ref '$Ref' resolved to an empty tree SHA."
+    }
+
+    return $tree
 }
-else {
-    $repoUrl = "https://github.com/$SourceRepo.git"
+
+function Resolve-RemoteBranchOrRef {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Ref,
+
+        [Parameter(Mandatory = $true)]
+        [string] $Label
+    )
+
+    git ls-remote --exit-code --heads origin $Ref | Out-Null
+    $lookupExitCode = $LASTEXITCODE
+
+    if ($lookupExitCode -eq 0) {
+        $revision = "origin/$Ref"
+    }
+    elseif ($lookupExitCode -eq 2) {
+        $revision = $Ref
+    }
+    else {
+        throw "Unable to look up $Label '$Ref' on origin (exit code $lookupExitCode)."
+    }
+
+    return Resolve-GitCommit $revision
 }
 
-if (Test-Path -LiteralPath $cloneDir) {
-    Remove-Item -LiteralPath $cloneDir -Recurse -Force
+function Assert-NoReparsePointInChain {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string] $TargetFull
+    )
+
+    # A string-prefix check alone cannot detect a symlink/junction along the path:
+    # e.g. "optiscaler" could be a junction pointing outside the repository while
+    # still looking like an in-repo path textually. Walk every existing path
+    # component from the target up to (but not including) the repo root and
+    # reject any that is a reparse point, so replacement/backup file operations
+    # cannot silently land outside the repository.
+    $current = $TargetFull
+
+    while ($current.Length -gt $RepoRoot.Length) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "OutputDir path component '$current' is a symlink or junction. Repository containment cannot be guaranteed through reparse points.`nTarget: $TargetFull`nRepository root: $RepoRoot"
+            }
+        }
+
+        $parent = Split-Path -Path $current -Parent
+        if ([string]::IsNullOrEmpty($parent) -or $parent -eq $current) {
+            break
+        }
+        $current = $parent
+    }
 }
 
-New-Item -ItemType Directory -Force -Path $workRoot, $resolvedOutputDir | Out-Null
+function Assert-RepositoryContainedPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepoRoot,
 
-Invoke-Git clone $repoUrl $cloneDir
-Push-Location $cloneDir
+        [Parameter(Mandatory = $true)]
+        [string] $CandidatePath
+    )
+
+    $separators = @([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $repoRootFull = ([IO.Path]::GetFullPath($RepoRoot)).TrimEnd($separators)
+
+    if ([IO.Path]::IsPathRooted($CandidatePath)) {
+        $targetFull = [IO.Path]::GetFullPath($CandidatePath)
+    }
+    else {
+        $targetFull = [IO.Path]::GetFullPath((Join-Path $repoRootFull $CandidatePath))
+    }
+
+    $targetFull = $targetFull.TrimEnd($separators)
+
+    if ($targetFull -eq $repoRootFull) {
+        throw "OutputDir must not be the repository root itself.`nOutputDir: $CandidatePath`nResolved target: $targetFull`nRepository root: $repoRootFull"
+    }
+
+    # Anchor the prefix comparison with a trailing separator so a sibling directory
+    # that merely shares the repo root as a string prefix (e.g. "...\OptiSensor2\x")
+    # is not mistaken for being inside the repository.
+    $repoRootWithSeparator = $repoRootFull + [IO.Path]::DirectorySeparatorChar
+    if (-not $targetFull.StartsWith($repoRootWithSeparator, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "OutputDir must resolve to a path inside the repository.`nOutputDir: $CandidatePath`nResolved target: $targetFull`nRepository root: $repoRootFull"
+    }
+
+    Assert-NoReparsePointInChain -RepoRoot $repoRootFull -TargetFull $targetFull
+
+    return $targetFull
+}
+
+$repoRoot = ([IO.Path]::GetFullPath((Resolve-Path (Join-Path $PSScriptRoot "..")).Path)).TrimEnd(
+    [IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+
+# Containment must be validated before any network access or filesystem mutation.
+$targetDir = Assert-RepositoryContainedPath -RepoRoot $repoRoot -CandidatePath $OutputDir
+
+$runId = "$PID-$([guid]::NewGuid().ToString('N'))"
+$runRoot = Join-Path $repoRoot ".tmp/OptiScaler-patch-import-$runId"
+$sourceDir = Join-Path $runRoot "source"
+$generatedDir = Join-Path $runRoot "generated"
+$smokeDir = Join-Path $runRoot "smoke"
+
+New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $generatedDir | Out-Null
+
 try {
-    Invoke-Git fetch origin --tags --prune
-
-    git ls-remote --exit-code --heads origin $SourceRef | Out-Null
-    $sourceBranchLookupExitCode = $LASTEXITCODE
-    if ($sourceBranchLookupExitCode -eq 0) {
-        $sourceRevision = "origin/$SourceRef"
-    }
-    elseif ($sourceBranchLookupExitCode -eq 2) {
-        $sourceRevision = $SourceRef
+    if ($SourceRepo -match "^https?://") {
+        $repoUrl = $SourceRepo
     }
     else {
-        throw "Unable to look up source branch '$SourceRef' on origin (exit code $sourceBranchLookupExitCode)."
+        $repoUrl = "https://github.com/$SourceRepo.git"
     }
 
-    $expectedSourceCommit = Resolve-GitCommit $sourceRevision
-    Invoke-Git checkout --detach $expectedSourceCommit
-    $checkedOutCommit = Resolve-GitCommit "HEAD"
-    if ($checkedOutCommit -ne $expectedSourceCommit) {
-        throw "Checked out commit '$checkedOutCommit' does not match requested source ref '$SourceRef' ('$expectedSourceCommit')."
+    Invoke-Git clone $repoUrl $sourceDir
+
+    $sourceCommit = $null
+    $baseCommit = $null
+    $commitCount = 0
+    $rangeSpec = $null
+
+    Push-Location $sourceDir
+    try {
+        Invoke-Git fetch origin --tags --prune
+
+        $sourceCommit = Resolve-RemoteBranchOrRef -Ref $SourceRef -Label "SourceRef"
+        Invoke-Git checkout --detach $sourceCommit
+        $checkedOutCommit = Resolve-GitCommit "HEAD"
+        if ($checkedOutCommit -ne $sourceCommit) {
+            throw "Checked-out commit '$checkedOutCommit' does not match requested SourceRef '$SourceRef' ('$sourceCommit')."
+        }
+
+        $baseCommit = Resolve-RemoteBranchOrRef -Ref $BaseRef -Label "BaseRef"
+
+        git merge-base --is-ancestor $baseCommit $sourceCommit
+        $ancestorExitCode = $LASTEXITCODE
+        if ($ancestorExitCode -eq 1) {
+            throw "BaseRef is not an ancestor of SourceRef. Existing patch stack was not modified.`nBaseRef: $BaseRef ($baseCommit)`nSourceRef: $SourceRef ($sourceCommit)"
+        }
+        elseif ($ancestorExitCode -ne 0) {
+            throw "git merge-base --is-ancestor failed with exit code $ancestorExitCode."
+        }
+
+        $rangeSpec = "$baseCommit..$sourceCommit"
+        $countOutput = git rev-list --count $rangeSpec
+        $countExitCode = $LASTEXITCODE
+        if ($countExitCode -ne 0) {
+            throw "git rev-list --count '$rangeSpec' failed with exit code $countExitCode."
+        }
+        $commitCount = [int](($countOutput | Out-String).Trim())
+        if ($commitCount -le 0) {
+            throw "No commits exist in patch range '$rangeSpec'. Existing patch stack was not modified."
+        }
+
+        Invoke-Git format-patch $rangeSpec -o $generatedDir
+    }
+    finally {
+        Pop-Location
     }
 
-    git show-ref --verify --quiet "refs/remotes/origin/$BaseRef"
-    $baseBranchLookupExitCode = $LASTEXITCODE
-    if ($baseBranchLookupExitCode -eq 0) {
-        $base = Resolve-GitCommit "origin/$BaseRef"
-    }
-    elseif ($baseBranchLookupExitCode -eq 1) {
-        $base = Resolve-GitCommit $BaseRef
-    }
-    else {
-        throw "Unable to look up base branch '$BaseRef' on origin (exit code $baseBranchLookupExitCode)."
+    $generatedPatches = @(Get-ChildItem -LiteralPath $generatedDir -Filter "*.patch" -File | Sort-Object Name)
+    if ($generatedPatches.Count -eq 0) {
+        throw "No patches were generated for range '$BaseRef..$SourceRef'. Existing patch stack was not modified."
     }
 
-    Get-ChildItem $resolvedOutputDir -Filter "*.patch" -ErrorAction SilentlyContinue | Remove-Item -Force
+    foreach ($patch in $generatedPatches) {
+        if ($patch.Length -le 0) {
+            throw "Generated patch file '$($patch.Name)' is empty. Existing patch stack was not modified."
+        }
+    }
 
-    Invoke-Git format-patch "$base..HEAD" -o $resolvedOutputDir
+    Write-Host "Generated $($generatedPatches.Count) patch(es) in range '$BaseRef..$SourceRef' ($commitCount commit(s)):"
+    $generatedPatches | ForEach-Object { Write-Host " - $($_.Name)" }
+
+    Push-Location $sourceDir
+    try {
+        Invoke-Git worktree add --detach $smokeDir $baseCommit
+    }
+    finally {
+        Pop-Location
+    }
+
+    $expectedTree = $null
+
+    Push-Location $smokeDir
+    try {
+        Invoke-Git config user.name "optiscaler-patch-import"
+        Invoke-Git config user.email "optiscaler-patch-import@local"
+
+        foreach ($patch in $generatedPatches) {
+            git am $patch.FullName
+            if ($LASTEXITCODE -ne 0) {
+                $failedPatchName = $patch.Name
+                git am --abort | Out-Null
+                throw "Smoke 'git am' failed applying patch '$failedPatchName'. Existing patch stack was not modified."
+            }
+        }
+
+        $expectedTree = Resolve-GitTree $sourceCommit
+        $actualTree = Resolve-GitTree "HEAD"
+
+        if ($actualTree -ne $expectedTree) {
+            throw "Generated patch stack applied successfully but produced a different tree than SourceRef. Existing patch stack was not modified."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
+    Write-Host "Smoke apply succeeded: patches applied cleanly on BaseRef and match SourceRef tree ($expectedTree)."
+
+    $targetParent = Split-Path -Path $targetDir -Parent
+    if (-not (Test-Path -LiteralPath $targetParent)) {
+        New-Item -ItemType Directory -Force -Path $targetParent | Out-Null
+    }
+
+    $replacementDir = Join-Path $targetParent (".patches-new-" + [guid]::NewGuid().ToString('N'))
+    $backupDir = Join-Path $targetParent (".patches-backup-" + [guid]::NewGuid().ToString('N'))
+
+    New-Item -ItemType Directory -Force -Path $replacementDir | Out-Null
+
+    if (Test-Path -LiteralPath $targetDir) {
+        Get-ChildItem -LiteralPath $targetDir -Force |
+            Where-Object { -not ($_.Extension -eq ".patch" -and -not $_.PSIsContainer) } |
+            ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $replacementDir $_.Name) -Recurse -Force
+            }
+    }
+
+    foreach ($patch in $generatedPatches) {
+        Copy-Item -LiteralPath $patch.FullName -Destination (Join-Path $replacementDir $patch.Name) -Force
+    }
+
+    $targetExisted = Test-Path -LiteralPath $targetDir
+    $backupCreated = $false
+    $replacementInstalled = $false
+
+    try {
+        if ($targetExisted) {
+            Move-Item -LiteralPath $targetDir -Destination $backupDir
+            $backupCreated = $true
+        }
+
+        Move-Item -LiteralPath $replacementDir -Destination $targetDir
+        $replacementInstalled = $true
+
+        $installedPatches = @(Get-ChildItem -LiteralPath $targetDir -Filter "*.patch" -File | Sort-Object Name)
+        $expectedNames = @($generatedPatches | ForEach-Object { $_.Name } | Sort-Object)
+        $installedNames = @($installedPatches | ForEach-Object { $_.Name } | Sort-Object)
+        $nameDiff = @(Compare-Object -ReferenceObject $expectedNames -DifferenceObject $installedNames)
+
+        if ($installedPatches.Count -ne $generatedPatches.Count -or $nameDiff.Count -ne 0) {
+            throw "Installed patch files do not match the generated patch set after replacement."
+        }
+
+        # From here on the replacement itself is considered successful. Backup
+        # cleanup is best-effort housekeeping, not part of the transaction: a
+        # failure here must never trigger rollback of an already-verified,
+        # already-installed patch stack (that would restore a backup that may
+        # itself be partially deleted, corrupting the "existing stack" guarantee).
+    }
+    catch {
+        $replacementError = $_
+
+        try {
+            if ($replacementInstalled -and (Test-Path -LiteralPath $targetDir)) {
+                Remove-Item -LiteralPath $targetDir -Recurse -Force
+            }
+
+            # Clean up the staged replacement regardless of whether the target
+            # previously existed: a failure can happen before the target-vs-backup
+            # move (replacement never consumed) just as easily as after.
+            if (Test-Path -LiteralPath $replacementDir) {
+                Remove-Item -LiteralPath $replacementDir -Recurse -Force
+            }
+
+            if ($backupCreated) {
+                if (-not (Test-Path -LiteralPath $targetDir)) {
+                    Move-Item -LiteralPath $backupDir -Destination $targetDir
+                }
+            }
+            elseif (Test-Path -LiteralPath $backupDir) {
+                # $backupCreated is false, so the original target was never actually
+                # relocated here and remains authoritative at $targetDir; this is only
+                # a partial/orphaned artifact from a failed move and is safe to remove.
+                Remove-Item -LiteralPath $backupDir -Recurse -Force
+            }
+        }
+        catch {
+            throw "Patch stack replacement failed AND automatic rollback failed. Manual recovery required.`nBackup preserved at: $backupDir`nOriginal error: $($replacementError.Exception.Message)`nRollback error: $($_.Exception.Message)"
+        }
+
+        throw $replacementError
+    }
+
+    if ($backupCreated -and (Test-Path -LiteralPath $backupDir)) {
+        try {
+            Remove-Item -LiteralPath $backupDir -Recurse -Force
+        }
+        catch {
+            Write-Warning "Patch replacement succeeded, but backup cleanup failed. Backup retained at: $backupDir ($($_.Exception.Message))"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Source repository: $SourceRepo"
+    Write-Host "SourceRef: $SourceRef"
+    Write-Host "Resolved source commit: $sourceCommit"
+    Write-Host "BaseRef: $BaseRef"
+    Write-Host "Resolved base commit: $baseCommit"
+    Write-Host "Commit count: $commitCount"
+    Write-Host "Generated patch count: $($generatedPatches.Count)"
+    Write-Host "Smoke apply result: success (tree $expectedTree)"
+    Write-Host "Output directory: $targetDir"
+    Write-Host "Generated patch files:"
+    $generatedPatches | ForEach-Object { Write-Host " - $($_.Name)" }
+    Write-Host ""
+    Write-Host "Patch stack replacement completed successfully."
 }
 finally {
-    Pop-Location
+    if (Test-Path -LiteralPath $runRoot) {
+        try {
+            Remove-Item -LiteralPath $runRoot -Recurse -Force
+        }
+        catch {
+            Write-Warning "Failed to clean up temporary run directory '$runRoot': $($_.Exception.Message)"
+        }
+    }
 }
-
-$patches = Get-ChildItem $resolvedOutputDir -Filter "*.patch" | Sort-Object Name
-if ($patches.Count -eq 0) {
-    throw "No patches were generated. Check SourceRef '$SourceRef' and BaseRef '$BaseRef'."
-}
-
-Write-Host "Generated patches:"
-$patches | ForEach-Object { Write-Host " - $($_.FullName)" }
