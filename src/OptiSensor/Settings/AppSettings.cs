@@ -174,6 +174,43 @@ internal sealed class AppSettings
         }
     }
 
+    public AppSettings CreateCopy()
+    {
+        return Deserialize(Serialize(this));
+    }
+
+    public void ApplyFrom(AppSettings source, bool preserveCurrentSensorSource = false)
+    {
+        lock (_overlayGroupsLock)
+        {
+            lock (_selectedSensorsLock)
+            {
+                var sensorSourceToKeep = SensorSource;
+
+                StartWithWindows = source.StartWithWindows;
+                StartMinimized = source.StartMinimized;
+                PublishIntervalMs = source.PublishIntervalMs;
+                LibreProfile = CopyProfile(source.LibreProfile);
+                HwInfoProfile = CopyProfile(source.HwInfoProfile);
+                SelectedSensors = source.SelectedSensors.Select(sensor => sensor.Copy()).ToList();
+                OverlayGroups = source.OverlayGroups.Select(group => group.Copy()).ToList();
+                SensorCategoryFilters = new Dictionary<OptiSensorCategory, bool>(source.SensorCategoryFilters);
+
+                SensorSource = preserveCurrentSensorSource ? sensorSourceToKeep : source.SensorSource;
+            }
+        }
+    }
+
+    private static SensorSourceProfile CopyProfile(SensorSourceProfile profile)
+    {
+        return new SensorSourceProfile
+        {
+            SelectedSensors = profile.SelectedSensors.Select(sensor => sensor.Copy()).ToList(),
+            OverlayGroups = profile.OverlayGroups.Select(group => group.Copy()).ToList(),
+            SensorCategoryFilters = new Dictionary<OptiSensorCategory, bool>(profile.SensorCategoryFilters)
+        };
+    }
+
     internal static AppSettings Deserialize(string json)
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();

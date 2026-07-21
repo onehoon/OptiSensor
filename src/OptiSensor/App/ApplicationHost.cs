@@ -106,6 +106,9 @@ internal sealed class ApplicationHost : IDisposable
         if (IsExitRequested)
             return;
 
+        if (!_mainWindow.TryPrepareForExit())
+            return;
+
         IsExitRequested = true;
         SimpleLog.TryWrite("Application exit requested.");
 
