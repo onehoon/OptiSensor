@@ -88,6 +88,39 @@ function Resolve-RemoteBranchOrRef {
     return Resolve-GitCommit $revision
 }
 
+function Assert-NoReparsePointInChain {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string] $TargetFull
+    )
+
+    # A string-prefix check alone cannot detect a symlink/junction along the path:
+    # e.g. "optiscaler" could be a junction pointing outside the repository while
+    # still looking like an in-repo path textually. Walk every existing path
+    # component from the target up to (but not including) the repo root and
+    # reject any that is a reparse point, so replacement/backup file operations
+    # cannot silently land outside the repository.
+    $current = $TargetFull
+
+    while ($current.Length -gt $RepoRoot.Length) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "OutputDir path component '$current' is a symlink or junction. Repository containment cannot be guaranteed through reparse points.`nTarget: $TargetFull`nRepository root: $RepoRoot"
+            }
+        }
+
+        $parent = Split-Path -Path $current -Parent
+        if ([string]::IsNullOrEmpty($parent) -or $parent -eq $current) {
+            break
+        }
+        $current = $parent
+    }
+}
+
 function Assert-RepositoryContainedPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -120,6 +153,8 @@ function Assert-RepositoryContainedPath {
     if (-not $targetFull.StartsWith($repoRootWithSeparator, [StringComparison]::OrdinalIgnoreCase)) {
         throw "OutputDir must resolve to a path inside the repository.`nOutputDir: $CandidatePath`nResolved target: $targetFull`nRepository root: $repoRootFull"
     }
+
+    Assert-NoReparsePointInChain -RepoRoot $repoRootFull -TargetFull $targetFull
 
     return $targetFull
 }
@@ -288,9 +323,11 @@ try {
             throw "Installed patch files do not match the generated patch set after replacement."
         }
 
-        if ($backupCreated) {
-            Remove-Item -LiteralPath $backupDir -Recurse -Force
-        }
+        # From here on the replacement itself is considered successful. Backup
+        # cleanup is best-effort housekeeping, not part of the transaction: a
+        # failure here must never trigger rollback of an already-verified,
+        # already-installed patch stack (that would restore a backup that may
+        # itself be partially deleted, corrupting the "existing stack" guarantee).
     }
     catch {
         $replacementError = $_
@@ -299,12 +336,24 @@ try {
             if ($replacementInstalled -and (Test-Path -LiteralPath $targetDir)) {
                 Remove-Item -LiteralPath $targetDir -Recurse -Force
             }
-            elseif ((-not $targetExisted) -and (Test-Path -LiteralPath $replacementDir)) {
+
+            # Clean up the staged replacement regardless of whether the target
+            # previously existed: a failure can happen before the target-vs-backup
+            # move (replacement never consumed) just as easily as after.
+            if (Test-Path -LiteralPath $replacementDir) {
                 Remove-Item -LiteralPath $replacementDir -Recurse -Force
             }
 
             if ($backupCreated) {
-                Move-Item -LiteralPath $backupDir -Destination $targetDir
+                if (-not (Test-Path -LiteralPath $targetDir)) {
+                    Move-Item -LiteralPath $backupDir -Destination $targetDir
+                }
+            }
+            elseif (Test-Path -LiteralPath $backupDir) {
+                # $backupCreated is false, so the original target was never actually
+                # relocated here and remains authoritative at $targetDir; this is only
+                # a partial/orphaned artifact from a failed move and is safe to remove.
+                Remove-Item -LiteralPath $backupDir -Recurse -Force
             }
         }
         catch {
@@ -312,6 +361,15 @@ try {
         }
 
         throw $replacementError
+    }
+
+    if ($backupCreated -and (Test-Path -LiteralPath $backupDir)) {
+        try {
+            Remove-Item -LiteralPath $backupDir -Recurse -Force
+        }
+        catch {
+            Write-Warning "Patch replacement succeeded, but backup cleanup failed. Backup retained at: $backupDir ($($_.Exception.Message))"
+        }
     }
 
     Write-Host ""
