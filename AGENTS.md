@@ -3,10 +3,10 @@
 ## Branch policy
 
 - This branch (`release/0.10`) carries only the OptiScaler patch stack targeting upstream `optiscaler/OptiScaler` `master`, its docs, the patch import script, and the `Build OptiScaler Only` workflow. There is no `src/OptiSensor` app source here.
-- OptiSensor application source work belongs on the `OptiSensorApp` branch: branch off `origin/OptiSensorApp` and open PRs against `OptiSensorApp`.
+- OptiSensor application source work belongs on the `main` branch: branch off `origin/main` and open PRs against `main`.
 - OptiScaler `release/0.9` patch work belongs on the `release/0.9` branch.
-- `main` is a frozen backup of the pre-split combined history (app + patches together). Do not develop on `main`.
-- Do not copy `src/OptiSensor` changes into this branch, or this branch's patches into `OptiSensorApp`, unless the user explicitly asks for it.
+- `backup/pre-split` is a frozen backup of the pre-split combined history (app + patches together). Do not develop on it.
+- Do not copy `src/OptiSensor` changes into this branch, or this branch's patches into `main`, unless the user explicitly asks for it.
 
 ## Patch stack maintenance
 

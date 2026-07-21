@@ -18,12 +18,12 @@ docs/                   Patch-branch build notes and protocol documentation
 
 | Branch | Contents |
 | --- | --- |
-| `OptiSensorApp` | OptiSensor app source (`src/OptiSensor`) and its own CI only — no OptiScaler patches. |
+| `main` | OptiSensor app source (`src/OptiSensor`) and its own CI only — no OptiScaler patches. |
 | `release/0.9` | OptiScaler `release/0.9` patch stack and build workflow only — no app source. |
 | `release/0.10` | This branch. OptiScaler `master` patch stack and build workflow only — no app source. |
-| `main` | Frozen backup of the pre-split combined history. Not actively developed. |
+| `backup/pre-split` | Frozen backup of the pre-split combined history. Not actively developed. |
 
-Users install the OptiSensor helper from the `OptiSensorApp` release (Velopack
+Users install the OptiSensor helper from the `main` release (Velopack
 `OptiSensor-Setup.exe`) and pair it with the patched `OptiScaler.dll` built from
 this branch's `Build OptiScaler Only` workflow.
 

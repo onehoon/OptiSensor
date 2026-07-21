@@ -4,9 +4,9 @@ This branch carries only the OptiScaler patch stack targeting the upstream
 `optiscaler/OptiScaler` `master` branch (the future 0.10 line), plus the build
 workflow that produces a patched `OptiScaler.dll`.
 
-The OptiSensor application source lives on the `OptiSensorApp` branch and has
+The OptiSensor application source lives on the `main` branch and has
 its own CI (`Build OptiSensor Only`). This branch contains no app source. Users
-install the OptiSensor helper from the `OptiSensorApp` release and pair it with
+install the OptiSensor helper from the `main` release and pair it with
 the `OptiScaler.dll` built here.
 
 ## Patch Stack
