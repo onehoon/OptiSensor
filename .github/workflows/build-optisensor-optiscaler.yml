@@ -353,6 +353,14 @@ jobs:
             throw "Unexpected package entries: $($unexpected -join ', ')"
           }
 
+      - name: Upload combined package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_FILE_NAME_WITHOUT_EXT }}
+          path: ${{ env.PACKAGE_ZIP }}
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Tag Velopack release
         if: ${{ inputs.publish_release }}
         shell: pwsh
