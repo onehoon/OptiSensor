@@ -18,6 +18,8 @@ internal sealed class ApplicationHost : IDisposable
     private readonly TrayIconService _trayIcon;
     private readonly MainWindow _mainWindow;
     private readonly CancellationTokenSource _startupCancellationTokenSource = new();
+    private Task _sensorStartupTask = Task.CompletedTask;
+    private Task? _shutdownTask;
 
     private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
     private bool _disposed;
@@ -101,9 +103,16 @@ internal sealed class ApplicationHost : IDisposable
         _mainWindow.Focus();
     }
 
-    public async void RequestExit()
+    public void RequestExit()
     {
-        if (IsExitRequested)
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (!dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(RequestExit);
+            return;
+        }
+
+        if (IsExitRequested || _shutdownTask is not null)
             return;
 
         if (!_mainWindow.TryPrepareForExit())
@@ -112,10 +121,85 @@ internal sealed class ApplicationHost : IDisposable
         IsExitRequested = true;
         SimpleLog.TryWrite("Application exit requested.");
 
+        _shutdownTask = ShutdownAsync();
+    }
+
+    private async Task ShutdownAsync()
+    {
+        SimpleLog.TryWrite("Application shutdown started.");
+
         _startupCancellationTokenSource.Cancel();
-        await _publishService.StopAsync();
-        Dispose();
-        System.Windows.Application.Current.Shutdown(0);
+
+        var windowShutdownTask = _mainWindow.PrepareForShutdownAsync();
+        var sensorStartupCompletion = ObserveSensorStartupCompletionAsync();
+
+        try
+        {
+            await Task.WhenAll(windowShutdownTask, sensorStartupCompletion).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"Error while completing shutdown cleanup: {ex.Message}");
+        }
+
+        // Unsubscribe before StopAsync: stopping raises StatusChanged, and a tooltip
+        // callback queued by it could otherwise run after the tray icon is disposed.
+        _publishService.StatusChanged -= OnPublishServiceStatusChanged;
+
+        try
+        {
+            await _publishService.StopAsync().ConfigureAwait(false);
+            SimpleLog.TryWrite("Sensor publish service stopped.");
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"Error while stopping sensor publish service: {ex.Message}");
+        }
+
+        // The awaits above may have hopped to the thread pool; Application.Shutdown
+        // (and the tray icon disposal inside Dispose) must run on the WPF UI thread.
+        try
+        {
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    Dispose();
+                }
+                catch (Exception ex)
+                {
+                    SimpleLog.TryWrite($"Error while disposing ApplicationHost: {ex.Message}");
+                }
+
+                SimpleLog.TryWrite("Application shutdown completed.");
+
+                // The user asked to exit; a cleanup-step failure above doesn't change that,
+                // so Task Scheduler should still see this as a normal exit, not a crash to restart.
+                System.Windows.Application.Current.Shutdown(0);
+            });
+        }
+        catch (Exception ex)
+        {
+            // Last-resort observation so a fault here can't strand the app half-shut-down
+            // as an unobserved _shutdownTask failure.
+            SimpleLog.TryWrite($"Error during final shutdown dispatch: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+        }
+    }
+
+    private async Task ObserveSensorStartupCompletionAsync()
+    {
+        try
+        {
+            await _sensorStartupTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"HWiNFO startup monitoring ended with error during shutdown: {ex.Message}");
+        }
     }
 
     public void Dispose()
@@ -133,7 +217,19 @@ internal sealed class ApplicationHost : IDisposable
 
     private void OnPublishServiceStatusChanged(object? sender, EventArgs e)
     {
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(() => _trayIcon.UpdateTooltip(_publishService.LastOverlayLine));
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (_disposed || IsExitRequested || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            return;
+
+        dispatcher.BeginInvoke(() =>
+        {
+            // Re-check inside the callback: shutdown may have started (and the tray
+            // icon been disposed) between queueing and execution.
+            if (_disposed || IsExitRequested || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                return;
+
+            _trayIcon.UpdateTooltip(_publishService.LastOverlayLine);
+        });
     }
 
     private void StartSensorServices()
@@ -141,11 +237,12 @@ internal sealed class ApplicationHost : IDisposable
         if (_settings.SensorSource != SensorSourceKind.HwInfo)
         {
             StartPublishService();
+            _sensorStartupTask = Task.CompletedTask;
             return;
         }
 
         SimpleLog.TryWrite("HWiNFO startup and shared-memory readiness monitoring started.");
-        _ = StartHwInfoAndPublishWhenReadyAsync(_startupCancellationTokenSource.Token);
+        _sensorStartupTask = StartHwInfoAndPublishWhenReadyAsync(_startupCancellationTokenSource.Token);
     }
 
     private async Task StartHwInfoAndPublishWhenReadyAsync(CancellationToken cancellationToken)
@@ -157,7 +254,7 @@ internal sealed class ApplicationHost : IDisposable
                 .ConfigureAwait(false);
             SimpleLog.TryWrite(startupResult.Message);
 
-            if (_disposed || cancellationToken.IsCancellationRequested)
+            if (IsExitCleanupInProgress(cancellationToken))
                 return;
 
             if (!startupResult.Ready)
@@ -176,26 +273,34 @@ internal sealed class ApplicationHost : IDisposable
         catch (Exception ex)
         {
             SimpleLog.TryWriteException(ex);
-            if (!_disposed)
+            if (!IsExitCleanupInProgress(cancellationToken))
                 SensorSourceStartupFailed?.Invoke(this, $"HWiNFO startup failed: {ex.Message}");
         }
     }
 
     private void StartPublishService()
     {
-        if (_disposed)
+        if (IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
             return;
 
         _publishService.Start(_settings.ClampedPublishIntervalMs);
         IsSensorSourceReady = true;
-        SensorSourceReady?.Invoke(this, EventArgs.Empty);
+
+        if (!IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
+            SensorSourceReady?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Guards against starting the publisher or raising ready/failed events once exit has begun.</summary>
+    private bool IsExitCleanupInProgress(CancellationToken cancellationToken)
+    {
+        return _disposed || IsExitRequested || cancellationToken.IsCancellationRequested;
     }
 
     private async Task ContinueWaitingForHwInfoSharedMemoryAsync(CancellationToken cancellationToken)
     {
         SimpleLog.TryWrite("HWiNFO shared memory recovery monitoring started.");
 
-        while (!_disposed && !cancellationToken.IsCancellationRequested)
+        while (!IsExitCleanupInProgress(cancellationToken))
         {
             var recoveryResult = await HWiNFOStartupConfigurator
                 .WaitForSharedMemoryAsync(SharedMemoryRecoveryProbeWindow, cancellationToken)
