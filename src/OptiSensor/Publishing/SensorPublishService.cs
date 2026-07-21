@@ -8,6 +8,7 @@ internal sealed class SensorPublishService : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _workerTask;
     private bool _disposed;
+    private int _publishIntervalMs = 500;
 
     public SensorPublishService(Func<SensorPublishRunner> createRunner)
     {
@@ -24,6 +25,8 @@ internal sealed class SensorPublishService : IDisposable
 
     public void Start(int publishIntervalMs)
     {
+        Volatile.Write(ref _publishIntervalMs, Math.Clamp(publishIntervalMs, 100, 2000));
+
         if (IsRunning)
             return;
 
@@ -33,7 +36,18 @@ internal sealed class SensorPublishService : IDisposable
         SimpleLog.TryWrite("Sensor publish service started.");
         OnStatusChanged();
 
-        _workerTask = Task.Run(() => RunLoop(publishIntervalMs, _cancellationTokenSource.Token));
+        _workerTask = Task.Run(() => RunLoop(_cancellationTokenSource.Token));
+    }
+
+    /// <summary>
+    /// Applies a new publish interval to the currently running (or not-yet-started)
+    /// worker without restarting it. Takes effect on the next publish iteration.
+    /// </summary>
+    public void UpdatePublishInterval(int publishIntervalMs)
+    {
+        var clamped = Math.Clamp(publishIntervalMs, 100, 2000);
+        Volatile.Write(ref _publishIntervalMs, clamped);
+        SimpleLog.TryWrite($"Publish interval updated to {clamped} ms.");
     }
 
     public async Task StopAsync()
@@ -69,7 +83,7 @@ internal sealed class SensorPublishService : IDisposable
         _cancellationTokenSource?.Dispose();
     }
 
-    private async Task RunLoop(int publishIntervalMs, CancellationToken cancellationToken)
+    private async Task RunLoop(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -77,7 +91,7 @@ internal sealed class SensorPublishService : IDisposable
             {
                 using var runner = _createRunner();
                 runner.Open();
-                await runner.RunLoopAsync(publishIntervalMs, OnPublished, cancellationToken).ConfigureAwait(false);
+                await runner.RunLoopAsync(() => Volatile.Read(ref _publishIntervalMs), OnPublished, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

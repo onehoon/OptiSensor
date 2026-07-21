@@ -7,10 +7,18 @@ namespace OptiSensor.UI.Views.Pages;
 
 public partial class SettingsPage : System.Windows.Controls.UserControl
 {
+    private bool _isLoadingSettings;
+    private bool _hasUnsavedChanges;
+
     public SettingsPage()
     {
         InitializeComponent();
         SensorSourceComboBox.ItemsSource = Enum.GetValues<SensorSourceKind>();
+
+        SensorSourceComboBox.SelectionChanged += OnSensorSourceSelectionChanged;
+        StartWithWindowsCheckBox.Checked += OnStartWithWindowsChanged;
+        StartWithWindowsCheckBox.Unchecked += OnStartWithWindowsChanged;
+        PublishIntervalComboBox.SelectionChanged += OnPublishIntervalSelectionChanged;
     }
 
     public event EventHandler? SaveRequested;
@@ -21,16 +29,41 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     public event EventHandler? RemoveGitHubTokenRequested;
     public event EventHandler? CheckForUpdatesRequested;
 
-    internal void LoadSettings(AppSettings settings)
+    internal event EventHandler? EditsChanged;
+
+    internal bool HasUnsavedChanges
     {
-        StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
-        SensorSourceComboBox.SelectedItem = settings.SensorSource;
-        PublishIntervalComboBox.SelectedValue = settings.ClampedPublishIntervalMs.ToString(CultureInfo.InvariantCulture);
+        get => _hasUnsavedChanges;
+        private set
+        {
+            if (_hasUnsavedChanges == value)
+                return;
+
+            _hasUnsavedChanges = value;
+            EditsChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
-    internal bool ApplySettingsEdits(AppSettings settings, out string? errorMessage)
+    internal void LoadSettings(AppSettings settings)
     {
+        LoadControls(settings.StartWithWindows, settings.SensorSource, settings.ClampedPublishIntervalMs);
+    }
+
+    /// <summary>
+    /// Re-baselines the controls to a draft that was just saved. Uses the draft
+    /// (not the live AppSettings) because the sensor source in the draft may not
+    /// yet match the live source when a source change requires an app restart.
+    /// </summary>
+    internal void AcceptSavedDraft(GeneralSettingsDraft draft)
+    {
+        LoadControls(draft.StartWithWindows, draft.SensorSource, draft.PublishIntervalMs);
+    }
+
+    internal bool TryCreateDraft(out GeneralSettingsDraft? draft, out string? errorMessage)
+    {
+        draft = null;
         errorMessage = null;
+
         if (PublishIntervalComboBox.SelectedValue is not string selectedInterval ||
             !int.TryParse(selectedInterval, NumberStyles.Integer, CultureInfo.InvariantCulture, out var publishIntervalMs))
         {
@@ -38,11 +71,48 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
             return false;
         }
 
-        settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
-        if (SensorSourceComboBox.SelectedItem is SensorSourceKind source)
-            settings.SensorSource = source;
-        settings.PublishIntervalMs = Math.Clamp(publishIntervalMs, 100, 2000);
+        if (SensorSourceComboBox.SelectedItem is not SensorSourceKind sensorSource)
+        {
+            errorMessage = "Select a sensor source.";
+            return false;
+        }
+
+        draft = new GeneralSettingsDraft(
+            StartWithWindowsCheckBox.IsChecked == true,
+            sensorSource,
+            Math.Clamp(publishIntervalMs, 100, 2000));
         return true;
+    }
+
+    private void LoadControls(bool startWithWindows, SensorSourceKind sensorSource, int publishIntervalMs)
+    {
+        _isLoadingSettings = true;
+        try
+        {
+            StartWithWindowsCheckBox.IsChecked = startWithWindows;
+            SensorSourceComboBox.SelectedItem = sensorSource;
+            PublishIntervalComboBox.SelectedValue = publishIntervalMs.ToString(CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _isLoadingSettings = false;
+        }
+
+        HasUnsavedChanges = false;
+    }
+
+    private void OnSensorSourceSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => MarkEdited();
+
+    private void OnStartWithWindowsChanged(object sender, RoutedEventArgs e) => MarkEdited();
+
+    private void OnPublishIntervalSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => MarkEdited();
+
+    private void MarkEdited()
+    {
+        if (_isLoadingSettings)
+            return;
+
+        HasUnsavedChanges = true;
     }
 
     internal void UpdateGitHubTokenState(bool hasToken, string? message = null)

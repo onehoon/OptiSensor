@@ -50,6 +50,7 @@ public partial class MainWindow : Window
         _host.SensorSourceReady += Host_SensorSourceReady;
         _host.SensorSourceStartupFailed += Host_SensorSourceStartupFailed;
         _viewModel.PropertyChanged += (_, _) => UpdateStatus();
+        _settingsPage.EditsChanged += (_, _) => UpdateStatus();
         _sensorRefreshTimer.Tick += async (_, _) => await RefreshDetectedSensorsAsync();
 
         Loaded += (_, _) => StartSensorRefreshWhenReady();
@@ -188,7 +189,7 @@ public partial class MainWindow : Window
         var lastOverlay = _viewModel.GetOverlayPreviewText();
         var publishDetail =
             $"Interval {_settings.ClampedPublishIntervalMs} ms · Detected {_viewModel.DetectedSensorCount} · Selected {_viewModel.EnabledSelectedSensorCount}/{_viewModel.TotalSelectedSensorCount}";
-        var settingsState = $"Settings: {_viewModel.SettingsStateText}";
+        var settingsState = $"Settings: {(IsDirty() ? "Unsaved changes" : "Saved")}";
         var optiScalerStatus = _publishService.LastOverlayLine is null
             ? "Waiting for publishable sensor values"
             : "Shared memory feed active";
@@ -329,52 +330,43 @@ public partial class MainWindow : Window
         UpdateStatus();
     }
 
+    private sealed record SaveSettingsResult(bool Success, bool SensorSourceChanged)
+    {
+        public static readonly SaveSettingsResult Failed = new(false, false);
+    }
+
+    private bool IsDirty() => _viewModel.HasUnsavedChanges || _settingsPage.HasUnsavedChanges;
+
+    /// <summary>
+    /// Called by ApplicationHost.RequestExit() before it commits to shutting down.
+    /// Must not call _host.RequestExit() itself (that would recurse back here).
+    /// </summary>
+    internal bool TryPrepareForExit()
+    {
+        if (!IsDirty())
+            return true;
+
+        var choice = System.Windows.MessageBox.Show(
+            "You have unsaved settings changes.\n\nSave before exiting?",
+            "OptiSensor",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+
+        return choice switch
+        {
+            MessageBoxResult.Yes => TrySaveSettings().Success,
+            MessageBoxResult.No => true,
+            _ => false
+        };
+    }
+
     private void SaveSettings()
     {
-        _overlayPage.CommitEdits();
-        var previousSensorSource = _settings.SensorSource;
-
-        if (!_settingsPage.ApplySettingsEdits(_settings, out var settingsErrorMessage))
-        {
-            System.Windows.MessageBox.Show(settingsErrorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
+        var result = TrySaveSettings();
+        if (!result.Success)
             return;
-        }
 
-        var selectedSensorSource = _settings.SensorSource;
-        var sensorSourceChanged = selectedSensorSource != previousSensorSource;
-        if (sensorSourceChanged)
-            _settings.SensorSource = previousSensorSource;
-
-        if (!_viewModel.TrySave(out var errorMessage))
-        {
-            _settings.SensorSource = previousSensorSource;
-            System.Windows.MessageBox.Show(errorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (sensorSourceChanged)
-        {
-            _settings.SensorSource = selectedSensorSource;
-            _settings.Save();
-        }
-
-        var startupResult = _settings.StartWithWindows
-            ? StartupRegistration.Register()
-            : StartupRegistration.Unregister();
-
-        _settingsPage.LoadSettings(_settings);
-        UpdateStatus();
-
-        if (!startupResult.Success)
-        {
-            System.Windows.MessageBox.Show(
-                $"Settings saved, but startup registration failed.\n\n{startupResult.ErrorMessage}",
-                "OptiSensor",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-        }
-
-        if (sensorSourceChanged)
+        if (result.SensorSourceChanged)
         {
             System.Windows.MessageBox.Show(
                 "Sensor source was saved. OptiSensor will now close; start it again to apply the new source.",
@@ -383,6 +375,76 @@ public partial class MainWindow : Window
                 MessageBoxImage.Information);
             _host.RequestExit();
         }
+    }
+
+    /// <summary>
+    /// The single Save transaction shared by the Overlay and Settings pages' Save
+    /// buttons, and by the dirty-exit confirmation. Validates the full Draft,
+    /// builds a candidate copy of AppSettings, and only applies anything to the
+    /// live AppSettings / disk / startup registration after every validation
+    /// (including the candidate.Save() disk write) has succeeded. On any failure,
+    /// live AppSettings, settings.json, publish interval, and startup registration
+    /// are left exactly as they were, and the UI Draft is preserved.
+    /// </summary>
+    private SaveSettingsResult TrySaveSettings()
+    {
+        _overlayPage.CommitEdits();
+
+        if (!_settingsPage.TryCreateDraft(out var generalDraft, out var settingsErrorMessage))
+        {
+            System.Windows.MessageBox.Show(settingsErrorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return SaveSettingsResult.Failed;
+        }
+
+        var candidate = _settings.CreateCopy();
+
+        if (!_viewModel.TryApplyDraftTo(candidate, out var overlayErrorMessage))
+        {
+            System.Windows.MessageBox.Show(overlayErrorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return SaveSettingsResult.Failed;
+        }
+
+        var sensorSourceChanged = generalDraft!.SensorSource != _settings.SensorSource;
+
+        candidate.StartWithWindows = generalDraft.StartWithWindows;
+        candidate.PublishIntervalMs = generalDraft.PublishIntervalMs;
+        candidate.SensorSource = generalDraft.SensorSource;
+
+        try
+        {
+            candidate.Save();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Windows.MessageBox.Show(
+                $"Could not save settings.\n\n{ex.Message}",
+                "OptiSensor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return SaveSettingsResult.Failed;
+        }
+
+        _settings.ApplyFrom(candidate, preserveCurrentSensorSource: sensorSourceChanged);
+        _publishService.UpdatePublishInterval(_settings.ClampedPublishIntervalMs);
+
+        var startupResult = _settings.StartWithWindows
+            ? StartupRegistration.Register()
+            : StartupRegistration.Unregister();
+
+        _viewModel.MarkSaved();
+        _settingsPage.AcceptSavedDraft(generalDraft);
+        UpdateStatus();
+
+        if (!startupResult.Success)
+        {
+            System.Windows.MessageBox.Show(
+                $"Settings were saved, but startup registration failed.\n\n{startupResult.ErrorMessage}",
+                "OptiSensor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+
+        return new SaveSettingsResult(true, sensorSourceChanged);
     }
 
     private static void OpenSettingsFolder()
