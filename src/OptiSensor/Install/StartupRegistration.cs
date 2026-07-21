@@ -99,7 +99,7 @@ internal static class StartupRegistration
             return PathsEqual(command, AppPaths.CurrentExecutablePath) &&
                    string.Equals(arguments?.Trim(), StartupArgument, StringComparison.OrdinalIgnoreCase) &&
                    PathsEqual(workingDirectory, expectedWorkingDirectory) &&
-                   string.Equals(delay?.Trim(), "PT5M", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(delay?.Trim(), "PT1M", StringComparison.OrdinalIgnoreCase) &&
                    string.Equals(runLevel?.Trim(), "LeastPrivilege", StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is XmlException or InvalidOperationException)
@@ -150,7 +150,7 @@ internal static class StartupRegistration
                 new XElement(ns + "Triggers",
                     new XElement(ns + "LogonTrigger",
                         new XElement(ns + "Enabled", "true"),
-                        new XElement(ns + "Delay", "PT5M"),
+                        new XElement(ns + "Delay", "PT1M"),
                         new XElement(ns + "UserId", currentUser))),
                 new XElement(ns + "Principals",
                     new XElement(ns + "Principal",
