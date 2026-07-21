@@ -12,11 +12,12 @@ FPS: 111.0 | GPU 44C | 115W | 62%
 
 ## Current Scope
 
-This repository currently serves two purposes:
+This branch (`OptiSensorApp`) carries only the OptiSensor application source and its own CI:
 
 - `OptiSensor.exe`: a WPF tray helper with LibreHardwareMonitor sensor discovery, selected overlay sensor editing, and shared memory publishing.
 - Velopack packaging: each manual OptiSensor CI build creates a current-user installer and automatically assigns the next `0.1.x` version and matching `v0.1.x` tag.
-- OptiScaler package hub: a manual GitHub Actions workflow that applies the OptiScaler patch stack, builds `OptiScaler.dll`, and includes the OptiSensor Velopack installer in its package.
+
+The OptiScaler patch stack that reads this app's shared-memory feed, and the combined-package build that pairs a patched `OptiScaler.dll` with this app's installer, live on the version-specific `release/0.9`/`release/0.10` branches instead — see [Branch Layout](#branch-layout).
 
 Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, private GitHub update-feed activation, and game or OptiScaler activity based publishing.
 
@@ -86,63 +87,28 @@ The task launches the Velopack `current` helper with `--startup` at user logon a
 Tray `Exit` and the main window `Exit` button perform a normal exit with code `0`, so Task Scheduler does not restart the helper after an intentional user exit.
 Legacy HKCU Run startup entries are removed during task registration/unregistration to avoid duplicate launches.
 
-## OptiScaler Integration
+## Shared-Memory Protocol
 
-OptiScaler changes are stored as a patch stack under:
+`optiscaler/protocol/OptiExternalOverlayProtocol.h` documents the shared-memory payload contract
+that `ExternalOverlayPublisher` implements. External overlay lines are UTF-8, null-terminated byte
+strings; `MaxLineLength` is 128 bytes including the trailing null byte, and the protocol payload
+size is 544 bytes. The OptiScaler-side patch stack that reads this feed is not on this branch —
+see [Branch Layout](#branch-layout).
 
-```text
-optiscaler/patches/
-```
+## Branch Layout
 
-This is an unofficial OptiScaler integration. It builds OptiScaler from the upstream `master` branch and applies this repository's main-specific patch stack; it is not an upstream OptiScaler release.
+The OptiSensor app source and the OptiScaler patch stacks that consume it are split across branches:
 
-### main Overlay Behavior
+| Branch | Contents |
+| --- | --- |
+| `OptiSensorApp` | This branch. `src/OptiSensor` app source and its own CI (`build-optisensor-only.yml`) only — no OptiScaler patches. |
+| `release/0.9` | OptiScaler `release/0.9` patch stack and its packaging/build workflows only — no app source. |
+| `release/0.10` | OptiScaler `master` patch stack and its packaging/build workflows only — no app source. |
+| `main` | Frozen backup of the pre-split combined history. Not actively developed. |
 
-- Upstream target: `optiscaler/OptiScaler` `master`
-- Overlay type: `7 = Just FPS (+External)`
-- The main patch appends the shared-memory text to the Just FPS output only when type 7 is selected.
-- There is no `AppendExternalOverlayText` INI key or separate toggle.
-
-For a new or unchanged INI file, the compiled defaults are:
-
-```ini
-ShowFps=auto        ; compiled default: true
-FpsOverlayType=auto ; compiled default: 7 = Just FPS (+External)
-```
-
-Users can explicitly set `ShowFps=true` and `FpsOverlayType=7` if they do not want to rely on `auto`. When OptiSensor stops publishing, the external sensor text expires after about 5 seconds while the FPS portion remains visible.
-
-The manual package workflow:
-
-1. Checks out this OptiSensor repository.
-2. Clones the selected OptiScaler repository/ref.
-3. Applies `optiscaler/patches/*.patch` with `git am`.
-4. Builds only `OptiScaler.vcxproj`.
-5. Collects `OptiScaler.dll` and `OptiScaler.ini`.
-6. Packages the published `OptiSensor.exe` as a Velopack installer.
-7. Creates a zip containing only:
-
-```text
-OptiScaler.dll
-OptiScaler.ini
-OptiSensor-Setup.exe
-```
-
-Detailed build and release notes are in [docs/build-optisensor-optiscaler.md](docs/build-optisensor-optiscaler.md).
-
-## Importing OptiScaler Patches
-
-Use the patch import helper when the OptiScaler integration branch changes:
-
-```powershell
-.\scripts\import-optiscaler-patches.ps1 `
-  -SourceRepo "onehoon/OptiScaler" `
-  -SourceRef "optisensor-overlay" `
-  -BaseRef "master" `
-  -OutputDir "optiscaler/patches"
-```
-
-Patch conflicts during CI are expected to fail the build. Refresh the patch stack instead of auto-resolving conflicts in the workflow.
+App source changes belong on `OptiSensorApp`. OptiScaler patch changes belong on the relevant
+`release/0.x` branch. A combined OptiSensor+OptiScaler package build reads the app from
+`OptiSensorApp` and patches from the target `release/0.x` branch.
 
 ## License
 

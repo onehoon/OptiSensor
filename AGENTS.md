@@ -2,10 +2,11 @@
 
 ## Branch policy
 
-- `main` is the default branch for all work: branch off `origin/main` and open PRs against `main` unless the user explicitly asks for another branch.
-- The OptiSensor application source (`src/OptiSensor`) must stay identical between `main` and `release/0.9`. When it changes on `main`, sync it to `release/0.9` too — cherry-pick the commit(s), or if history has drifted enough that cherry-picking conflicts, replace `src/OptiSensor` wholesale from `main` (`git checkout origin/main -- src/OptiSensor`) rather than hand-adapting the change to an older shape.
-- `release/0.9` additionally carries its own OptiScaler patch stack and packaging (`optiscaler/patches`, `docs/build-optisensor-optiscaler.md`, workflow defaults like `optiscaler_ref`). Those are release/0.9-specific and are not synced back to `main`.
-- When the user requests a change on a branch other than `main` or `release/0.9`, cherry-pick the relevant commit(s) onto that branch instead of re-targeting the `main` PR or rebasing `main` work onto it.
+- `OptiSensorApp` is the default branch for OptiSensor application source work: branch off `origin/OptiSensorApp` and open PRs against `OptiSensorApp` unless the user explicitly asks for another branch. This branch has no `optiscaler/patches` and no OptiScaler build workflow — only `src/OptiSensor` and `build-optisensor-only.yml`.
+- OptiScaler patch-stack work belongs on the relevant `release/0.9` or `release/0.10` branch instead. Those branches carry no `src/OptiSensor` app source — only `optiscaler/patches`, their packaging docs, and OptiScaler build workflows.
+- `main` is a frozen backup of the pre-split combined history (app + patches together). Do not develop on `main`; it is kept only as a fallback reference.
+- Do not copy `src/OptiSensor` changes into a `release/0.x` branch, or `optiscaler/patches` changes into `OptiSensorApp`, unless the user explicitly asks for it.
+- When the user requests a change on a branch other than the one implied above, cherry-pick the relevant commit(s) onto that branch instead of re-targeting the PR or rebasing work onto it.
 
 ## Default local build
 
