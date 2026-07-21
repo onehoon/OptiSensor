@@ -12,7 +12,7 @@ FPS: 111.0 | GPU 44C | 115W | 62%
 
 ## Current Scope
 
-This branch (`OptiSensorApp`) carries only the OptiSensor application source and its own CI:
+This branch (`main`) carries only the OptiSensor application source and its own CI:
 
 - `OptiSensor.exe`: a WPF tray helper with LibreHardwareMonitor sensor discovery, selected overlay sensor editing, and shared memory publishing.
 - Velopack packaging: each manual OptiSensor CI build creates a current-user installer and automatically assigns the next `0.1.x` version and matching `v0.1.x` tag.
@@ -101,14 +101,14 @@ The OptiSensor app source and the OptiScaler patch stacks that consume it are sp
 
 | Branch | Contents |
 | --- | --- |
-| `OptiSensorApp` | This branch. `src/OptiSensor` app source and its own CI (`build-optisensor-only.yml`) only — no OptiScaler patches. |
+| `main` | This branch. `src/OptiSensor` app source and its own CI (`build-optisensor-only.yml`) only — no OptiScaler patches. |
 | `release/0.9` | OptiScaler `release/0.9` patch stack and its packaging/build workflows only — no app source. |
 | `release/0.10` | OptiScaler `master` patch stack and its packaging/build workflows only — no app source. |
-| `main` | Frozen backup of the pre-split combined history. Not actively developed. |
+| `backup/pre-split` | Frozen backup of the pre-split combined history. Not actively developed. |
 
-App source changes belong on `OptiSensorApp`. OptiScaler patch changes belong on the relevant
+App source changes belong on `main`. OptiScaler patch changes belong on the relevant
 `release/0.x` branch. A combined OptiSensor+OptiScaler package build reads the app from
-`OptiSensorApp` and patches from the target `release/0.x` branch.
+`main` and patches from the target `release/0.x` branch.
 
 ## License
 
