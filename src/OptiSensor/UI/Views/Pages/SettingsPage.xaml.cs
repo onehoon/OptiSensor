@@ -9,6 +9,7 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
 {
     private bool _isLoadingSettings;
     private bool _hasUnsavedChanges;
+    private GeneralSettingsDraft? _baseline;
 
     public SettingsPage()
     {
@@ -98,21 +99,34 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
             _isLoadingSettings = false;
         }
 
+        _baseline = new GeneralSettingsDraft(startWithWindows, sensorSource, publishIntervalMs);
         HasUnsavedChanges = false;
     }
 
-    private void OnSensorSourceSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => MarkEdited();
+    private void OnSensorSourceSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => RecalculateDirty();
 
-    private void OnStartWithWindowsChanged(object sender, RoutedEventArgs e) => MarkEdited();
+    private void OnStartWithWindowsChanged(object sender, RoutedEventArgs e) => RecalculateDirty();
 
-    private void OnPublishIntervalSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => MarkEdited();
+    private void OnPublishIntervalSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => RecalculateDirty();
 
-    private void MarkEdited()
+    /// <summary>
+    /// Compares the current control values against the last-loaded/last-saved
+    /// baseline instead of just flagging "touched at least once", so toggling a
+    /// control back to its saved value (e.g. 500 -> 1000 -> 500) clears dirty
+    /// instead of leaving a false-positive unsaved-changes state.
+    /// </summary>
+    private void RecalculateDirty()
     {
         if (_isLoadingSettings)
             return;
 
-        HasUnsavedChanges = true;
+        if (!TryCreateDraft(out var current, out _))
+        {
+            HasUnsavedChanges = true;
+            return;
+        }
+
+        HasUnsavedChanges = current != _baseline;
     }
 
     internal void UpdateGitHubTokenState(bool hasToken, string? message = null)
