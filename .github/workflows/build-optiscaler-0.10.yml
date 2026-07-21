@@ -1,10 +1,14 @@
-name: Build OptiScaler Only
+name: Build OptiScaler 0.10
+
+# Pinned to the release/0.10 patch stack - no branch selector needed, so this
+# always builds OptiScaler master with this repository's release/0.10
+# patches, no matter which ref the workflow itself is dispatched from.
 
 on:
   workflow_dispatch:
     inputs:
       optiscaler_ref:
-        description: "OptiScaler branch, tag, or commit SHA"
+        description: "OptiScaler branch, tag, or commit SHA to build patches against"
         required: true
         default: "master"
 
@@ -21,8 +25,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout OptiSensor patches
+      - name: Checkout OptiSensor patches (release/0.10)
         uses: actions/checkout@v6
+        with:
+          ref: release/0.10
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -126,7 +132,7 @@ jobs:
       - name: Upload OptiScaler DLL
         uses: actions/upload-artifact@v4
         with:
-          name: OptiScaler.dll
+          name: OptiScaler-0.10.dll
           path: OptiScaler.dll
           if-no-files-found: error
           retention-days: 14
