@@ -142,6 +142,10 @@ internal sealed class ApplicationHost : IDisposable
             SimpleLog.TryWrite($"Error while completing shutdown cleanup: {ex.Message}");
         }
 
+        // Unsubscribe before StopAsync: stopping raises StatusChanged, and a tooltip
+        // callback queued by it could otherwise run after the tray icon is disposed.
+        _publishService.StatusChanged -= OnPublishServiceStatusChanged;
+
         try
         {
             await _publishService.StopAsync().ConfigureAwait(false);
@@ -152,22 +156,35 @@ internal sealed class ApplicationHost : IDisposable
             SimpleLog.TryWrite($"Error while stopping sensor publish service: {ex.Message}");
         }
 
-        _publishService.StatusChanged -= OnPublishServiceStatusChanged;
-
+        // The awaits above may have hopped to the thread pool; Application.Shutdown
+        // (and the tray icon disposal inside Dispose) must run on the WPF UI thread.
         try
         {
-            Dispose();
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    Dispose();
+                }
+                catch (Exception ex)
+                {
+                    SimpleLog.TryWrite($"Error while disposing ApplicationHost: {ex.Message}");
+                }
+
+                SimpleLog.TryWrite("Application shutdown completed.");
+
+                // The user asked to exit; a cleanup-step failure above doesn't change that,
+                // so Task Scheduler should still see this as a normal exit, not a crash to restart.
+                System.Windows.Application.Current.Shutdown(0);
+            });
         }
         catch (Exception ex)
         {
-            SimpleLog.TryWrite($"Error while disposing ApplicationHost: {ex.Message}");
+            // Last-resort observation so a fault here can't strand the app half-shut-down
+            // as an unobserved _shutdownTask failure.
+            SimpleLog.TryWrite($"Error during final shutdown dispatch: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
         }
-
-        SimpleLog.TryWrite("Application shutdown completed.");
-
-        // The user asked to exit; a cleanup-step failure above doesn't change that,
-        // so Task Scheduler should still see this as a normal exit, not a crash to restart.
-        System.Windows.Application.Current.Shutdown(0);
     }
 
     private async Task ObserveSensorStartupCompletionAsync()
@@ -200,7 +217,19 @@ internal sealed class ApplicationHost : IDisposable
 
     private void OnPublishServiceStatusChanged(object? sender, EventArgs e)
     {
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(() => _trayIcon.UpdateTooltip(_publishService.LastOverlayLine));
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (_disposed || IsExitRequested || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            return;
+
+        dispatcher.BeginInvoke(() =>
+        {
+            // Re-check inside the callback: shutdown may have started (and the tray
+            // icon been disposed) between queueing and execution.
+            if (_disposed || IsExitRequested || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                return;
+
+            _trayIcon.UpdateTooltip(_publishService.LastOverlayLine);
+        });
     }
 
     private void StartSensorServices()

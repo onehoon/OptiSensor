@@ -280,7 +280,35 @@ public partial class MainWindow : Window
             return;
 
         _sensorRefreshStarted = true;
-        _activeSensorRefreshTask = RunInitialSensorRefreshAsync(_windowLifetimeCancellation.Token);
+
+        // Never overwrite an in-flight refresh Task: the shutdown pipeline awaits
+        // _activeSensorRefreshTask before disposing the sensor reader, so replacing an
+        // unfinished Task here (e.g. Hide -> Show while discovery is running) would let
+        // that discovery escape tracking and race the dispose. Chain instead, so the
+        // tracked Task always covers the older refresh too.
+        var previous = _activeSensorRefreshTask;
+        _activeSensorRefreshTask = previous.IsCompleted
+            ? RunInitialSensorRefreshAsync(_windowLifetimeCancellation.Token)
+            : ResumeSensorRefreshAfterAsync(previous, _windowLifetimeCancellation.Token);
+    }
+
+    private async Task ResumeSensorRefreshAfterAsync(Task previousRefresh, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await previousRefresh.ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            // RunSensorRefreshAsync handles its own errors; this is only a safety net
+            // so the chained Task can't fault before the new refresh runs.
+            SimpleLog.TryWrite($"Previous sensor refresh ended with error: {ex.Message}");
+        }
+
+        if (_isShuttingDown)
+            return;
+
+        await RunInitialSensorRefreshAsync(cancellationToken).ConfigureAwait(true);
     }
 
     private async Task RunInitialSensorRefreshAsync(CancellationToken cancellationToken)
