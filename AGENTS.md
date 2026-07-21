@@ -2,8 +2,9 @@
 
 ## Branch policy
 
-- Modify OptiSensor application source only on the `main` branch by default.
-- Do not copy application-source changes to `release/0.9` unless the user explicitly requests that branch.
+- `main` is the default branch for all work: branch off `origin/main` and open PRs against `main` unless the user explicitly asks for another branch.
+- Do not copy changes to `release/0.9` or any other branch unless the user explicitly requests it.
+- When the user does request another branch, cherry-pick the relevant commit(s) onto that branch instead of re-targeting the `main` PR or rebasing `main` work onto it.
 - Keep `release/0.9` limited to its independent OptiScaler patch-stack maintenance unless explicitly directed otherwise.
 
 ## Default local build
