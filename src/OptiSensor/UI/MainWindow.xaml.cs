@@ -27,6 +27,11 @@ public partial class MainWindow : Window
     {
         Interval = TimeSpan.FromMilliseconds(1000)
     };
+    private readonly CancellationTokenSource _windowLifetimeCancellation = new();
+    private Task _activeSensorRefreshTask = Task.CompletedTask;
+    private Task? _prepareShutdownTask;
+    private bool _isShuttingDown;
+    private bool _viewModelDisposed;
 
     internal MainWindow(ApplicationHost host, SensorPublishService publishService, AppSettings settings)
     {
@@ -49,18 +54,12 @@ public partial class MainWindow : Window
         _publishService.StatusChanged += PublishService_StatusChanged;
         _host.SensorSourceReady += Host_SensorSourceReady;
         _host.SensorSourceStartupFailed += Host_SensorSourceStartupFailed;
-        _viewModel.PropertyChanged += (_, _) => UpdateStatus();
-        _settingsPage.EditsChanged += (_, _) => UpdateStatus();
-        _sensorRefreshTimer.Tick += async (_, _) => await RefreshDetectedSensorsAsync();
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        _settingsPage.EditsChanged += SettingsPage_EditsChanged;
+        _sensorRefreshTimer.Tick += SensorRefreshTimer_Tick;
 
-        Loaded += (_, _) => StartSensorRefreshWhenReady();
-        IsVisibleChanged += (_, _) =>
-        {
-            if (IsVisible)
-                StartSensorRefreshWhenReady();
-            else
-                StopSensorRefresh();
-        };
+        Loaded += MainWindow_Loaded;
+        IsVisibleChanged += MainWindow_IsVisibleChanged;
         NavigateTo(_overlayPage, OverlayNavButton);
         UpdateStatus();
     }
@@ -91,11 +90,73 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        DetachLifetimeEventHandlers();
         _sensorRefreshTimer.Stop();
+
+        // The normal exit path already awaited PrepareForShutdownAsync (which disposes the
+        // view model only after any active sensor refresh finished) before the window closed.
+        // This only covers an abnormal path where OnClosed fires without going through that.
+        if (!_viewModelDisposed && _activeSensorRefreshTask.IsCompleted)
+        {
+            _viewModelDisposed = true;
+            _viewModel.Dispose();
+        }
+
+        base.OnClosed(e);
+    }
+
+    /// <summary>
+    /// Called by ApplicationHost.ShutdownAsync() once exit has been confirmed. Idempotent:
+    /// repeated calls return the same in-flight/completed task.
+    /// </summary>
+    internal Task PrepareForShutdownAsync()
+    {
+        return _prepareShutdownTask ??= RunPrepareForShutdownAsync();
+    }
+
+    private async Task RunPrepareForShutdownAsync()
+    {
+        _isShuttingDown = true;
+
+        _sensorRefreshTimer.Stop();
+        _sensorRefreshStarted = false;
+        _windowLifetimeCancellation.Cancel();
+
+        DetachLifetimeEventHandlers();
+
+        try
+        {
+            await _activeSensorRefreshTask.ConfigureAwait(false);
+            SimpleLog.TryWrite("Active sensor refresh completed.");
+        }
+        catch (OperationCanceledException)
+        {
+            SimpleLog.TryWrite("Active sensor refresh canceled.");
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"Active sensor refresh ended with error during shutdown: {ex.Message}");
+        }
+
+        if (!_viewModelDisposed)
+        {
+            _viewModelDisposed = true;
+            _viewModel.Dispose();
+        }
+
+        _windowLifetimeCancellation.Dispose();
+    }
+
+    private void DetachLifetimeEventHandlers()
+    {
+        _publishService.StatusChanged -= PublishService_StatusChanged;
         _host.SensorSourceReady -= Host_SensorSourceReady;
         _host.SensorSourceStartupFailed -= Host_SensorSourceStartupFailed;
-        _viewModel.Dispose();
-        base.OnClosed(e);
+        _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _settingsPage.EditsChanged -= SettingsPage_EditsChanged;
+        _sensorRefreshTimer.Tick -= SensorRefreshTimer_Tick;
+        Loaded -= MainWindow_Loaded;
+        IsVisibleChanged -= MainWindow_IsVisibleChanged;
     }
 
     private void WirePageEvents()
@@ -130,28 +191,75 @@ public partial class MainWindow : Window
         return assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     }
 
+    private bool IsShutdownInProgress() =>
+        _isShuttingDown || _host.IsExitRequested || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished;
+
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (IsShutdownInProgress())
+            return;
+
+        UpdateStatus();
+    }
+
+    private void SettingsPage_EditsChanged(object? sender, EventArgs e)
+    {
+        if (IsShutdownInProgress())
+            return;
+
+        UpdateStatus();
+    }
+
+    private void SensorRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        QueueSensorRefresh();
+    }
+
+    private void MainWindow_Loaded(object? sender, RoutedEventArgs e)
+    {
+        StartSensorRefreshWhenReady();
+    }
+
+    private void MainWindow_IsVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible)
+            StartSensorRefreshWhenReady();
+        else
+            StopSensorRefresh();
+    }
+
     private void PublishService_StatusChanged(object? sender, EventArgs e)
     {
-        if (!IsVisible)
+        if (!IsVisible || IsShutdownInProgress())
             return;
 
         Dispatcher.BeginInvoke(() =>
         {
-            if (IsVisible)
+            if (IsVisible && !IsShutdownInProgress())
                 UpdateStatus();
         });
     }
 
     private void Host_SensorSourceReady(object? sender, EventArgs e)
     {
-        Dispatcher.BeginInvoke(StartSensorRefreshWhenReady);
+        if (IsShutdownInProgress())
+            return;
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!IsShutdownInProgress())
+                StartSensorRefreshWhenReady();
+        });
     }
 
     private void Host_SensorSourceStartupFailed(object? sender, string message)
     {
+        if (IsShutdownInProgress())
+            return;
+
         Dispatcher.BeginInvoke(() =>
         {
-            if (_hwInfoSharedMemoryWarningShown || _host.IsExitRequested)
+            if (_hwInfoSharedMemoryWarningShown || IsShutdownInProgress())
                 return;
 
             _hwInfoSharedMemoryWarningShown = true;
@@ -163,17 +271,23 @@ public partial class MainWindow : Window
         });
     }
 
-    private async void StartSensorRefreshWhenReady()
+    private void StartSensorRefreshWhenReady()
     {
-        if (_sensorRefreshStarted ||
+        if (_isShuttingDown ||
+            _sensorRefreshStarted ||
             !_host.IsSensorSourceReady ||
             !IsVisible)
             return;
 
         _sensorRefreshStarted = true;
-        await RefreshDetectedSensorsAsync();
+        _activeSensorRefreshTask = RunInitialSensorRefreshAsync(_windowLifetimeCancellation.Token);
+    }
 
-        if (IsVisible && ReferenceEquals(PageContentControl.Content, _sensorsPage))
+    private async Task RunInitialSensorRefreshAsync(CancellationToken cancellationToken)
+    {
+        await RunSensorRefreshAsync(cancellationToken).ConfigureAwait(true);
+
+        if (!_isShuttingDown && IsVisible && ReferenceEquals(PageContentControl.Content, _sensorsPage))
             _sensorRefreshTimer.Start();
     }
 
@@ -181,6 +295,18 @@ public partial class MainWindow : Window
     {
         _sensorRefreshTimer.Stop();
         _sensorRefreshStarted = false;
+    }
+
+    /// <summary>Starts at most one sensor refresh at a time; a tick while one is still running is simply skipped.</summary>
+    private void QueueSensorRefresh()
+    {
+        if (_isShuttingDown)
+            return;
+
+        if (!_activeSensorRefreshTask.IsCompleted)
+            return;
+
+        _activeSensorRefreshTask = RunSensorRefreshAsync(_windowLifetimeCancellation.Token);
     }
 
     private void UpdateStatus()
@@ -222,8 +348,11 @@ public partial class MainWindow : Window
         button.Tag = null;
     }
 
-    private async Task RefreshDetectedSensorsAsync()
+    private async Task RunSensorRefreshAsync(CancellationToken cancellationToken)
     {
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
         if (_viewModel.IsRefreshing)
             return;
 
@@ -233,13 +362,25 @@ public partial class MainWindow : Window
         try
         {
             _sensorsPage.CaptureScrollPosition();
-            await _viewModel.RefreshDetectedSensorsAsync();
+            await _viewModel.RefreshDetectedSensorsAsync(cancellationToken).ConfigureAwait(true);
             _hwInfoSharedMemoryFailureCount = 0;
             _sensorsPage.RestoreScrollPosition();
-            UpdateStatus();
+
+            if (!_isShuttingDown)
+                UpdateStatus();
+        }
+        catch (OperationCanceledException)
+        {
+            SimpleLog.TryWrite("Sensor refresh canceled.");
         }
         catch (Exception ex)
         {
+            if (_isShuttingDown)
+            {
+                SimpleLog.TryWrite($"RefreshDetectedSensorsAsync failed during shutdown: {ex.Message}");
+                return;
+            }
+
             SimpleLog.TryWrite($"RefreshDetectedSensorsAsync failed: {ex.Message}");
             SimpleLog.TryWriteException(ex);
             if (_settings.SensorSource == Models.SensorSourceKind.HwInfo)
