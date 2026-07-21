@@ -40,12 +40,15 @@ Use the helper script when the OptiScaler integration branch has new commits:
 
 The script:
 
-1. Clones the selected OptiScaler repository into `.tmp/`.
-2. Fetches tags and prunes remote refs.
-3. Checks out `SourceRef`.
-4. Runs `git format-patch BaseRef..SourceRef`.
-5. Replaces `optiscaler/patches/*.patch`.
-6. Prints the generated patch list.
+1. Validates that `OutputDir` resolves to a path inside this repository (and is not the repository root itself) before doing anything else.
+2. Clones the selected OptiScaler repository into a unique temporary run directory under `.tmp/` and resolves `SourceRef` and `BaseRef` to commits.
+3. Verifies that `BaseRef` is an ancestor of `SourceRef` and that the `BaseRef..SourceRef` range contains at least one commit.
+4. Runs `git format-patch BaseRef..SourceRef` into a temporary staging directory (the real `optiscaler/patches` is not touched yet).
+5. Smoke-tests the generated patches with plain `git am` against a clean checkout of `BaseRef`, then confirms the resulting tree matches `SourceRef`'s tree.
+6. Only after all of the above succeed, replaces `*.patch` files in `OutputDir` using a backup-and-rename swap, preserving any non-`*.patch` files already there.
+7. Prints the generated patch list and a final success summary.
+
+If any validation or smoke-apply step fails, the existing patch stack in `OutputDir` is left unmodified, and the temporary run directory is cleaned up.
 
 If the source branch is not split into clean commits, create a single integration patch first and then split it later when the branch is easier to maintain.
 
