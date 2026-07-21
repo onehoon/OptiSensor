@@ -38,7 +38,30 @@ jobs:
           Write-Host "OptiSensor version: $version"
 
       - name: Restore
-        run: dotnet restore .\src\OptiSensor\OptiSensor.csproj
+        shell: pwsh
+        run: |
+          dotnet restore .\src\OptiSensor\OptiSensor.csproj `
+            --force-evaluate `
+            --no-http-cache
+
+      - name: Show resolved LibreHardwareMonitor version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetsPath = ".\src\OptiSensor\obj\project.assets.json"
+          if (-not (Test-Path $assetsPath)) {
+            throw "OptiSensor project.assets.json was not produced by restore."
+          }
+
+          $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json
+          $resolved = $assets.libraries.PSObject.Properties.Name |
+            Where-Object { $_ -like "LibreHardwareMonitorLib/*" } |
+            Select-Object -First 1
+          if (-not $resolved) {
+            throw "LibreHardwareMonitorLib was not found in project.assets.json."
+          }
+
+          Write-Host "Resolved $resolved"
 
       - name: Build OptiSensor
         run: dotnet build .\src\OptiSensor\OptiSensor.csproj -c Release --no-restore -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }}.0 -p:FileVersion=${{ steps.version.outputs.version }}.0 -p:InformationalVersion=${{ steps.version.outputs.version }}
