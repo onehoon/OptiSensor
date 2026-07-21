@@ -31,12 +31,12 @@ internal static class GitHubUpdateService
         return PreparedUpdateResult.Ready(manager, update.TargetFullRelease, version);
     }
 
-    public static void ApplyAndRestart(PreparedUpdateResult result)
+    public static void ApplyAndRestart(PreparedUpdateResult result, string[]? restartArgs = null)
     {
         if (result.Manager is null || result.Asset is null)
             throw new InvalidOperationException("No downloaded update is available to apply.");
 
-        result.Manager.ApplyUpdatesAndRestart(result.Asset);
+        result.Manager.ApplyUpdatesAndRestart(result.Asset, restartArgs);
     }
 }
 

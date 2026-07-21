@@ -76,12 +76,27 @@ internal sealed class ApplicationHost : IDisposable
             SimpleLog.TryWrite($"Background update check: {result.Message}");
 
             if (result.IsReady && !IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
-                GitHubUpdateService.ApplyAndRestart(result);
+            {
+                var restartArgs = await IsMainWindowVisibleAsync().ConfigureAwait(false)
+                    ? null
+                    : new[] { "--startup" };
+                GitHubUpdateService.ApplyAndRestart(result, restartArgs);
+            }
         }
         catch (Exception ex)
         {
             SimpleLog.TryWrite($"Background update check failed: {ex.Message}");
         }
+    }
+
+    /// <summary>Checked on the UI thread so a restart after applying an update can stay hidden to the tray
+    /// when the main window wasn't visible, instead of always popping the window open.</summary>
+    private Task<bool> IsMainWindowVisibleAsync()
+    {
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        return dispatcher.CheckAccess()
+            ? Task.FromResult(_mainWindow.IsVisible)
+            : dispatcher.InvokeAsync(() => _mainWindow.IsVisible).Task;
     }
 
     private static void EnsureStartupTaskForInstalledApp(AppSettings settings)
