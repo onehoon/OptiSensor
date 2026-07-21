@@ -93,28 +93,45 @@ internal static class HWiNFOStartupConfigurator
                 : "HWiNFO restarted with shared memory enabled.");
     }
 
-    private static HWiNFOStartupResult EnsureRunningWithSharedMemoryElevated()
+    private static async Task<HWiNFOStartupResult> EnsureRunningWithSharedMemoryElevatedAsync(CancellationToken cancellationToken)
     {
         var executablePath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
             return new HWiNFOStartupResult(false, "OptiSensor executable was not found for elevated HWiNFO configuration.");
 
+        Process? process = null;
         try
         {
-            using var process = Process.Start(new ProcessStartInfo
+            // Process.Start with Verb="runas" shows the UAC prompt; keep it off the caller's
+            // (UI) thread, same as before, but wait for exit in a cancellation-aware way so
+            // host shutdown isn't stuck blocking on this helper for up to 20 seconds.
+            process = await Task.Run(() => Process.Start(new ProcessStartInfo
             {
                 FileName = executablePath,
                 Arguments = ElevatedConfigurationArgument,
                 UseShellExecute = true,
                 Verb = "runas",
                 WindowStyle = ProcessWindowStyle.Hidden
-            });
+            }), cancellationToken).ConfigureAwait(false);
 
             if (process is null)
                 return new HWiNFOStartupResult(false, "Elevated HWiNFO configuration could not be started.");
 
-            if (!process.WaitForExit((int)ElevatedHelperTimeout.TotalMilliseconds))
+            using var timeoutCts = new CancellationTokenSource(ElevatedHelperTimeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+            try
+            {
+                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
                 return new HWiNFOStartupResult(false, "Elevated HWiNFO configuration timed out.");
+            }
 
             return process.ExitCode == 0
                 ? new HWiNFOStartupResult(true, "HWiNFO shared memory configuration completed with administrator rights.")
@@ -127,6 +144,10 @@ internal static class HWiNFOStartupConfigurator
         catch (Win32Exception ex)
         {
             return new HWiNFOStartupResult(false, $"Elevated HWiNFO configuration could not start. Win32Error={ex.NativeErrorCode}.");
+        }
+        finally
+        {
+            process?.Dispose();
         }
     }
 
@@ -146,7 +167,7 @@ internal static class HWiNFOStartupConfigurator
         HWiNFOStartupResult startup;
         try
         {
-            startup = await Task.Run(EnsureRunningWithSharedMemoryElevated, cancellationToken).ConfigureAwait(false);
+            startup = await EnsureRunningWithSharedMemoryElevatedAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

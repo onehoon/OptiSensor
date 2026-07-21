@@ -8,6 +8,7 @@ internal sealed class SensorDiscoveryService : IDisposable
     private readonly LibreSensorReader? _libreReader;
     private readonly HwInfoSensorReader? _hwInfoReader;
     private bool _opened;
+    private bool _disposed;
     public SensorDiscoveryService() : this(SensorSourceKind.Libre) { }
     public SensorDiscoveryService(LibreSensorReader reader) => _libreReader = reader;
     public SensorDiscoveryService(SensorSourceKind source)
@@ -17,11 +18,18 @@ internal sealed class SensorDiscoveryService : IDisposable
     }
     public LibreSensorSnapshot Discover(IReadOnlyCollection<OptiSensorCategory>? includedCategories = null, bool fastStart = false)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureOpen();
         return _libreReader?.ReadSnapshot(true, includedCategories, fastStart)
             ?? _hwInfoReader!.ReadSnapshot(true, includedCategories, fastStart);
     }
-    public void Dispose() { _libreReader?.Dispose(); _hwInfoReader?.Dispose(); }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _libreReader?.Dispose();
+        _hwInfoReader?.Dispose();
+    }
     private void EnsureOpen()
     {
         if (_opened) return;

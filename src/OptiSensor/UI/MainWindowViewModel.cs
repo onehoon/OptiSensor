@@ -21,6 +21,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private bool _isRefreshing;
     private OverlayGroupViewModel? _selectedOverlayGroup;
     private bool _initialSensorRefreshCompleted;
+    private bool _disposed;
 
     public MainWindowViewModel(AppSettings settings)
     {
@@ -122,8 +123,10 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public async Task RefreshDetectedSensorsAsync()
+    public async Task RefreshDetectedSensorsAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         IsRefreshing = true;
         try
         {
@@ -140,7 +143,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             }
 
             var useFastStart = !_initialSensorRefreshCompleted;
-            var snapshot = await Task.Run(() => _sensorDiscoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart)).ConfigureAwait(true);
+            var snapshot = await Task.Run(
+                () => _sensorDiscoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart),
+                cancellationToken).ConfigureAwait(true);
+
+            // The reader read completed before checking cancellation again: a shutdown
+            // requested mid-read must not still mutate UI collections afterward.
+            cancellationToken.ThrowIfCancellationRequested();
+
             _initialSensorRefreshCompleted = true;
 
             SyncDetectedSensors(snapshot.Sensors);
@@ -309,6 +319,10 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
         _sensorDiscoveryService.Dispose();
     }
 
