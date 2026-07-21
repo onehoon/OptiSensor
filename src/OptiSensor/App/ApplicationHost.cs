@@ -7,6 +7,7 @@ using OptiSensor.Overlay;
 using OptiSensor.Publishing;
 using OptiSensor.Settings;
 using OptiSensor.UI;
+using OptiSensor.Updates;
 
 namespace OptiSensor.App;
 
@@ -54,7 +55,33 @@ internal sealed class ApplicationHost : IDisposable
         if (showMainWindow)
             host.ShowMainWindow();
 
+        _ = host.CheckForUpdatesInBackgroundAsync();
+
         return host;
+    }
+
+    /// <summary>
+    /// Runs a silent update check regardless of whether the main window is shown, so launches
+    /// from Windows startup (which start hidden to the tray) still pick up updates instead of
+    /// relying solely on the "Check for Updates" button in Settings.
+    /// </summary>
+    private async Task CheckForUpdatesInBackgroundAsync()
+    {
+        try
+        {
+            var result = await GitHubUpdateService
+                .DownloadLatestAsync(message => SimpleLog.TryWrite($"Background update check: {message}"))
+                .ConfigureAwait(false);
+
+            SimpleLog.TryWrite($"Background update check: {result.Message}");
+
+            if (result.IsReady && !IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
+                GitHubUpdateService.ApplyAndRestart(result);
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"Background update check failed: {ex.Message}");
+        }
     }
 
     private static void EnsureStartupTaskForInstalledApp(AppSettings settings)
