@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using OptiSensor.Libre;
 
 namespace OptiSensor.HWiNFO;
@@ -12,6 +13,8 @@ internal static class HWiNFOStartupConfigurator
     private static readonly TimeSpan SharedMemoryReadyTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ExistingSharedMemoryProbeTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SharedMemoryProbeInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan ElevatedHelperTimeout = TimeSpan.FromSeconds(20);
+    private const string ElevatedConfigurationArgument = "--configure-hwinfo-shared-memory";
 
     public static string EnsureSharedMemoryEnabled()
     {
@@ -90,6 +93,43 @@ internal static class HWiNFOStartupConfigurator
                 : "HWiNFO restarted with shared memory enabled.");
     }
 
+    private static HWiNFOStartupResult EnsureRunningWithSharedMemoryElevated()
+    {
+        var executablePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+            return new HWiNFOStartupResult(false, "OptiSensor executable was not found for elevated HWiNFO configuration.");
+
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = executablePath,
+                Arguments = ElevatedConfigurationArgument,
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+
+            if (process is null)
+                return new HWiNFOStartupResult(false, "Elevated HWiNFO configuration could not be started.");
+
+            if (!process.WaitForExit((int)ElevatedHelperTimeout.TotalMilliseconds))
+                return new HWiNFOStartupResult(false, "Elevated HWiNFO configuration timed out.");
+
+            return process.ExitCode == 0
+                ? new HWiNFOStartupResult(true, "HWiNFO shared memory configuration completed with administrator rights.")
+                : new HWiNFOStartupResult(false, $"Elevated HWiNFO configuration failed with exit code {process.ExitCode}.");
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            return new HWiNFOStartupResult(false, "Administrator permission was canceled for HWiNFO shared memory configuration.");
+        }
+        catch (Win32Exception ex)
+        {
+            return new HWiNFOStartupResult(false, $"Elevated HWiNFO configuration could not start. Win32Error={ex.NativeErrorCode}.");
+        }
+    }
+
     public static async Task<HWiNFOSharedMemoryStartupResult> EnsureRunningAndWaitForSharedMemoryAsync(CancellationToken cancellationToken)
     {
         if (IsHWiNFO64Running())
@@ -106,7 +146,7 @@ internal static class HWiNFOStartupConfigurator
         HWiNFOStartupResult startup;
         try
         {
-            startup = await Task.Run(EnsureRunningWithSharedMemory, cancellationToken).ConfigureAwait(false);
+            startup = await Task.Run(EnsureRunningWithSharedMemoryElevated, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

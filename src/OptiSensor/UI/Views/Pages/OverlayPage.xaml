@@ -123,7 +123,8 @@
                                         <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                   VerticalAlignment="Center"
                                                   Margin="0,0,8,0"/>
-                                        <TextBox MinWidth="0"
+                                        <TextBox MinWidth="32"
+                                                 Padding="5,0"
                                                  Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                  TextChanged="GroupNameTextBox_TextChanged"
                                                  Style="{StaticResource FluentTextBoxStyle}"/>
@@ -200,11 +201,61 @@
                                 </DataGridCheckBoxColumn.EditingElementStyle>
                             </DataGridCheckBoxColumn>
                             <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="92"/>
-                            <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                            <DataGridTemplateColumn Header="Display Name ✎" Width="130">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="3,4"
+                                                Padding="7,0"
+                                                Background="#F8FAFC"
+                                                BorderBrush="#CBD5E1"
+                                                BorderThickness="1"
+                                                CornerRadius="5">
+                                            <TextBlock Text="{Binding DisplayName}"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="#0F172A"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <TextBox Margin="3,4"
+                                                 Height="28"
+                                                 Padding="7,0"
+                                                 Text="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 Style="{StaticResource FluentTextBoxStyle}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Sensor" Binding="{Binding SensorName}" IsReadOnly="True" Width="180"/>
                             <DataGridTextColumn Header="Type" Binding="{Binding SensorType}" IsReadOnly="True" Width="110"/>
                             <DataGridTextColumn Header="Current Value" Binding="{Binding CurrentValueText}" IsReadOnly="True" Width="130"/>
-                            <DataGridTextColumn Header="Format" Binding="{Binding Format, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                            <DataGridTemplateColumn Header="Format ✎" Width="120">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="3,4"
+                                                Padding="7,0"
+                                                Background="#F8FAFC"
+                                                BorderBrush="#CBD5E1"
+                                                BorderThickness="1"
+                                                CornerRadius="5">
+                                            <TextBlock Text="{Binding Format}"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="#0F172A"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <TextBox Margin="3,4"
+                                                 Height="28"
+                                                 Padding="7,0"
+                                                 Text="{Binding Format, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 Style="{StaticResource FluentTextBoxStyle}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" IsReadOnly="True" Width="64"/>
                         </DataGrid.Columns>
                     </DataGrid>

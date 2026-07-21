@@ -65,12 +65,17 @@ internal sealed class SensorPublishRunner : IDisposable
         return new SensorPublishResult(overlayLine, effectiveSnapshot.Sensors.Count, enabledSelectedSensorCount, totalSelectedSensorCount);
     }
 
-    public async Task RunLoopAsync(int publishIntervalMs, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)
+    public Task RunLoopAsync(int publishIntervalMs, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)
     {
-        var interval = Math.Clamp(publishIntervalMs, 100, 2000);
+        var fixedInterval = Math.Clamp(publishIntervalMs, 100, 2000);
+        return RunLoopAsync(() => fixedInterval, onPublished, cancellationToken);
+    }
 
+    public async Task RunLoopAsync(Func<int> publishIntervalProvider, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)
+    {
         while (!cancellationToken.IsCancellationRequested)
         {
+            var interval = Math.Clamp(publishIntervalProvider(), 100, 2000);
             var result = PublishOnce(interval);
             onPublished(result);
 

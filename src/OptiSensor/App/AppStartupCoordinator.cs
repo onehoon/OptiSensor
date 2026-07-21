@@ -1,5 +1,6 @@
 using System.Windows;
 using OptiSensor.Cli;
+using OptiSensor.HWiNFO;
 
 namespace OptiSensor.App;
 
@@ -15,6 +16,13 @@ internal sealed class AppStartupCoordinator
     public ApplicationHost? Start(string[] args)
     {
         var options = CommandLineOptions.Parse(args);
+
+        if (options.ConfigureHwInfoSharedMemory)
+        {
+            var result = HWiNFOStartupConfigurator.EnsureRunningWithSharedMemory();
+            _application.Shutdown(result.Success ? 0 : 1);
+            return null;
+        }
 
         if (options.Once)
         {
