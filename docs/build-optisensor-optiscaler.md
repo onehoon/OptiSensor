@@ -1,22 +1,17 @@
-# Build OptiSensor Package
+# OptiScaler release/0.9 Patch Branch
 
-This repository is the build and packaging hub for the OptiSensor helper and the patched OptiScaler overlay integration.
+This branch carries only the OptiScaler patch stack targeting the upstream
+`optiscaler/OptiScaler` `release/0.9` branch, plus the build workflow that
+produces a patched `OptiScaler.dll`.
 
-The release package is intentionally small:
-
-```text
-OptiScaler.dll
-OptiScaler.ini
-OptiSensor-Setup.exe
-```
-
-`OptiSensor.exe` is published as a framework-dependent single-file executable and then packaged into a Velopack installer, `OptiSensor-Setup.exe`. The combined package zip includes that installer, not `OptiSensor.exe` directly.
-
-No scheduled build is configured. The package workflow is manually started with `workflow_dispatch`.
+The OptiSensor application source lives on the `main` branch and has
+its own CI (`Build OptiSensor Only`). This branch contains no app source. Users
+install the OptiSensor helper from the `main` release and pair it with
+the `OptiScaler.dll` built here.
 
 ## Patch Stack
 
-OptiScaler changes are stored in this repository under:
+OptiScaler changes are stored in this branch under:
 
 ```text
 optiscaler/patches/*.patch
@@ -57,21 +52,20 @@ If the source branch is not split into clean commits, create a single integratio
 Workflow file:
 
 ```text
-.github/workflows/build-optisensor-optiscaler.yml
+.github/workflows/build-optiscaler-only.yml
 ```
 
 Workflow name:
 
 ```text
-Build OptiSensor Package
+Build OptiScaler Only
 ```
 
 Inputs:
 
 | Input | Purpose |
 | --- | --- |
-| `optiscaler_ref` | Branch, tag, or commit SHA to build from. |
-| `publish_release` | When `false`, the combined package zip is uploaded only as a workflow artifact. When `true`, it is also uploaded to a GitHub Release. |
+| `optiscaler_ref` | Branch, tag, or commit SHA to build from. Use `release/0.9` on this branch. |
 
 Fixed workflow values:
 
@@ -80,69 +74,16 @@ Fixed workflow values:
 | OptiScaler repository | `optiscaler/OptiScaler` |
 | OptiScaler configuration | `Release` |
 | OptiScaler platform | `x64` |
-| Package prefix | `OptiSensor` |
-| Release prerelease flag | `false` |
-
-When release publishing is enabled, the workflow assigns the next `v0.1.N` tag by scanning existing `v0.1.*` tags in this repository and incrementing the highest patch number found.
-
-## Build Policy
-
-The workflow builds only `OptiScaler.vcxproj`.
-
-It intentionally does not build `OptiScaler.sln`, because the package only needs the patched `OptiScaler.dll` and the patched `OptiScaler.ini`.
 
 The workflow:
 
-1. Checks out this OptiSensor repository.
+1. Checks out this branch (patches only).
 2. Clones the selected OptiScaler source repository/ref.
 3. Applies `optiscaler/patches/*.patch` with `git am`.
-4. Finds and builds `OptiScaler.vcxproj`.
-5. Collects exactly one `OptiScaler.dll`.
-6. Collects `OptiScaler.ini`.
-7. Publishes the OptiSensor helper as a Windows x64 framework-dependent single-file executable, then packages it into `OptiSensor-Setup.exe` with Velopack.
-8. Creates the combined package zip and verifies its contents.
-9. Always uploads the combined package zip as a GitHub Actions artifact.
-10. Uploads the same combined package zip to a GitHub Release only when `publish_release=true`.
+4. Builds `OptiScaler.vcxproj`.
+5. Uploads the patched `OptiScaler.dll` as a GitHub Actions artifact (14-day retention).
 
-`OptiSensor.exe` is framework-dependent. It does not bundle the .NET runtime, so target machines must install the .NET 10 Desktop Runtime separately. Native helper libraries are bundled into the single executable.
-
-## Test Build vs Release Build
-
-Test build:
-
-```text
-publish_release=false
-```
-
-This creates the combined package zip, verifies its contents, and uploads it as a GitHub Actions artifact. No git tag is created and no GitHub Release is uploaded.
-
-Downloading the artifact from the Actions run gives a GitHub-generated artifact archive containing exactly one file: the combined package zip (for example, `OptiSensor-0.1.12-release-0.9-a1b2c3d4e5f6.zip`). You must unzip that archive again to reach `OptiScaler.dll`, `OptiScaler.ini`, and `OptiSensor-Setup.exe`.
-
-Release build:
-
-```text
-publish_release=true
-```
-
-This performs the same steps as the test build, uploading the combined package zip as a workflow artifact, and additionally:
-
-1. Creates and pushes a `v0.1.N` git tag.
-2. Uploads the Velopack release feed files to a GitHub Release.
-3. Uploads the same combined package zip to the GitHub Release as an asset.
-
-## Package Naming
-
-The zip filename includes the fixed `OptiSensor` package prefix, the assigned OptiSensor version, sanitized OptiScaler ref, and resolved OptiScaler commit:
-
-```text
-OptiSensor-<optisensor_version>-<sanitized_optiscaler_ref>-<optiscaler_commit>.zip
-```
-
-Example:
-
-```text
-OptiSensor-0.1.12-release-0.9-a1b2c3d4e5f6.zip
-```
+It intentionally does not build `OptiScaler.sln`; only the patched `OptiScaler.dll` is needed.
 
 ## Overlay Defaults
 
@@ -156,9 +97,3 @@ FpsOverlayType=auto ; compiled default: 7 = Just FPS (+External)
 ```
 
 There is no separate `AppendExternalOverlayText` INI key or toggle in the release/0.9 patch stack. Selecting overlay type `7` adds the shared-memory external text to OptiScaler's existing Just FPS output.
-
-## Out of Scope
-
-The workflow only builds and packages the helper plus patched OptiScaler files.
-
-Automatic updates, PawnIO installation, game activity based publishing, OptiScaler consumer alive detection, and runtime helper behavior changes are outside the packaging workflow.
