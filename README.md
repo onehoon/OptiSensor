@@ -89,11 +89,11 @@ Legacy HKCU Run startup entries are removed during task registration/unregistrat
 
 ## Shared-Memory Protocol
 
-`optiscaler/protocol/OptiExternalOverlayProtocol.h` documents the shared-memory payload contract
+[docs/optiscaler-external-overlay-protocol.md](docs/optiscaler-external-overlay-protocol.md) documents the shared-memory payload contract
 that `ExternalOverlayPublisher` implements. External overlay lines are UTF-8, null-terminated byte
-strings; `MaxLineLength` is 128 bytes including the trailing null byte, and the protocol payload
-size is 544 bytes. The OptiScaler-side patch stack that reads this feed is not on this branch —
-see [Branch Layout](#branch-layout).
+strings; the maximum line length is 128 bytes including the trailing null byte, and the protocol payload
+size is 544 bytes. The canonical C++ struct definition and the OptiScaler-side patch stack that reads
+this feed live on the `release/0.9`/`release/0.10` branches instead — see [Branch Layout](#branch-layout).
 
 ## Branch Layout
 

@@ -25,7 +25,7 @@ Overlay types `0` through `6` retain their upstream OptiScaler behavior and do n
 | Freshness window | 2 seconds from the last update |
 | Mapping open retry | At most once per second |
 
-The canonical C++ definition is [`optiscaler/protocol/OptiExternalOverlayProtocol.h`](../optiscaler/protocol/OptiExternalOverlayProtocol.h).
+The canonical C++ definition lives in `optiscaler/protocol/OptiExternalOverlayProtocol.h` on the `release/0.9`/`release/0.10` patch branches (this branch carries only the app source, not the OptiScaler-side header):
 
 ```cpp
 struct Payload
