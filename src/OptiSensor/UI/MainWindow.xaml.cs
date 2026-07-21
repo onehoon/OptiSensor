@@ -281,20 +281,14 @@ public partial class MainWindow : Window
             return;
 
         _sensorRefreshStarted = true;
-        RequestSensorRefreshCycle();
-    }
 
-    /// <summary>
-    /// Ensures a refresh cycle is running, without ever overwriting an in-flight one:
-    /// the shutdown pipeline awaits _activeSensorRefreshTask before disposing the
-    /// sensor reader, so replacing an unfinished Task here (e.g. rapid Hide -> Show
-    /// while discovery is running) would let that discovery escape tracking and race
-    /// the dispose. If one is already running, this only records that another pass is
-    /// wanted once it finishes - it never stacks a second wrapper Task around it, so
-    /// repeated Hide/Show cannot queue up an unbounded chain of refreshes.
-    /// </summary>
-    private void RequestSensorRefreshCycle()
-    {
+        // Never overwrite an in-flight refresh Task: the shutdown pipeline awaits
+        // _activeSensorRefreshTask before disposing the sensor reader, so replacing an
+        // unfinished Task here (e.g. rapid Hide -> Show while discovery is running)
+        // would let that discovery escape tracking and race the dispose. If one is
+        // already running, only record that another pass is wanted once it finishes -
+        // don't stack a second wrapper Task around it, so repeated Hide/Show can't
+        // queue up an unbounded chain of refreshes.
         if (!_activeSensorRefreshTask.IsCompleted)
         {
             _sensorRefreshResumeRequested = true;
@@ -331,13 +325,16 @@ public partial class MainWindow : Window
         _sensorRefreshResumeRequested = false;
     }
 
-    /// <summary>Starts at most one sensor refresh at a time; a tick while one is still running is simply skipped.</summary>
+    /// <summary>
+    /// Starts at most one sensor refresh at a time; a tick while one is still running
+    /// is simply skipped (not queued for resume) - the next 1-second tick will retry.
+    /// </summary>
     private void QueueSensorRefresh()
     {
-        if (_isShuttingDown)
+        if (_isShuttingDown || !_activeSensorRefreshTask.IsCompleted)
             return;
 
-        RequestSensorRefreshCycle();
+        _activeSensorRefreshTask = RunSensorRefreshCycleAsync(_windowLifetimeCancellation.Token);
     }
 
     private void UpdateStatus()
