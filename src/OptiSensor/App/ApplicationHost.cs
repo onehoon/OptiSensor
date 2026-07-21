@@ -74,9 +74,10 @@ internal sealed class ApplicationHost : IDisposable
         ISensorReader sensorReader = settings.SensorSource == SensorSourceKind.HwInfo
             ? new HwInfoSensorReader()
             : new LibreSensorReader();
+        var outputComposer = new OverlayOutputComposer(new OverlayLineBuilder());
         return new SensorPublishRunner(
             sensorReader,
-            new OverlayLineBuilder(),
+            outputComposer,
             new ExternalOverlayPublisher(),
             settings.GetOverlayGroupsSnapshot);
     }

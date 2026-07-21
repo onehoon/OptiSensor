@@ -14,7 +14,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private const string UngroupedGroupId = "ungrouped";
     private const string UngroupedGroupName = "Ungrouped";
     private readonly AppSettings _settings;
-    private readonly OverlayLineBuilder _overlayLineBuilder = new();
+    private readonly OverlayOutputComposer _overlayOutputComposer = new(new OverlayLineBuilder());
     private readonly SensorDiscoveryService _sensorDiscoveryService;
     private readonly ObservableCollection<SelectedOverlaySensorViewModel> _emptySelectedSensors = [];
     private bool _hasUnsavedChanges;
@@ -270,7 +270,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         if (!ValidateFormats(out errorMessage))
             return false;
 
-        var orderedGroups = OverlayGroups.OrderBy(group => group.Order).Select(group => group.ToModel()).ToArray();
+        var orderedGroups = CreateDraftOverlayGroupsSnapshot();
         var categoryFilters = SensorCategoryFilters
             .Select(filter => new KeyValuePair<OptiSensorCategory, bool>(filter.Category, filter.IsChecked))
             .ToArray();
@@ -289,32 +289,52 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         HasUnsavedChanges = false;
     }
 
+    /// <summary>
+    /// A snapshot of the current Draft overlay groups, in the same shape the publisher
+    /// consumes (all groups, including Ungrouped and disabled ones): both the preview and
+    /// the real publisher must agree on total/enabled selected sensor counts, and the
+    /// publisher's counts include every group regardless of visibility or enabled state.
+    /// </summary>
+    private IReadOnlyList<OverlayGroup> CreateDraftOverlayGroupsSnapshot()
+    {
+        return OverlayGroups
+            .OrderBy(group => group.Order)
+            .Select(group => group.ToModel())
+            .ToArray();
+    }
+
     public string GetOverlayPreviewText()
     {
         var snapshot = new LibreSensorSnapshot(
             DetectedSensors.Select(sensor => sensor.Sensor).ToArray(),
             new LibreReadMetrics(0, 0, DetectedSensors.Count, 0, 0, 0, 0, false));
-        var groups = OverlayGroups
-            .Where(group => !string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(group => group.Order)
-            .Select(group => group.ToModel())
-            .ToArray();
+        var groups = CreateDraftOverlayGroupsSnapshot();
 
-        var line = _overlayLineBuilder.BuildLine(snapshot, groups);
-        if (!string.IsNullOrWhiteSpace(line))
-            return line;
+        var composition = _overlayOutputComposer.Compose(snapshot, groups);
+        if (!string.IsNullOrWhiteSpace(composition.Line))
+            return composition.Line;
 
-        var enabledGroups = OverlayGroups
+        return BuildEmptyPreviewText();
+    }
+
+    /// <summary>
+    /// UI-only placeholder text for when the shared composer produced no publishable
+    /// line. Never fed back into the composer or the publisher - Ungrouped is excluded
+    /// here purely because it isn't a group the user sees on the Overlay page.
+    /// </summary>
+    private string BuildEmptyPreviewText()
+    {
+        var enabledVisibleGroups = OverlayGroups
             .Where(group => !string.Equals(group.Id, UngroupedGroupId, StringComparison.OrdinalIgnoreCase))
             .Where(group => group.Enabled)
             .OrderBy(group => group.Order)
             .Select(group => string.IsNullOrWhiteSpace(group.Name) ? "(unnamed group)" : group.Name)
             .ToArray();
 
-        if (enabledGroups.Length == 0)
+        if (enabledVisibleGroups.Length == 0)
             return "No enabled groups.";
 
-        return string.Join(" | ", enabledGroups.Select(groupName => $"{groupName} (empty)"));
+        return string.Join(" | ", enabledVisibleGroups.Select(groupName => $"{groupName} (empty)"));
     }
 
     public void Dispose()
