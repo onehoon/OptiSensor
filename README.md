@@ -50,6 +50,10 @@ win-x64
 
 Windows 10 and older Windows versions are not supported by this project.
 
+## HWiNFO Integration
+
+HWiNFO integration requires a separately installed copy of HWiNFO. HWiNFO is not bundled with or licensed by OptiSensor. Users are responsible for complying with the applicable HWiNFO license terms.
+
 ## Local Helper Usage
 
 Run once:
@@ -83,7 +87,6 @@ The local publish output expects the .NET 10 Desktop Runtime to be installed sep
 
 OptiSensor registers a current-user Windows Task Scheduler task named `OptiSensor` when `startWithWindows` is enabled.
 The task launches the Velopack `current` helper with `--startup` at user logon after a 5-minute delay using the current user's normal permissions, and is configured to restart on failure up to 3 times at 1-minute intervals.
-
 Tray `Exit` and the main window `Exit` button perform a normal exit with code `0`, so Task Scheduler does not restart the helper after an intentional user exit.
 Legacy HKCU Run startup entries are removed during task registration/unregistration to avoid duplicate launches.
 
