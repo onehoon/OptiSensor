@@ -100,6 +100,7 @@ jobs:
         with:
           path: .ci-state/libre-built.txt
           key: optisensor-libre-built-${{ steps.versions.outputs.libre }}
+          enableCrossOsArchive: true
 
       - name: Trigger App CI for a new Libre build
         if: steps.libre-cache.outputs.cache-hit != 'true'
