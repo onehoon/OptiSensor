@@ -105,3 +105,4 @@ jobs:
         with:
           path: .ci-state/libre-built.txt
           key: optisensor-libre-built-${{ steps.libre.outputs.version }}
+          enableCrossOsArchive: true
