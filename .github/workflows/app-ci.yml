@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,6 +38,7 @@ jobs:
             --no-http-cache
 
       - name: Show resolved LibreHardwareMonitor version
+        id: libre
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -53,6 +55,8 @@ jobs:
             throw "LibreHardwareMonitorLib was not found in project.assets.json."
           }
 
+          $version = $resolved.Substring("LibreHardwareMonitorLib/".Length)
+          "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Resolved $resolved"
 
       - name: Build tests (Release)
@@ -84,3 +88,20 @@ jobs:
           if (-not (Test-Path ".\.artifacts\publish-smoke\OptiSensor.exe")) {
             throw "OptiSensor.exe was not produced by publish smoke."
           }
+
+      - name: Write successful Libre build marker
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ".ci-state" | Out-Null
+          Set-Content `
+            -Path ".ci-state/libre-built.txt" `
+            -Value "${{ steps.libre.outputs.version }}" `
+            -NoNewline
+
+      - name: Record successful Libre build
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-state/libre-built.txt
+          key: optisensor-libre-built-${{ steps.libre.outputs.version }}
