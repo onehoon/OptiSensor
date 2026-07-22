@@ -33,6 +33,7 @@ jobs:
         shell: pwsh
         run: |
           dotnet restore ./src/OptiSensor/OptiSensor.csproj `
+            -p:EnableWindowsTargeting=true `
             --force-evaluate `
             --no-http-cache
 
