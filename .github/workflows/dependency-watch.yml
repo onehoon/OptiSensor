@@ -102,6 +102,40 @@ jobs:
           key: optisensor-libre-built-${{ steps.versions.outputs.libre }}
           enableCrossOsArchive: true
 
+      - name: Create Libre build update issue
+        if: steps.libre-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIBRE_VERSION: ${{ steps.versions.outputs.libre }}
+        shell: bash
+        run: |
+          title="[Dependency] LibreHardwareMonitorLib ${LIBRE_VERSION} build"
+          existing_count="$(
+            gh issue list \
+              --state all \
+              --limit 100 \
+              --json title |
+              jq --arg title "$title" '[.[] | select(.title == $title)] | length'
+          )"
+
+          if [ "$existing_count" -gt 0 ]; then
+            echo "An issue for LibreHardwareMonitorLib ${LIBRE_VERSION} already exists."
+            exit 0
+          fi
+
+          body_file="${RUNNER_TEMP}/libre-build-update.md"
+          cat > "$body_file" <<EOF
+          @${GITHUB_REPOSITORY_OWNER}
+
+          LibreHardwareMonitorLib ${LIBRE_VERSION} has no successful App CI marker.
+
+          App CI and a release build were triggered automatically for this version.
+          EOF
+
+          gh issue create \
+            --title "$title" \
+            --body-file "$body_file"
+
       - name: Trigger App CI for a new Libre build
         if: steps.libre-cache.outputs.cache-hit != 'true'
         env:
@@ -110,6 +144,14 @@ jobs:
         run: |
           echo "LibreHardwareMonitorLib ${{ steps.versions.outputs.libre }} has no successful App CI marker."
           gh workflow run app-ci.yml --ref main
+
+      - name: Trigger release build for a new Libre build
+        if: steps.libre-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run build-optisensor-only.yml --ref main
 
       - name: Report unchanged Libre build
         if: steps.libre-cache.outputs.cache-hit == 'true'
