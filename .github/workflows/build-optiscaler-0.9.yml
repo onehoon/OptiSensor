@@ -130,7 +130,7 @@ jobs:
           Copy-Item $dll.FullName "$env:GITHUB_WORKSPACE/OptiScaler.dll"
 
       - name: Upload OptiScaler DLL
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: OptiScaler-0.9.dll
           path: OptiScaler.dll
