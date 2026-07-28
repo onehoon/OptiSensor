@@ -96,7 +96,7 @@ jobs:
 
       - name: Check whether this Libre build already passed App CI
         id: libre-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .ci-state/libre-built.txt
           key: optisensor-libre-built-${{ steps.versions.outputs.libre }}
