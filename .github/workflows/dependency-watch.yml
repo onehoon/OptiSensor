@@ -2,8 +2,8 @@ name: Dependency Watch
 
 on:
   schedule:
-    # Daily at 03:17 KST (18:17 UTC).
-    - cron: "17 18 * * *"
+    # Weekly on Monday at 03:17 KST (Sunday 18:17 UTC).
+    - cron: "17 18 * * 0"
   workflow_dispatch:
 
 permissions:
@@ -115,7 +115,7 @@ jobs:
               --state all \
               --limit 100 \
               --json title |
-              jq --arg title "$title" '[.[] | select(.title == $title)] | length'
+            jq --arg title "$title" '[.[] | select(.title == $title)] | length'
           )"
 
           if [ "$existing_count" -gt 0 ]; then
@@ -173,7 +173,7 @@ jobs:
               --state all \
               --limit 100 \
               --json title |
-              jq --arg title "$title" '[.[] | select(.title == $title)] | length'
+            jq --arg title "$title" '[.[] | select(.title == $title)] | length'
           )"
 
           if [ "$existing_count" -gt 0 ]; then
