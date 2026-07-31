@@ -94,6 +94,7 @@ For a new or unchanged INI file:
 ```ini
 ShowFps=auto        ; compiled default: true
 FpsOverlayType=auto ; compiled default: 7 = Just FPS (+External)
+Scale=auto          ; compiled default: 1.3 at 1080p and above, still auto-scales lower below 900p
 ```
 
 There is no separate `AppendExternalOverlayText` INI key or toggle in this patch stack. Selecting overlay type `7` adds the shared-memory external text to OptiScaler's existing Just FPS output.
