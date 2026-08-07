@@ -24,14 +24,14 @@ diff --git a/OptiScaler/Config.h b/OptiScaler/Config.h
 index 7f6536a..5076ca7 100644
 --- a/OptiScaler/Config.h
 +++ b/OptiScaler/Config.h
-@@ -325,7 +325,7 @@ class Config
+@@ -330,7 +330,7 @@ class Config
      CustomOptional<bool> OverlayMenu { true };
      CustomOptional<int> ShortcutKey { VK_INSERT };
      CustomOptional<bool> ExtendedLimits { false };
 -    CustomOptional<bool> ShowFps { false };
 +    CustomOptional<bool> ShowFps { true };
      /// 0 Top Left, 1 Top Right, 2 Bottom Left, 3 Bottom Right
-     CustomOptional<int> FpsOverlayPos { 0 };
+     CustomOptional<FpsOverlayPos> FpsOverlayPosition { FpsOverlayPos_TopLeft };
      /// 0 Only FPS, 1 +Avg FPS & Upscaler info 2 +Frame Time,
 -- 
 2.53.0.windows.2
