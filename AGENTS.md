@@ -12,3 +12,14 @@
 
 - Refresh patches with `scripts/import-optiscaler-patches.ps1` (see docs/build-optisensor-optiscaler.md). Never hand-edit `optiscaler/patches/*.patch` in place.
 - Patch conflicts in CI are expected to fail the build; refresh the patch stack instead of auto-resolving conflicts in the workflow.
+
+## Local upstream cache
+
+- `.work/OptiScaler-0.9` and `.work/OptiScaler-0.10` are ignored local upstream
+  clone caches used only by the DLL build scripts. Their checked-out
+  `OptiScaler.ini` files are not schema inputs and must not be cited as a
+  durable source of truth.
+- The build scripts fetch, detach at, and clean the requested upstream revision,
+  so deleting an individual file in `.work` is not persistent: the next build
+  restores it from upstream. For schema work, fetch the matching upstream
+  branch's root `OptiScaler.ini` and source code directly instead.
