@@ -32,7 +32,7 @@ index f8eb548..dfe54d8 100644
                  {
                  case FpsOverlay_JustFPS:
 +                case FpsOverlay_JustFPSExternal:
-                     fpsPart = StrFmt("FPS: %6.1f/%5.1f", frameRate, baseFps);
+                     fpsPart = StrFmt("%6.1f/%5.1f ", frameRate, baseFps);
                      break;
  
 @@ -1825,6 +1828,7 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
@@ -40,10 +40,10 @@ index f8eb548..dfe54d8 100644
                  {
                  case FpsOverlay_JustFPS:
 +                case FpsOverlay_JustFPSExternal:
-                     fpsPart = StrFmt("FPS: %6.1f", frameRate);
+                     fpsPart = StrFmt("%6.1f ", frameRate);
                      break;
  
-@@ -1838,13 +1842,21 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
+@@ -1838,13 +1842,25 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
                  }
              }
  
@@ -55,7 +55,11 @@ index f8eb548..dfe54d8 100644
 +                {
 +                    std::string externalLine;
 +                    if (ExternalOverlayFeed::TryReadLine(externalLine))
++                    {
++                        if (!firstLine.empty() && firstLine.back() == ' ')
++                            firstLine.pop_back();
 +                        firstLine += " | " + externalLine;
++                    }
 +                }
 +            }
              else
