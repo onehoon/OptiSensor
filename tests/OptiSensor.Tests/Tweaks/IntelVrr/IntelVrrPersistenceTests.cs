@@ -4,8 +4,48 @@ using Xunit;
 
 namespace OptiSensor.Tests.Tweaks.IntelVrr;
 
-public class IntelVrrPersistenceTests
+/// <summary>
+/// <see cref="IntelVrrResultStore"/> and <see cref="IntelVrrRunLogger"/> are process-wide static
+/// classes that, in production, always write under the real <see cref="AppPaths"/> directories.
+/// Other tests (and other test classes running in parallel) exercise <c>IntelVrrRangeTweak.Run()</c>,
+/// which itself calls into these same statics - if this class also pointed at the real shared path,
+/// the round trips here would race with those writes and flake. Each test therefore points the
+/// stores at its own unique temp directory via the internal *Override hooks, and restores the
+/// previous override in a finally block so it never leaks into other tests.
+/// </summary>
+public class IntelVrrPersistenceTests : IDisposable
 {
+    private readonly string _tempDir;
+    private readonly string? _previousDataDirectoryOverride;
+    private readonly string? _previousLogsDirectoryOverride;
+
+    public IntelVrrPersistenceTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), "OptiSensorTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempDir);
+
+        _previousDataDirectoryOverride = IntelVrrResultStore.DataDirectoryOverride;
+        _previousLogsDirectoryOverride = IntelVrrRunLogger.LogsDirectoryOverride;
+
+        IntelVrrResultStore.DataDirectoryOverride = _tempDir;
+        IntelVrrRunLogger.LogsDirectoryOverride = _tempDir;
+    }
+
+    public void Dispose()
+    {
+        IntelVrrResultStore.DataDirectoryOverride = _previousDataDirectoryOverride;
+        IntelVrrRunLogger.LogsDirectoryOverride = _previousLogsDirectoryOverride;
+
+        try
+        {
+            Directory.Delete(_tempDir, recursive: true);
+        }
+        catch (Exception)
+        {
+            // Best-effort cleanup only; a leftover temp dir under %TEMP% is harmless.
+        }
+    }
+
     [Fact]
     public void ResultStore_SaveThenLoad_RoundTripsExpectedCompactState()
     {
@@ -30,7 +70,7 @@ public class IntelVrrPersistenceTests
     [Fact]
     public void RunLogger_MultipleAttemptsInOneSession_AreAllPreserved()
     {
-        var logPath = Path.Combine(AppPaths.LogsDirectory, "tweaks-intel-vrr-last-run.log");
+        var logPath = Path.Combine(_tempDir, "tweaks-intel-vrr-last-run.log");
 
         IntelVrrRunLogger.StartSession();
         IntelVrrRunLogger.AppendAttempt(1, ["first attempt line one", "first attempt line two"]);
@@ -51,7 +91,7 @@ public class IntelVrrPersistenceTests
     [Fact]
     public void RunLogger_NewSession_ReplacesPreviousSessionsLog()
     {
-        var logPath = Path.Combine(AppPaths.LogsDirectory, "tweaks-intel-vrr-last-run.log");
+        var logPath = Path.Combine(_tempDir, "tweaks-intel-vrr-last-run.log");
 
         IntelVrrRunLogger.StartSession();
         IntelVrrRunLogger.AppendAttempt(1, ["previous session attempt line"]);

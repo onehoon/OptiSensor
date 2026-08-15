@@ -5,7 +5,7 @@ namespace OptiSensor.Tests.Tweaks.IntelVrr;
 
 public class IntelVrrRangeTweakTests
 {
-    private static readonly PanelIdentity AffectedPanel = new("CSW", "0801", "PN8007QB1-2");
+    private static readonly PanelIdentity AffectedPanel = new("CSW", "0801", "PN8007QB1-2", Active: true);
     private static readonly PanelIdentity OtherPanel = new("AUO", "1234", "Some Other Panel");
 
     private static IntelDisplayOutputHandle MakeOutput(nint handle, string? friendlyName = null) => new(1, handle, friendlyName);
@@ -48,6 +48,23 @@ public class IntelVrrRangeTweakTests
         var result = tweak.Run(isEnabled: true);
 
         Assert.Equal(IntelVrrRunStatus.UnsupportedPanel, result.Status);
+    }
+
+    [Fact]
+    public void Run_PanelIdentityLookupThrows_ReportsUnavailableNotUnsupportedPanel_AndDoesNotMutate()
+    {
+        // A WMI enumeration failure (COM error, provider unavailable, access denied, etc.) must be
+        // distinguishable from a genuine "WMI worked, no affected panel present" result - both by
+        // status and in the log - rather than being silently collapsed into UnsupportedPanel.
+        var client = new FakeIntelArcSyncClient();
+        var tweak = new IntelVrrRangeTweak(() => client, () => throw new InvalidOperationException("WMI provider unavailable"));
+
+        var result = tweak.Run(isEnabled: true);
+
+        Assert.Equal(IntelVrrRunStatus.Unavailable, result.Status);
+        Assert.NotEqual(IntelVrrRunStatus.UnsupportedPanel, result.Status);
+        Assert.Equal(0, client.SetCallCount);
+        Assert.Contains(tweak.LastRunLog, line => line.Contains("Panel identity lookup failed") && line.Contains("InvalidOperationException"));
     }
 
     [Fact]
