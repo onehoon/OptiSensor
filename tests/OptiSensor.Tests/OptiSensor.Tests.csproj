@@ -21,4 +21,8 @@
     <ProjectReference Include="..\..\src\OptiSensor\OptiSensor.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
