@@ -45,6 +45,7 @@ internal sealed class IntelVrrRangeTweak
         }
 
         var panelIdentities = SafeGetPanelIdentities();
+        LogPanelEnumeration(panelIdentities);
         var affectedPanel = panelIdentities.FirstOrDefault(AffectedPanelDetector.IsAffectedPanel);
         if (affectedPanel is null)
         {
@@ -53,7 +54,7 @@ internal sealed class IntelVrrRangeTweak
                 "This panel is not the affected MSI Claw 8 display."));
         }
 
-        Log($"Affected panel detected: manufacturer={affectedPanel.ManufacturerCode}, product=0x{affectedPanel.ProductCodeHex}, name={affectedPanel.PanelName}");
+        Log($"Affected panel detected: manufacturer={affectedPanel.ManufacturerCode}, product={affectedPanel.ProductCodeId}, name={affectedPanel.PanelName}");
 
         using var client = _clientFactory();
         var initialized = client.TryInitialize();
@@ -267,6 +268,27 @@ internal sealed class IntelVrrRangeTweak
         {
             Log($"Panel identity lookup failed: {ex.Message}");
             return [];
+        }
+    }
+
+    /// <summary>Logs the full WMI monitor enumeration - every candidate's active state, instance
+    /// name, decoded identity, and whether it matches the known affected-panel identity - BEFORE the
+    /// match/no-match verdict is decided. Without this, a decode bug (like the ProductCodeID ushort[]
+    /// mis-decode found via real MSI Claw hardware validation) can silently reject the real affected
+    /// panel with nothing in the log to show what was actually enumerated.</summary>
+    private void LogPanelEnumeration(IReadOnlyList<PanelIdentity> panelIdentities)
+    {
+        Log($"WMI monitor count={panelIdentities.Count}");
+        for (var i = 0; i < panelIdentities.Count; i++)
+        {
+            var identity = panelIdentities[i];
+            Log($"Monitor[{i}]:");
+            Log($"  Active={identity.Active}");
+            Log($"  InstanceName={identity.InstanceName ?? "(unknown)"}");
+            Log($"  ManufacturerName={identity.ManufacturerCode}");
+            Log($"  ProductCodeID={identity.ProductCodeId}");
+            Log($"  UserFriendlyName={identity.PanelName ?? "(unknown)"}");
+            Log($"  Match={AffectedPanelDetector.IsAffectedPanel(identity)}");
         }
     }
 

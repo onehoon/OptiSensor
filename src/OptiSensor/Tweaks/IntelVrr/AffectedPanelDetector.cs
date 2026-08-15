@@ -3,8 +3,16 @@ using System.Management;
 namespace OptiSensor.Tweaks.IntelVrr;
 
 /// <summary>Identity of a detected internal panel, read from Windows monitor/EDID data (not the
-/// friendly machine name - EDID manufacturer/product code/panel name are the durable identity).</summary>
-internal sealed record PanelIdentity(string ManufacturerCode, string ProductCodeHex, string? PanelName);
+/// friendly machine name - EDID manufacturer/product code/panel name are the durable identity).
+/// <paramref name="Active"/> and <paramref name="InstanceName"/> are carried through purely for
+/// diagnostics (see <see cref="AffectedPanelDetector.EnumeratePanelIdentities"/>) and are not part
+/// of the match decision in <see cref="AffectedPanelDetector.IsAffectedPanel"/>.</summary>
+internal sealed record PanelIdentity(
+    string ManufacturerCode,
+    string ProductCodeId,
+    string? PanelName,
+    bool Active = false,
+    string? InstanceName = null);
 
 /// <summary>
 /// Detects whether the affected MSI Claw 8 internal panel is present, using Windows'
@@ -17,8 +25,10 @@ internal static class AffectedPanelDetector
     /// panel house code used on the MSI Claw 8 internal panel).</summary>
     private const string AffectedManufacturerCode = "CSW";
 
-    /// <summary>EDID product code for the affected panel, as a 4-digit hex string.</summary>
-    private const string AffectedProductCodeHex = "0801";
+    /// <summary>EDID product code for the affected panel, decoded as a character string (WMI
+    /// exposes it as a ushort[] of character codes, same as ManufacturerName/UserFriendlyName -
+    /// NOT as two raw packed EDID bytes).</summary>
+    private const string AffectedProductCodeId = "0801";
 
     /// <summary>EDID-reported descriptive panel name.</summary>
     private const string AffectedPanelName = "PN8007QB1-2";
@@ -31,7 +41,7 @@ internal static class AffectedPanelDetector
     public static bool IsAffectedPanel(PanelIdentity identity)
     {
         return string.Equals(identity.ManufacturerCode, AffectedManufacturerCode, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(identity.ProductCodeHex, AffectedProductCodeHex, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(identity.ProductCodeId, AffectedProductCodeId, StringComparison.OrdinalIgnoreCase)
             && identity.PanelName is not null
             && identity.PanelName.Contains(AffectedPanelName, StringComparison.OrdinalIgnoreCase);
     }
@@ -52,17 +62,15 @@ internal static class AffectedPanelDetector
                 using (monitor)
                 {
                     var manufacturer = DecodeUShortArrayAsString(monitor["ManufacturerName"] as ushort[]);
-                    var productCodeRaw = monitor["ProductCodeID"] as ushort[];
+                    var productCodeId = DecodeUShortArrayAsString(monitor["ProductCodeID"] as ushort[]);
                     var name = DecodeUShortArrayAsString(monitor["UserFriendlyName"] as ushort[]);
+                    var active = monitor["Active"] is bool a && a;
+                    var instanceName = monitor["InstanceName"] as string;
 
                     if (manufacturer is null)
                         continue;
 
-                    // ProductCodeID is the raw 2-byte little-endian EDID product code, each WMI
-                    // array element holding one byte (0-255) - not ASCII, unlike the name fields.
-                    var productCodeHex = DecodeProductCodeHex(productCodeRaw);
-
-                    results.Add(new PanelIdentity(manufacturer, productCodeHex, name));
+                    results.Add(new PanelIdentity(manufacturer, productCodeId ?? string.Empty, name, active, instanceName));
                 }
             }
         }
@@ -75,16 +83,13 @@ internal static class AffectedPanelDetector
         return results;
     }
 
-    private static string DecodeProductCodeHex(ushort[]? bytes)
-    {
-        if (bytes is not { Length: >= 2 })
-            return "0000";
-
-        var productCode = (ushort)(bytes[0] | (bytes[1] << 8));
-        return productCode.ToString("X4");
-    }
-
-    private static string? DecodeUShortArrayAsString(ushort[]? values)
+    /// <summary>Decodes a WMI <c>ushort[]</c> character-array field (as used by
+    /// <c>WmiMonitorID</c>'s <c>ManufacturerName</c>, <c>ProductCodeID</c>, and
+    /// <c>UserFriendlyName</c> - each array element is a character code, e.g. the ASCII digits of
+    /// "0801" for ProductCodeID, NOT raw packed EDID bytes) into a string, dropping trailing/embedded
+    /// NUL padding. Internal (rather than private) so it can be exercised directly by tests without
+    /// requiring a live WMI provider.</summary>
+    internal static string? DecodeUShortArrayAsString(ushort[]? values)
     {
         if (values is null || values.Length == 0)
             return null;
