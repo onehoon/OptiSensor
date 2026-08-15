@@ -28,20 +28,44 @@ public class IntelVrrPersistenceTests
     }
 
     [Fact]
-    public void RunLogger_SecondRunReplacesFirst_NotAccumulated()
+    public void RunLogger_MultipleAttemptsInOneSession_AreAllPreserved()
     {
-        IntelVrrRunLogger.WriteRun(["first run line one", "first run line two"]);
         var logPath = Path.Combine(AppPaths.LogsDirectory, "tweaks-intel-vrr-last-run.log");
+
+        IntelVrrRunLogger.StartSession();
+        IntelVrrRunLogger.AppendAttempt(1, ["first attempt line one", "first attempt line two"]);
+        IntelVrrRunLogger.AppendAttempt(2, ["second attempt line only"]);
+
         Assert.True(File.Exists(logPath));
-        var firstContent = File.ReadAllText(logPath);
-        Assert.Contains("first run line one", firstContent);
+        var content = File.ReadAllText(logPath);
 
-        IntelVrrRunLogger.WriteRun(["second run line only"]);
-        var secondContent = File.ReadAllText(logPath);
+        // Both attempts within the SAME session must be present - retries must not overwrite
+        // earlier attempts' diagnostics.
+        Assert.Contains("first attempt line one", content);
+        Assert.Contains("first attempt line two", content);
+        Assert.Contains("second attempt line only", content);
+        Assert.Contains("Attempt 1", content);
+        Assert.Contains("Attempt 2", content);
+    }
 
-        Assert.Contains("second run line only", secondContent);
-        Assert.DoesNotContain("first run line one", secondContent);
-        Assert.DoesNotContain("first run line two", secondContent);
+    [Fact]
+    public void RunLogger_NewSession_ReplacesPreviousSessionsLog()
+    {
+        var logPath = Path.Combine(AppPaths.LogsDirectory, "tweaks-intel-vrr-last-run.log");
+
+        IntelVrrRunLogger.StartSession();
+        IntelVrrRunLogger.AppendAttempt(1, ["previous session attempt line"]);
+
+        // A new process launch's tweak sequence starts here - only this call point should ever
+        // truncate the file, not each retry attempt.
+        IntelVrrRunLogger.StartSession();
+        var freshSessionContent = File.ReadAllText(logPath);
+        Assert.DoesNotContain("previous session attempt line", freshSessionContent);
+
+        IntelVrrRunLogger.AppendAttempt(1, ["new session attempt line"]);
+        var finalContent = File.ReadAllText(logPath);
+        Assert.Contains("new session attempt line", finalContent);
+        Assert.DoesNotContain("previous session attempt line", finalContent);
     }
 
     [Fact]

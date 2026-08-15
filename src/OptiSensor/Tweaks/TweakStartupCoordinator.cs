@@ -45,11 +45,17 @@ internal static class TweakStartupCoordinator
             () => new IntelArcSyncClient(),
             AffectedPanelDetector.EnumeratePanelIdentities);
 
+        // One log per process launch: truncate whatever the previous startup left behind exactly
+        // once here, then every attempt below appends to the same session log instead of
+        // overwriting it - so a bounded retry sequence keeps the record of earlier attempts.
+        IntelVrrRunLogger.StartSession();
+
         if (!isEnabled)
         {
             // Still run once so the persisted result reflects "Disabled" rather than a stale
             // result from a previous session where it was enabled.
             tweak.Run(false);
+            IntelVrrRunLogger.AppendAttempt(1, tweak.LastRunLog);
             return;
         }
 
@@ -62,6 +68,7 @@ internal static class TweakStartupCoordinator
             cancellationToken.ThrowIfCancellationRequested();
 
             lastResult = tweak.Run(isEnabled);
+            IntelVrrRunLogger.AppendAttempt(attempt + 1, tweak.LastRunLog);
             if (lastResult.Status != IntelVrrRunStatus.Unavailable)
                 return;
 

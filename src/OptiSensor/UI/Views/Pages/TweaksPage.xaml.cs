@@ -31,8 +31,11 @@ public partial class TweaksPage : System.Windows.Controls.UserControl
         var result = IntelVrrResultStore.TryLoad();
         IntelVrrResultText.Text = DescribeResult(result);
 
-        if (result?.RangeBeforeText is not null && result.RangeAfterText is not null)
-            IntelVrrRangeText.Text = $"{result.RangeBeforeText} -> {result.RangeAfterText}";
+        IntelVrrPanelNameText.Text = result?.PanelName is not null ? $"Panel: {result.PanelName}" : string.Empty;
+
+        IntelVrrRangeText.Text = result?.RangeBeforeText is not null && result.RangeAfterText is not null
+            ? $"{result.RangeBeforeText} -> {result.RangeAfterText}"
+            : string.Empty;
     }
 
     private void IntelVrrToggle_Click(object sender, System.Windows.RoutedEventArgs e)
@@ -48,14 +51,12 @@ public partial class TweaksPage : System.Windows.Controls.UserControl
         {
             SimpleLog.TryWrite($"Failed to save Intel VRR Range Fix toggle: {ex.Message}");
         }
-
-        IntelVrrResultText.Text = "Applies at next startup.";
     }
 
     private static string DescribeResult(IntelVrrRunResult? result)
     {
         if (result is null)
-            return "Not run yet. Applies at next startup.";
+            return "No result yet";
 
         return result.Status switch
         {

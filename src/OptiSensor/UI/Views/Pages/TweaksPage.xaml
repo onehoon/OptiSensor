@@ -47,19 +47,19 @@
                                    Margin="0,8,0,0"
                                    FontSize="12"
                                    Foreground="#64748B"
-                                   Text="Panel: MSI Claw 8 internal display (CSW / 0801 / PN8007QB1-2)"/>
+                                   Text=""/>
 
                         <TextBlock x:Name="IntelVrrRangeText"
                                    Margin="0,2,0,0"
                                    FontSize="12"
                                    Foreground="#64748B"
-                                   Text="60-120 Hz -&gt; 48-120 Hz"/>
+                                   Text=""/>
 
                         <TextBlock x:Name="IntelVrrResultText"
                                    Margin="0,8,0,0"
                                    FontSize="12"
                                    Foreground="#334155"
-                                   Text="Applies at next startup."/>
+                                   Text="No result yet"/>
                     </StackPanel>
                 </Border>
             </ItemsControl.Items>

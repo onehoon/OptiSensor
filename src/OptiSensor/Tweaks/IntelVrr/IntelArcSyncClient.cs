@@ -5,13 +5,17 @@ namespace OptiSensor.Tweaks.IntelVrr;
 /// <summary>Arc Sync (VRR) profile values, mirroring the official IGCL <c>ctl_intel_arc_sync_profile_t</c>
 /// enum from Intel's public <c>ctl_api.h</c> / arc-sync extension headers. Field layout/values must match
 /// the official header - this is a from-scratch transcription, not an ad hoc simplification.</summary>
-internal enum CtlIntelArcSyncProfile
+internal enum CtlIntelArcSyncProfile : uint
 {
-    Default = 0,
-    Basic = 1,
+    Invalid = 0,
+    Recommended = 1,
     Excellent = 2,
-    Custom = 3,
-    Off = 4
+    Good = 3,
+    Compatible = 4,
+    Off = 5,
+    Vesa = 6,
+    Custom = 7,
+    Max = 8
 }
 
 /// <summary>Generic IGCL result codes (subset of <c>ctl_result_t</c>) relevant to this feature.</summary>
@@ -27,14 +31,24 @@ internal enum CtlResult
 /// by <see cref="AffectedPanelDetector"/>.</summary>
 internal sealed record IntelDisplayOutputHandle(nint DeviceHandle, nint DisplayOutputHandle, string? FriendlyName);
 
-/// <summary>Arc Sync capability/state for one display output, as reported by IGCL.</summary>
-internal sealed record IntelArcSyncInfo(
-    bool IsArcSyncSupported,
-    double CapabilityMinRefreshHz,
-    double CapabilityMaxRefreshHz,
-    CtlIntelArcSyncProfile CurrentProfile,
-    double CurrentMinRefreshHz,
-    double CurrentMaxRefreshHz);
+/// <summary>Arc Sync monitor capability, as reported by <c>ctlGetIntelArcSyncInfoForMonitor</c>
+/// (<c>ctl_intel_arc_sync_monitor_params_t</c>). This is capability-only - it never reflects the
+/// currently active profile/range; that comes from <see cref="IntelArcSyncProfileState"/>.</summary>
+internal sealed record IntelArcSyncMonitorCapability(
+    bool IsIntelArcSyncSupported,
+    float MinimumRefreshRateInHz,
+    float MaximumRefreshRateInHz,
+    uint MaxFrameTimeIncreaseInUs,
+    uint MaxFrameTimeDecreaseInUs);
+
+/// <summary>Current Arc Sync profile/active range, as reported by <c>ctlGetIntelArcSyncProfile</c>
+/// (<c>ctl_intel_arc_sync_profile_params_t</c>).</summary>
+internal sealed record IntelArcSyncProfileState(
+    CtlIntelArcSyncProfile Profile,
+    float MinRefreshRateInHz,
+    float MaxRefreshRateInHz,
+    uint MaxFrameTimeIncreaseInUs,
+    uint MaxFrameTimeDecreaseInUs);
 
 /// <summary>
 /// Thin abstraction over the Intel Graphics Control Library (IGCL) Arc Sync API, so
@@ -50,11 +64,16 @@ internal interface IIntelArcSyncClient : IDisposable
     /// <summary>All display outputs IGCL currently reports across all enumerated adapters.</summary>
     IReadOnlyList<IntelDisplayOutputHandle> EnumerateDisplayOutputs();
 
-    /// <summary>Reads Arc Sync capability/state for one output. Returns null if the call fails or
-    /// the output does not support Arc Sync.</summary>
-    IntelArcSyncInfo? TryGetArcSyncInfo(IntelDisplayOutputHandle output);
+    /// <summary>Reads Arc Sync monitor capability for one output via <c>ctlGetIntelArcSyncInfoForMonitor</c>.
+    /// Returns null if the call fails.</summary>
+    IntelArcSyncMonitorCapability? TryGetMonitorCapability(IntelDisplayOutputHandle output);
 
-    /// <summary>Applies an Arc Sync profile to one output. Returns (success, errorMessage).</summary>
+    /// <summary>Reads the current Arc Sync profile/active range for one output via
+    /// <c>ctlGetIntelArcSyncProfile</c>. Returns null if the call fails.</summary>
+    IntelArcSyncProfileState? TryGetArcSyncProfile(IntelDisplayOutputHandle output);
+
+    /// <summary>Applies an Arc Sync profile to one output via <c>ctlSetIntelArcSyncProfile</c>.
+    /// Returns (success, errorMessage).</summary>
     (bool Success, string? Error) TrySetArcSyncProfile(IntelDisplayOutputHandle output, CtlIntelArcSyncProfile profile);
 }
 
@@ -66,12 +85,17 @@ internal interface IIntelArcSyncClient : IDisposable
 /// fields IGCL structs require) are transcribed from Intel's public IGCL headers
 /// (ctl_api.h / ctl_arc_sync_profile / related display extension headers) as accurately as
 /// possible from documentation. They must be kept in sync with the official headers if Intel
-/// revises them - do not "simplify" these layouts.
+/// revises them - do not "simplify" these layouts. Notably: monitor capability and current
+/// profile/range are two DISTINCT official structs/calls (ctl_intel_arc_sync_monitor_params_t via
+/// ctlGetIntelArcSyncInfoForMonitor, and ctl_intel_arc_sync_profile_params_t via
+/// ctlGetIntelArcSyncProfile / ctlSetIntelArcSyncProfile) - they must not be merged into one
+/// ad hoc struct. Native <c>bool</c> fields are 1 byte (marshaled as U1), unlike Win32 BOOL which
+/// is a 4-byte int - do not use UnmanagedType.Bool for these.
 /// </summary>
 internal sealed class IntelArcSyncClient : IIntelArcSyncClient
 {
     private const string ControlLibDll = "ControlLib.dll";
-    private const uint CtlImpiVersion = 0; // ctl_init_args_t.Version - 0 selects the latest supported ABI.
+    private const byte CtlInitVersion = 0; // ctl_init_args_t.Version - 0 selects the latest supported ABI.
 
     private bool _initialized;
     private nint[] _adapterHandles = [];
@@ -80,19 +104,13 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
     private struct CtlInitArgs
     {
         public uint Size;
-        public uint Version;
-        public CtlApiVersion AppVersion;
+        public byte Version;
+        /// <summary>Single 32-bit encoded API version (major/minor packed into one value), per
+        /// Intel's public ctl_api.h - not three separate Major/Minor/Build fields.</summary>
+        public uint AppVersion;
         public uint Flags;
-        public CtlApiVersion SupportedVersion;
+        public uint SupportedVersion;
         public CtlApplicationId ApplicationId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct CtlApiVersion
-    {
-        public uint Major;
-        public uint Minor;
-        public uint Build;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -101,27 +119,32 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
         public Guid Id;
     }
 
-    /// <summary>ctl_intel_arc_sync_info_t (approximate transcription: mandatory Size/Version header
-    /// followed by capability and current-state fields).</summary>
+    /// <summary>ctl_intel_arc_sync_monitor_params_t - monitor capability only.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct CtlIntelArcSyncInfo
+    private struct CtlIntelArcSyncMonitorParams
     {
         public uint Size;
-        public uint Version;
-        [MarshalAs(UnmanagedType.Bool)] public bool SupportedArcSync;
-        public double MinRefreshRateCapable;
-        public double MaxRefreshRateCapable;
-        public CtlIntelArcSyncProfile CurrentProfile;
-        public double CurrentMinRefreshRate;
-        public double CurrentMaxRefreshRate;
+        public byte Version;
+        [MarshalAs(UnmanagedType.U1)] public bool IsIntelArcSyncSupported;
+        public float MinimumRefreshRateInHz;
+        public float MaximumRefreshRateInHz;
+        public uint MaxFrameTimeIncreaseInUs;
+        public uint MaxFrameTimeDecreaseInUs;
     }
 
+    /// <summary>ctl_intel_arc_sync_profile_params_t - current profile/active range. Used for both
+    /// ctlGetIntelArcSyncProfile (read) and ctlSetIntelArcSyncProfile (set), matching the official
+    /// entry points, which each take this same params struct.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct CtlIntelArcSyncProfileParams
     {
         public uint Size;
-        public uint Version;
+        public byte Version;
         public CtlIntelArcSyncProfile Profile;
+        public float MaxRefreshRateInHz;
+        public float MinRefreshRateInHz;
+        public uint MaxFrameTimeIncreaseInUs;
+        public uint MaxFrameTimeDecreaseInUs;
     }
 
     // NOTE: These entry points/signatures follow the naming and general shape of IGCL's
@@ -140,7 +163,10 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
     private static extern int ctlEnumerateDisplayOutputs(nint adapterHandle, ref uint count, [Out] nint[]? displayOutputs);
 
     [DllImport(ControlLibDll, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int ctlGetIntelArcSyncInfoForMonitor(nint displayOutputHandle, ref CtlIntelArcSyncInfo info);
+    private static extern int ctlGetIntelArcSyncInfoForMonitor(nint displayOutputHandle, ref CtlIntelArcSyncMonitorParams monitorParams);
+
+    [DllImport(ControlLibDll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ctlGetIntelArcSyncProfile(nint displayOutputHandle, ref CtlIntelArcSyncProfileParams profileParams);
 
     [DllImport(ControlLibDll, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ctlSetIntelArcSyncProfile(nint displayOutputHandle, ref CtlIntelArcSyncProfileParams profileParams);
@@ -154,9 +180,9 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
             var initArgs = new CtlInitArgs
             {
                 Size = (uint)Marshal.SizeOf<CtlInitArgs>(),
-                Version = CtlImpiVersion,
-                AppVersion = new CtlApiVersion { Major = 1, Minor = 0, Build = 0 },
-                SupportedVersion = new CtlApiVersion { Major = 1, Minor = 0, Build = 0 },
+                Version = CtlInitVersion,
+                AppVersion = 0x00010000, // encoded 1.0
+                SupportedVersion = 0x00010000,
                 ApplicationId = new CtlApplicationId { Id = Guid.Empty }
             };
 
@@ -213,27 +239,53 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
         return results;
     }
 
-    public IntelArcSyncInfo? TryGetArcSyncInfo(IntelDisplayOutputHandle output)
+    public IntelArcSyncMonitorCapability? TryGetMonitorCapability(IntelDisplayOutputHandle output)
     {
         try
         {
-            var info = new CtlIntelArcSyncInfo
+            var monitorParams = new CtlIntelArcSyncMonitorParams
             {
-                Size = (uint)Marshal.SizeOf<CtlIntelArcSyncInfo>(),
+                Size = (uint)Marshal.SizeOf<CtlIntelArcSyncMonitorParams>(),
                 Version = 0
             };
 
-            var result = ctlGetIntelArcSyncInfoForMonitor(output.DisplayOutputHandle, ref info);
+            var result = ctlGetIntelArcSyncInfoForMonitor(output.DisplayOutputHandle, ref monitorParams);
             if (result != (int)CtlResult.Success)
                 return null;
 
-            return new IntelArcSyncInfo(
-                info.SupportedArcSync,
-                info.MinRefreshRateCapable,
-                info.MaxRefreshRateCapable,
-                info.CurrentProfile,
-                info.CurrentMinRefreshRate,
-                info.CurrentMaxRefreshRate);
+            return new IntelArcSyncMonitorCapability(
+                monitorParams.IsIntelArcSyncSupported,
+                monitorParams.MinimumRefreshRateInHz,
+                monitorParams.MaximumRefreshRateInHz,
+                monitorParams.MaxFrameTimeIncreaseInUs,
+                monitorParams.MaxFrameTimeDecreaseInUs);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    public IntelArcSyncProfileState? TryGetArcSyncProfile(IntelDisplayOutputHandle output)
+    {
+        try
+        {
+            var profileParams = new CtlIntelArcSyncProfileParams
+            {
+                Size = (uint)Marshal.SizeOf<CtlIntelArcSyncProfileParams>(),
+                Version = 0
+            };
+
+            var result = ctlGetIntelArcSyncProfile(output.DisplayOutputHandle, ref profileParams);
+            if (result != (int)CtlResult.Success)
+                return null;
+
+            return new IntelArcSyncProfileState(
+                profileParams.Profile,
+                profileParams.MinRefreshRateInHz,
+                profileParams.MaxRefreshRateInHz,
+                profileParams.MaxFrameTimeIncreaseInUs,
+                profileParams.MaxFrameTimeDecreaseInUs);
         }
         catch (Exception)
         {

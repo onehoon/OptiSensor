@@ -23,12 +23,17 @@ internal static class AffectedPanelDetector
     /// <summary>EDID-reported descriptive panel name.</summary>
     private const string AffectedPanelName = "PN8007QB1-2";
 
+    /// <summary>Requires ALL THREE EDID identity fields (manufacturer, product code, and panel
+    /// name) to be present and matching. A missing/unreadable panel name is deliberately NOT
+    /// treated as a match, even if manufacturer and product code agree - this feature auto-mutates
+    /// driver state, so an incomplete identity must fail open (not affected) rather than risk
+    /// matching the wrong panel.</summary>
     public static bool IsAffectedPanel(PanelIdentity identity)
     {
         return string.Equals(identity.ManufacturerCode, AffectedManufacturerCode, StringComparison.OrdinalIgnoreCase)
             && string.Equals(identity.ProductCodeHex, AffectedProductCodeHex, StringComparison.OrdinalIgnoreCase)
-            && (identity.PanelName is null
-                || identity.PanelName.Contains(AffectedPanelName, StringComparison.OrdinalIgnoreCase));
+            && identity.PanelName is not null
+            && identity.PanelName.Contains(AffectedPanelName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Enumerates all connected monitors' EDID identities via WMI (root\wmi, WmiMonitorID).

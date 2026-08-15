@@ -8,7 +8,7 @@ public class IntelVrrRangeTweakTests
     private static readonly PanelIdentity AffectedPanel = new("CSW", "0801", "PN8007QB1-2");
     private static readonly PanelIdentity OtherPanel = new("AUO", "1234", "Some Other Panel");
 
-    private static IntelDisplayOutputHandle MakeOutput(nint handle) => new(1, handle, null);
+    private static IntelDisplayOutputHandle MakeOutput(nint handle, string? friendlyName = null) => new(1, handle, friendlyName);
 
     private static IntelVrrRangeTweak CreateTweak(FakeIntelArcSyncClient client, IReadOnlyList<PanelIdentity> panels)
     {
@@ -68,13 +68,18 @@ public class IntelVrrRangeTweakTests
         var client = new FakeIntelArcSyncClient();
         var output = MakeOutput(10);
         client.Outputs.Add(output);
-        client.InfoByOutput[output.DisplayOutputHandle] = new IntelArcSyncInfo(
-            IsArcSyncSupported: true,
-            CapabilityMinRefreshHz: 48,
-            CapabilityMaxRefreshHz: 120,
-            CurrentProfile: CtlIntelArcSyncProfile.Excellent,
-            CurrentMinRefreshHz: 48,
-            CurrentMaxRefreshHz: 120);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(
+            IsIntelArcSyncSupported: true,
+            MinimumRefreshRateInHz: 48,
+            MaximumRefreshRateInHz: 120,
+            MaxFrameTimeIncreaseInUs: 0,
+            MaxFrameTimeDecreaseInUs: 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(
+            Profile: CtlIntelArcSyncProfile.Excellent,
+            MinRefreshRateInHz: 48,
+            MaxRefreshRateInHz: 120,
+            MaxFrameTimeIncreaseInUs: 0,
+            MaxFrameTimeDecreaseInUs: 0);
 
         var tweak = CreateTweak(client, [AffectedPanel]);
 
@@ -85,19 +90,29 @@ public class IntelVrrRangeTweakTests
     }
 
     [Fact]
-    public void Run_ConstrainedOrdinaryProfile_SetsExcellentAndVerifiesApplied()
+    public void Run_RecommendedProfile_SetsExcellentAndVerifiesApplied() =>
+        AssertOrdinaryDriverManagedProfileEligible(CtlIntelArcSyncProfile.Recommended);
+
+    [Fact]
+    public void Run_GoodProfile_SetsExcellentAndVerifiesApplied() =>
+        AssertOrdinaryDriverManagedProfileEligible(CtlIntelArcSyncProfile.Good);
+
+    [Fact]
+    public void Run_CompatibleProfile_SetsExcellentAndVerifiesApplied() =>
+        AssertOrdinaryDriverManagedProfileEligible(CtlIntelArcSyncProfile.Compatible);
+
+    [Fact]
+    public void Run_VesaProfile_SetsExcellentAndVerifiesApplied() =>
+        AssertOrdinaryDriverManagedProfileEligible(CtlIntelArcSyncProfile.Vesa);
+
+    private static void AssertOrdinaryDriverManagedProfileEligible(CtlIntelArcSyncProfile profile)
     {
         var client = new FakeIntelArcSyncClient();
         var output = MakeOutput(10);
         client.Outputs.Add(output);
-        client.InfoByOutput[output.DisplayOutputHandle] = new IntelArcSyncInfo(
-            IsArcSyncSupported: true,
-            CapabilityMinRefreshHz: 48,
-            CapabilityMaxRefreshHz: 120,
-            CurrentProfile: CtlIntelArcSyncProfile.Default,
-            CurrentMinRefreshHz: 60,
-            CurrentMaxRefreshHz: 120);
-        client.InfoAfterSet = new IntelArcSyncInfo(true, 48, 120, CtlIntelArcSyncProfile.Excellent, 48, 120);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(profile, 60, 120, 0, 0);
+        client.ProfileAfterSet = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Excellent, 48, 120, 0, 0);
 
         var tweak = CreateTweak(client, [AffectedPanel]);
 
@@ -116,8 +131,8 @@ public class IntelVrrRangeTweakTests
         var client = new FakeIntelArcSyncClient { SetShouldSucceed = false, SetErrorMessage = "driver rejected" };
         var output = MakeOutput(10);
         client.Outputs.Add(output);
-        client.InfoByOutput[output.DisplayOutputHandle] = new IntelArcSyncInfo(
-            true, 48, 120, CtlIntelArcSyncProfile.Default, 60, 120);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Recommended, 60, 120, 0, 0);
 
         var tweak = CreateTweak(client, [AffectedPanel]);
 
@@ -133,10 +148,10 @@ public class IntelVrrRangeTweakTests
         var client = new FakeIntelArcSyncClient();
         var output = MakeOutput(10);
         client.Outputs.Add(output);
-        client.InfoByOutput[output.DisplayOutputHandle] = new IntelArcSyncInfo(
-            true, 48, 120, CtlIntelArcSyncProfile.Default, 60, 120);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Recommended, 60, 120, 0, 0);
         // Readback after SET still shows the constrained range - verification should fail.
-        client.InfoAfterSet = new IntelArcSyncInfo(true, 48, 120, CtlIntelArcSyncProfile.Excellent, 60, 120);
+        client.ProfileAfterSet = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Excellent, 60, 120, 0, 0);
 
         var tweak = CreateTweak(client, [AffectedPanel]);
 
@@ -157,14 +172,31 @@ public class IntelVrrRangeTweakTests
         var client = new FakeIntelArcSyncClient();
         var output = MakeOutput(10);
         client.Outputs.Add(output);
-        client.InfoByOutput[output.DisplayOutputHandle] = new IntelArcSyncInfo(
-            true, 48, 120, profile, 60, 120);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(profile, 60, 120, 0, 0);
 
         var tweak = CreateTweak(client, [AffectedPanel]);
 
         var result = tweak.Run(isEnabled: true);
 
         Assert.Equal(IntelVrrRunStatus.SkippedUserProfile, result.Status);
+        Assert.Equal(0, client.SetCallCount);
+    }
+
+    [Fact]
+    public void Run_InvalidProfile_FailsOpenWithoutMutation()
+    {
+        var client = new FakeIntelArcSyncClient();
+        var output = MakeOutput(10);
+        client.Outputs.Add(output);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Invalid, 60, 120, 0, 0);
+
+        var tweak = CreateTweak(client, [AffectedPanel]);
+
+        var result = tweak.Run(isEnabled: true);
+
+        Assert.Equal(IntelVrrRunStatus.UnsupportedPanel, result.Status);
         Assert.Equal(0, client.SetCallCount);
     }
 
@@ -177,8 +209,30 @@ public class IntelVrrRangeTweakTests
         client.Outputs.Add(outputA);
         client.Outputs.Add(outputB);
         // Neither is a clean native-range single candidate - both differ from 48-120.
-        client.InfoByOutput[outputA.DisplayOutputHandle] = new IntelArcSyncInfo(true, 60, 165, CtlIntelArcSyncProfile.Default, 60, 165);
-        client.InfoByOutput[outputB.DisplayOutputHandle] = new IntelArcSyncInfo(true, 40, 144, CtlIntelArcSyncProfile.Default, 40, 144);
+        client.CapabilityByOutput[outputA.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 60, 165, 0, 0);
+        client.CapabilityByOutput[outputB.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 40, 144, 0, 0);
+
+        var tweak = CreateTweak(client, [AffectedPanel]);
+
+        var result = tweak.Run(isEnabled: true);
+
+        Assert.Equal(IntelVrrRunStatus.AmbiguousDisplay, result.Status);
+        Assert.Equal(0, client.SetCallCount);
+    }
+
+    [Fact]
+    public void Run_TwoCandidatesBothMatchNativeRange_ReportsAmbiguous_NoSetCall()
+    {
+        // Two outputs both plausible (both Arc-Sync capable AND in the native 48-120Hz class) -
+        // e.g. the internal Claw panel plus an external monitor with matching capability class.
+        // Per policy, this must never silently pick the first match.
+        var client = new FakeIntelArcSyncClient();
+        var outputA = MakeOutput(10);
+        var outputB = MakeOutput(20);
+        client.Outputs.Add(outputA);
+        client.Outputs.Add(outputB);
+        client.CapabilityByOutput[outputA.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.CapabilityByOutput[outputB.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
 
         var tweak = CreateTweak(client, [AffectedPanel]);
 
@@ -196,9 +250,10 @@ public class IntelVrrRangeTweakTests
         var outputB = MakeOutput(20);
         client.Outputs.Add(outputA);
         client.Outputs.Add(outputB);
-        client.InfoByOutput[outputA.DisplayOutputHandle] = new IntelArcSyncInfo(true, 48, 120, CtlIntelArcSyncProfile.Default, 60, 120);
-        client.InfoByOutput[outputB.DisplayOutputHandle] = new IntelArcSyncInfo(true, 40, 144, CtlIntelArcSyncProfile.Default, 40, 144);
-        client.InfoAfterSet = new IntelArcSyncInfo(true, 48, 120, CtlIntelArcSyncProfile.Excellent, 48, 120);
+        client.CapabilityByOutput[outputA.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.CapabilityByOutput[outputB.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 40, 144, 0, 0);
+        client.ProfileByOutput[outputA.DisplayOutputHandle] = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Recommended, 60, 120, 0, 0);
+        client.ProfileAfterSet = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Excellent, 48, 120, 0, 0);
 
         var tweak = CreateTweak(client, [AffectedPanel]);
 
@@ -206,5 +261,24 @@ public class IntelVrrRangeTweakTests
 
         Assert.Equal(IntelVrrRunStatus.Applied, result.Status);
         Assert.Equal(1, client.SetCallCount);
+    }
+
+    [Fact]
+    public void Run_SingleCandidate_FriendlyNameContradictsAffectedPanel_ReportsAmbiguous_NoSetCall()
+    {
+        // IGCL's optional friendly name is the only correlating identity currently available; if it
+        // positively contradicts the WMI-detected affected panel, don't proceed even though this is
+        // the only Arc-Sync-capable native-range output.
+        var client = new FakeIntelArcSyncClient();
+        var output = MakeOutput(10, friendlyName: "Some Totally Different External Monitor");
+        client.Outputs.Add(output);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+
+        var tweak = CreateTweak(client, [AffectedPanel]);
+
+        var result = tweak.Run(isEnabled: true);
+
+        Assert.Equal(IntelVrrRunStatus.AmbiguousDisplay, result.Status);
+        Assert.Equal(0, client.SetCallCount);
     }
 }
