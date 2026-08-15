@@ -6,6 +6,7 @@ using OptiSensor.Libre;
 using OptiSensor.Overlay;
 using OptiSensor.Publishing;
 using OptiSensor.Settings;
+using OptiSensor.Tweaks;
 using OptiSensor.UI;
 using OptiSensor.Updates;
 
@@ -55,9 +56,22 @@ internal sealed class ApplicationHost : IDisposable
         if (showMainWindow)
             host.ShowMainWindow();
 
+        host.StartTweaksInBackground();
         _ = host.CheckForUpdatesInBackgroundAsync();
 
         return host;
+    }
+
+    /// <summary>
+    /// Starts the Tweaks backend (e.g. Intel VRR Range Fix) as an independently tracked
+    /// fire-and-forget background task. Must be called only after <see cref="StartSensorServices"/>
+    /// - sensor monitoring/publishing must never await or depend on this. Own try/catch and own
+    /// cancellation (the shared startup token), so a fault here can never surface as an unobserved
+    /// task exception or block shutdown.
+    /// </summary>
+    private void StartTweaksInBackground()
+    {
+        _ = TweakStartupCoordinator.RunAsync(_settings, _startupCancellationTokenSource.Token);
     }
 
     /// <summary>

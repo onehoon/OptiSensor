@@ -36,6 +36,10 @@
                             Content="Sensors"
                             Style="{StaticResource NavButtonStyle}"
                             Click="SensorsNavButton_Click"/>
+                    <Button x:Name="TweaksNavButton"
+                            Content="Tweaks"
+                            Style="{StaticResource NavButtonStyle}"
+                            Click="TweaksNavButton_Click"/>
                     <Button x:Name="SettingsNavButton"
                             Content="Settings"
                             Style="{StaticResource NavButtonStyle}"
