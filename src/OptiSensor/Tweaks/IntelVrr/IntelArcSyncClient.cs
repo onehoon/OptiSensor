@@ -18,25 +18,28 @@ internal enum CtlIntelArcSyncProfile : uint
     Max = 8
 }
 
-/// <summary>Generic IGCL result codes (subset of <c>ctl_result_t</c>) relevant to this feature.</summary>
+/// <summary>Generic IGCL result codes (subset of <c>ctl_result_t</c>) relevant to this feature.
+/// Values are transcribed from Intel's public <c>igcl_api.h</c> symbolic result codes and fall
+/// within the officially documented generic-error range (<c>0x40000000</c>-<c>0x4000FFFF</c>).
+/// Success is <c>0</c> (<c>CTL_RESULT_SUCCESS</c>).</summary>
 internal enum CtlResult
 {
     Success = 0,
-    ErrorAlreadyInitialized = unchecked((int)0x70010002),
-    ErrorDeviceLost = unchecked((int)0x70010003),
-    ErrorOutOfHostMemory = unchecked((int)0x70010004),
-    ErrorOutOfDeviceMemory = unchecked((int)0x70010005),
-    ErrorInsufficientPermissions = unchecked((int)0x70010006),
-    ErrorNotInitialized = unchecked((int)0x70010001),
-    ErrorUninitialized = unchecked((int)0x70010008),
-    ErrorUnsupportedVersion = unchecked((int)0x70010009),
-    ErrorUnsupportedFeature = unchecked((int)0x70010007),
-    ErrorInvalidArgument = unchecked((int)0x7001000B),
-    ErrorInvalidApiHandle = unchecked((int)0x7001000C),
-    ErrorInvalidNullHandle = unchecked((int)0x7001000D),
-    ErrorInvalidNullPointer = unchecked((int)0x7001000E),
-    ErrorInvalidSize = unchecked((int)0x7001000F),
-    ErrorNotAvailable = unchecked((int)0x7001000A),
+    ErrorNotInitialized = unchecked((int)0x40000001),
+    ErrorAlreadyInitialized = unchecked((int)0x40000002),
+    ErrorDeviceLost = unchecked((int)0x40000003),
+    ErrorOutOfHostMemory = unchecked((int)0x40000004),
+    ErrorOutOfDeviceMemory = unchecked((int)0x40000005),
+    ErrorInsufficientPermissions = unchecked((int)0x40000006),
+    ErrorNotAvailable = unchecked((int)0x40000007),
+    ErrorUninitialized = unchecked((int)0x40000008),
+    ErrorUnsupportedVersion = unchecked((int)0x40000009),
+    ErrorUnsupportedFeature = unchecked((int)0x4000000A),
+    ErrorInvalidArgument = unchecked((int)0x4000000B),
+    ErrorInvalidApiHandle = unchecked((int)0x4000000C),
+    ErrorInvalidNullHandle = unchecked((int)0x4000000D),
+    ErrorInvalidNullPointer = unchecked((int)0x4000000E),
+    ErrorInvalidSize = unchecked((int)0x4000000F),
 }
 
 /// <summary>Best-effort symbolic-name resolver for <see cref="CtlResult"/>-shaped raw result codes,
@@ -177,9 +180,10 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
         public uint AppVersion;
         public uint Flags;
         public uint SupportedVersion;
-        /// <summary>ctl_application_id_t UnlockCapsID, per Intel's public header - not an
-        /// application-identity field; it unlocks capability tiers.</summary>
-        public CtlApplicationId UnlockCapsID;
+        /// <summary>ctl_application_id_t ApplicationUID, per Intel's official ctl_init_args_t header -
+        /// an application-provided unique ID; all-zero (Guid.Empty) is acceptable. Not to be confused
+        /// with UnlockCapsID, which belongs to the unrelated ctl_unlock_capability_t struct.</summary>
+        public CtlApplicationId ApplicationUID;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -252,7 +256,7 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
                 Version = CtlInitVersion,
                 AppVersion = 0x00010000, // encoded 1.0
                 SupportedVersion = 0x00010000,
-                UnlockCapsID = new CtlApplicationId { Id = Guid.Empty }
+                ApplicationUID = new CtlApplicationId { Id = Guid.Empty }
             };
 
             var result = ctlInit(ref initArgs, out _apiHandle);
