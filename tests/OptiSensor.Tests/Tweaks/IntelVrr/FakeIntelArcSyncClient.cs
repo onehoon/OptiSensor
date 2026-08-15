@@ -16,29 +16,50 @@ internal sealed class FakeIntelArcSyncClient : IIntelArcSyncClient
     public CtlIntelArcSyncProfile? LastSetProfile { get; private set; }
     public int SetCallCount { get; private set; }
     public bool Disposed { get; private set; }
+    public int? SetFailureRawCode { get; set; }
 
-    public bool TryInitialize() => InitializeResult;
+    private readonly List<IntelArcSyncCallResult> _callLog = [];
+    public IReadOnlyList<IntelArcSyncCallResult> CallLog => _callLog;
 
-    public IReadOnlyList<IntelDisplayOutputHandle> EnumerateDisplayOutputs() => Outputs;
+    public bool TryInitialize()
+    {
+        _callLog.Add(IntelArcSyncCallResult.From("ctlInit",
+            InitializeResult ? (int)CtlResult.Success : (int)CtlResult.ErrorNotAvailable));
+        return InitializeResult;
+    }
+
+    public IReadOnlyList<IntelDisplayOutputHandle> EnumerateDisplayOutputs()
+    {
+        _callLog.Add(IntelArcSyncCallResult.From("ctlEnumerateDisplayOutputs", (int)CtlResult.Success, $"count={Outputs.Count}"));
+        return Outputs;
+    }
 
     public IntelArcSyncMonitorCapability? TryGetMonitorCapability(IntelDisplayOutputHandle output)
     {
-        return CapabilityByOutput.TryGetValue(output.DisplayOutputHandle, out var capability) ? capability : null;
+        var found = CapabilityByOutput.TryGetValue(output.DisplayOutputHandle, out var capability);
+        _callLog.Add(IntelArcSyncCallResult.From("ctlGetIntelArcSyncInfoForMonitor",
+            found ? (int)CtlResult.Success : (int)CtlResult.ErrorNotAvailable, $"output={output.DisplayOutputHandle}"));
+        return found ? capability : null;
     }
 
     public IntelArcSyncProfileState? TryGetArcSyncProfile(IntelDisplayOutputHandle output)
     {
         // After a successful SET, subsequent reads should reflect the post-set state.
-        if (ProfileAfterSet is not null && SetCallCount > 0)
-            return ProfileAfterSet;
+        IntelArcSyncProfileState? profile = ProfileAfterSet is not null && SetCallCount > 0
+            ? ProfileAfterSet
+            : ProfileByOutput.TryGetValue(output.DisplayOutputHandle, out var stored) ? stored : null;
 
-        return ProfileByOutput.TryGetValue(output.DisplayOutputHandle, out var profile) ? profile : null;
+        _callLog.Add(IntelArcSyncCallResult.From("ctlGetIntelArcSyncProfile",
+            profile is not null ? (int)CtlResult.Success : (int)CtlResult.ErrorNotAvailable, $"output={output.DisplayOutputHandle}"));
+        return profile;
     }
 
     public (bool Success, string? Error) TrySetArcSyncProfile(IntelDisplayOutputHandle output, CtlIntelArcSyncProfile profile)
     {
         SetCallCount++;
         LastSetProfile = profile;
+        var rawCode = SetShouldSucceed ? (int)CtlResult.Success : SetFailureRawCode ?? (int)CtlResult.ErrorNotAvailable;
+        _callLog.Add(IntelArcSyncCallResult.From("ctlSetIntelArcSyncProfile", rawCode, $"output={output.DisplayOutputHandle}"));
         return SetShouldSucceed ? (true, null) : (false, SetErrorMessage ?? "set failed");
     }
 

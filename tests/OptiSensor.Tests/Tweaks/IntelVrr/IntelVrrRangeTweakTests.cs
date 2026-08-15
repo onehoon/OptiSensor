@@ -90,6 +90,26 @@ public class IntelVrrRangeTweakTests
     }
 
     [Fact]
+    public void Run_RecommendedProfileAlreadyReportsNativeRange_ReportsAlreadyCorrect_NoSetCall()
+    {
+        var client = new FakeIntelArcSyncClient();
+        var output = MakeOutput(10);
+        client.Outputs.Add(output);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        // Driver-managed profile (not literally EXCELLENT) but its active range already matches the
+        // monitor's native capability range within tolerance - nothing to fix.
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(
+            CtlIntelArcSyncProfile.Recommended, 48, 120, 0, 0);
+
+        var tweak = CreateTweak(client, [AffectedPanel]);
+
+        var result = tweak.Run(isEnabled: true);
+
+        Assert.Equal(IntelVrrRunStatus.AlreadyCorrect, result.Status);
+        Assert.Equal(0, client.SetCallCount);
+    }
+
+    [Fact]
     public void Run_RecommendedProfile_SetsExcellentAndVerifiesApplied() =>
         AssertOrdinaryDriverManagedProfileEligible(CtlIntelArcSyncProfile.Recommended);
 
@@ -123,6 +143,48 @@ public class IntelVrrRangeTweakTests
         Assert.Equal(CtlIntelArcSyncProfile.Excellent, client.LastSetProfile);
         Assert.Contains("60", result.RangeBeforeText);
         Assert.Contains("48", result.RangeAfterText);
+    }
+
+    [Fact]
+    public void Run_LogsNativeCallResultCodesForEveryAttemptedCall()
+    {
+        var client = new FakeIntelArcSyncClient();
+        var output = MakeOutput(10);
+        client.Outputs.Add(output);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Recommended, 60, 120, 0, 0);
+        client.ProfileAfterSet = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Excellent, 48, 120, 0, 0);
+
+        var tweak = CreateTweak(client, [AffectedPanel]);
+        tweak.Run(isEnabled: true);
+
+        // Every native call the fake made should show up in the detailed run log with its symbolic
+        // IGCL result code, not just a generic pass/fail summary.
+        Assert.Contains(tweak.LastRunLog, line => line.StartsWith("ctlInit: CTL_RESULT_SUCCESS"));
+        Assert.Contains(tweak.LastRunLog, line => line.StartsWith("ctlGetIntelArcSyncInfoForMonitor: CTL_RESULT_SUCCESS"));
+        Assert.Contains(tweak.LastRunLog, line => line.StartsWith("ctlGetIntelArcSyncProfile: CTL_RESULT_SUCCESS"));
+        Assert.Contains(tweak.LastRunLog, line => line.StartsWith("ctlSetIntelArcSyncProfile: CTL_RESULT_SUCCESS"));
+    }
+
+    [Fact]
+    public void Run_NativeCallFailure_LogsRawAndSymbolicResultCode()
+    {
+        var client = new FakeIntelArcSyncClient
+        {
+            SetShouldSucceed = false,
+            SetErrorMessage = "driver rejected",
+            SetFailureRawCode = (int)CtlResult.ErrorUnsupportedFeature
+        };
+        var output = MakeOutput(10);
+        client.Outputs.Add(output);
+        client.CapabilityByOutput[output.DisplayOutputHandle] = new IntelArcSyncMonitorCapability(true, 48, 120, 0, 0);
+        client.ProfileByOutput[output.DisplayOutputHandle] = new IntelArcSyncProfileState(CtlIntelArcSyncProfile.Recommended, 60, 120, 0, 0);
+
+        var tweak = CreateTweak(client, [AffectedPanel]);
+        tweak.Run(isEnabled: true);
+
+        Assert.Contains(tweak.LastRunLog,
+            line => line.Contains("ctlSetIntelArcSyncProfile") && line.Contains("CTL_RESULT_ERROR_UNSUPPORTED_FEATURE"));
     }
 
     [Fact]

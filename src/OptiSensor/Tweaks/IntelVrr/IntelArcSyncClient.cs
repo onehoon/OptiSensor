@@ -22,9 +22,65 @@ internal enum CtlIntelArcSyncProfile : uint
 internal enum CtlResult
 {
     Success = 0,
+    ErrorAlreadyInitialized = unchecked((int)0x70010002),
+    ErrorDeviceLost = unchecked((int)0x70010003),
+    ErrorOutOfHostMemory = unchecked((int)0x70010004),
+    ErrorOutOfDeviceMemory = unchecked((int)0x70010005),
+    ErrorInsufficientPermissions = unchecked((int)0x70010006),
     ErrorNotInitialized = unchecked((int)0x70010001),
+    ErrorUninitialized = unchecked((int)0x70010008),
+    ErrorUnsupportedVersion = unchecked((int)0x70010009),
     ErrorUnsupportedFeature = unchecked((int)0x70010007),
+    ErrorInvalidArgument = unchecked((int)0x7001000B),
+    ErrorInvalidApiHandle = unchecked((int)0x7001000C),
+    ErrorInvalidNullHandle = unchecked((int)0x7001000D),
+    ErrorInvalidNullPointer = unchecked((int)0x7001000E),
+    ErrorInvalidSize = unchecked((int)0x7001000F),
     ErrorNotAvailable = unchecked((int)0x7001000A),
+}
+
+/// <summary>Best-effort symbolic-name resolver for <see cref="CtlResult"/>-shaped raw result codes,
+/// so diagnostic logs can show e.g. "CTL_RESULT_ERROR_NOT_INITIALIZED" instead of a bare hex value.
+/// Codes not present in the map are logged as "UNKNOWN" rather than dropped - this mapping is not
+/// guaranteed complete against every value the real driver may return.</summary>
+internal static class CtlResultNames
+{
+    private static readonly Dictionary<int, string> Names = new()
+    {
+        [(int)CtlResult.Success] = "CTL_RESULT_SUCCESS",
+        [(int)CtlResult.ErrorAlreadyInitialized] = "CTL_RESULT_ERROR_ALREADY_INITIALIZED",
+        [(int)CtlResult.ErrorDeviceLost] = "CTL_RESULT_ERROR_DEVICE_LOST",
+        [(int)CtlResult.ErrorOutOfHostMemory] = "CTL_RESULT_ERROR_OUT_OF_HOST_MEMORY",
+        [(int)CtlResult.ErrorOutOfDeviceMemory] = "CTL_RESULT_ERROR_OUT_OF_DEVICE_MEMORY",
+        [(int)CtlResult.ErrorInsufficientPermissions] = "CTL_RESULT_ERROR_INSUFFICIENT_PERMISSIONS",
+        [(int)CtlResult.ErrorNotInitialized] = "CTL_RESULT_ERROR_NOT_INITIALIZED",
+        [(int)CtlResult.ErrorUninitialized] = "CTL_RESULT_ERROR_UNINITIALIZED",
+        [(int)CtlResult.ErrorUnsupportedVersion] = "CTL_RESULT_ERROR_UNSUPPORTED_VERSION",
+        [(int)CtlResult.ErrorUnsupportedFeature] = "CTL_RESULT_ERROR_UNSUPPORTED_FEATURE",
+        [(int)CtlResult.ErrorInvalidArgument] = "CTL_RESULT_ERROR_INVALID_ARGUMENT",
+        [(int)CtlResult.ErrorInvalidApiHandle] = "CTL_RESULT_ERROR_INVALID_API_HANDLE",
+        [(int)CtlResult.ErrorInvalidNullHandle] = "CTL_RESULT_ERROR_INVALID_NULL_HANDLE",
+        [(int)CtlResult.ErrorInvalidNullPointer] = "CTL_RESULT_ERROR_INVALID_NULL_POINTER",
+        [(int)CtlResult.ErrorInvalidSize] = "CTL_RESULT_ERROR_INVALID_SIZE",
+        [(int)CtlResult.ErrorNotAvailable] = "CTL_RESULT_ERROR_NOT_AVAILABLE",
+    };
+
+    public static string Resolve(int rawCode) => Names.TryGetValue(rawCode, out var name) ? name : "UNKNOWN";
+}
+
+/// <summary>Diagnostic record of one native IGCL call attempt, capturing the operation name and the
+/// raw/symbolic result code IGCL returned, regardless of success or failure. Used so the detailed
+/// run log can show every native call made during a run, not just a generic failure message.</summary>
+internal sealed record IntelArcSyncCallResult(string Operation, int RawCode, string SymbolicName, string? Detail = null)
+{
+    public static IntelArcSyncCallResult From(string operation, int rawCode, string? detail = null) =>
+        new(operation, rawCode, CtlResultNames.Resolve(rawCode), detail);
+
+    public override string ToString()
+    {
+        var detailSuffix = string.IsNullOrEmpty(Detail) ? string.Empty : $", {Detail}";
+        return $"{Operation}: {SymbolicName} (0x{unchecked((uint)RawCode):X8}){detailSuffix}";
+    }
 }
 
 /// <summary>Candidate IGCL display output, correlated (where possible) with a Win32 monitor identity
@@ -57,6 +113,11 @@ internal sealed record IntelArcSyncProfileState(
 /// </summary>
 internal interface IIntelArcSyncClient : IDisposable
 {
+    /// <summary>Diagnostic record of every native call attempted so far on this client instance, in
+    /// order, including the raw/symbolic IGCL result code for each - populated regardless of whether
+    /// the call succeeded or failed, so a run's detailed log can show the full native call sequence.</summary>
+    IReadOnlyList<IntelArcSyncCallResult> CallLog { get; }
+
     /// <summary>Initializes IGCL and enumerates devices/outputs. Returns false (without throwing)
     /// if the driver-provided library or API is unavailable.</summary>
     bool TryInitialize();
@@ -99,6 +160,12 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
 
     private bool _initialized;
     private nint[] _adapterHandles = [];
+    private readonly List<IntelArcSyncCallResult> _callLog = [];
+
+    public IReadOnlyList<IntelArcSyncCallResult> CallLog => _callLog;
+
+    private void RecordCall(string operation, int rawCode, string? detail = null) =>
+        _callLog.Add(IntelArcSyncCallResult.From(operation, rawCode, detail));
 
     [StructLayout(LayoutKind.Sequential)]
     private struct CtlInitArgs
@@ -110,7 +177,9 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
         public uint AppVersion;
         public uint Flags;
         public uint SupportedVersion;
-        public CtlApplicationId ApplicationId;
+        /// <summary>ctl_application_id_t UnlockCapsID, per Intel's public header - not an
+        /// application-identity field; it unlocks capability tiers.</summary>
+        public CtlApplicationId UnlockCapsID;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -183,19 +252,28 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
                 Version = CtlInitVersion,
                 AppVersion = 0x00010000, // encoded 1.0
                 SupportedVersion = 0x00010000,
-                ApplicationId = new CtlApplicationId { Id = Guid.Empty }
+                UnlockCapsID = new CtlApplicationId { Id = Guid.Empty }
             };
 
             var result = ctlInit(ref initArgs, out _apiHandle);
+            RecordCall("ctlInit", result);
             if (result != (int)CtlResult.Success || _apiHandle == 0)
                 return false;
 
+            // From this point on, _apiHandle is a live native handle. Even if the remaining steps
+            // below fail and this method returns false, Dispose() must still close it - cleanup is
+            // gated on _apiHandle, not on _initialized (which only turns true on full success).
+
             uint adapterCount = 0;
-            if (ctlEnumerateDevices(_apiHandle, ref adapterCount, null) != (int)CtlResult.Success || adapterCount == 0)
+            var enumCountResult = ctlEnumerateDevices(_apiHandle, ref adapterCount, null);
+            RecordCall("ctlEnumerateDevices", enumCountResult, $"count={adapterCount}");
+            if (enumCountResult != (int)CtlResult.Success || adapterCount == 0)
                 return false;
 
             var adapters = new nint[adapterCount];
-            if (ctlEnumerateDevices(_apiHandle, ref adapterCount, adapters) != (int)CtlResult.Success)
+            var enumResult = ctlEnumerateDevices(_apiHandle, ref adapterCount, adapters);
+            RecordCall("ctlEnumerateDevices", enumResult, $"count={adapterCount}");
+            if (enumResult != (int)CtlResult.Success)
                 return false;
 
             _adapterHandles = adapters;
@@ -225,11 +303,15 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
         foreach (var adapter in _adapterHandles)
         {
             uint count = 0;
-            if (ctlEnumerateDisplayOutputs(adapter, ref count, null) != (int)CtlResult.Success || count == 0)
+            var countResult = ctlEnumerateDisplayOutputs(adapter, ref count, null);
+            RecordCall("ctlEnumerateDisplayOutputs", countResult, $"adapter={adapter}, count={count}");
+            if (countResult != (int)CtlResult.Success || count == 0)
                 continue;
 
             var outputs = new nint[count];
-            if (ctlEnumerateDisplayOutputs(adapter, ref count, outputs) != (int)CtlResult.Success)
+            var enumResult = ctlEnumerateDisplayOutputs(adapter, ref count, outputs);
+            RecordCall("ctlEnumerateDisplayOutputs", enumResult, $"adapter={adapter}, count={count}");
+            if (enumResult != (int)CtlResult.Success)
                 continue;
 
             foreach (var output in outputs)
@@ -250,6 +332,7 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
             };
 
             var result = ctlGetIntelArcSyncInfoForMonitor(output.DisplayOutputHandle, ref monitorParams);
+            RecordCall("ctlGetIntelArcSyncInfoForMonitor", result, $"output={output.DisplayOutputHandle}");
             if (result != (int)CtlResult.Success)
                 return null;
 
@@ -277,6 +360,7 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
             };
 
             var result = ctlGetIntelArcSyncProfile(output.DisplayOutputHandle, ref profileParams);
+            RecordCall("ctlGetIntelArcSyncProfile", result, $"output={output.DisplayOutputHandle}");
             if (result != (int)CtlResult.Success)
                 return null;
 
@@ -305,9 +389,10 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
             };
 
             var result = ctlSetIntelArcSyncProfile(output.DisplayOutputHandle, ref profileParams);
+            RecordCall("ctlSetIntelArcSyncProfile", result, $"output={output.DisplayOutputHandle}");
             return result == (int)CtlResult.Success
                 ? (true, null)
-                : (false, $"ctlSetIntelArcSyncProfile returned 0x{result:X8}");
+                : (false, $"{CtlResultNames.Resolve(result)} (0x{result:X8})");
         }
         catch (Exception ex)
         {
@@ -317,11 +402,17 @@ internal sealed class IntelArcSyncClient : IIntelArcSyncClient
 
     public void Dispose()
     {
-        if (_initialized && _apiHandle != 0)
+        // Gated on "did we successfully acquire a handle from ctlInit", NOT on _initialized (which
+        // only becomes true after every subsequent init step also succeeds). Otherwise a partial
+        // init - ctlInit succeeds but a later enumeration step fails - leaks the native handle,
+        // because the failed TryInitialize() call returns false without ever calling ctlClose, and
+        // the caller's `using` block then disposes an object whose Dispose() used to no-op.
+        if (_apiHandle != 0)
         {
             try
             {
-                ctlClose(_apiHandle);
+                var result = ctlClose(_apiHandle);
+                RecordCall("ctlClose", result);
             }
             catch (Exception)
             {

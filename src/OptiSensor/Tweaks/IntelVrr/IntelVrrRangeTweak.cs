@@ -16,6 +16,7 @@ internal sealed class IntelVrrRangeTweak
     private readonly Func<IIntelArcSyncClient> _clientFactory;
     private readonly Func<IReadOnlyList<PanelIdentity>> _panelIdentitiesProvider;
     private readonly List<string> _log = [];
+    private int _loggedCallCount;
 
     public IntelVrrRangeTweak(Func<IIntelArcSyncClient> clientFactory, Func<IReadOnlyList<PanelIdentity>> panelIdentitiesProvider)
     {
@@ -35,6 +36,7 @@ internal sealed class IntelVrrRangeTweak
     public IntelVrrRunResult Run(bool isEnabled)
     {
         _log.Clear();
+        _loggedCallCount = 0;
 
         if (!isEnabled)
         {
@@ -54,7 +56,9 @@ internal sealed class IntelVrrRangeTweak
         Log($"Affected panel detected: manufacturer={affectedPanel.ManufacturerCode}, product=0x{affectedPanel.ProductCodeHex}, name={affectedPanel.PanelName}");
 
         using var client = _clientFactory();
-        if (!client.TryInitialize())
+        var initialized = client.TryInitialize();
+        FlushCallLog(client);
+        if (!initialized)
         {
             Log("IGCL initialization failed.");
             return Finish(IntelVrrRunResult.Create(IntelVrrRunStatus.Unavailable,
@@ -62,12 +66,14 @@ internal sealed class IntelVrrRangeTweak
         }
 
         var outputs = client.EnumerateDisplayOutputs();
+        FlushCallLog(client);
         Log($"IGCL reported {outputs.Count} display output(s).");
 
         var candidateCapabilities = new List<(IntelDisplayOutputHandle Output, IntelArcSyncMonitorCapability Capability)>();
         foreach (var output in outputs)
         {
             var capability = client.TryGetMonitorCapability(output);
+            FlushCallLog(client);
             if (capability is null || !capability.IsIntelArcSyncSupported)
                 continue;
 
@@ -103,6 +109,7 @@ internal sealed class IntelVrrRangeTweak
         Log($"Monitor capability frame-time constraints: increase={capability2.MaxFrameTimeIncreaseInUs}us, decrease={capability2.MaxFrameTimeDecreaseInUs}us (recorded for diagnostics only, not a policy condition).");
 
         var profile = client.TryGetArcSyncProfile(output2);
+        FlushCallLog(client);
         if (profile is null)
         {
             Log("ctlGetIntelArcSyncProfile failed.");
@@ -130,7 +137,20 @@ internal sealed class IntelVrrRangeTweak
             case CtlIntelArcSyncProfile.Good:
             case CtlIntelArcSyncProfile.Compatible:
             case CtlIntelArcSyncProfile.Vesa:
-                break; // ordinary driver-managed profile, narrower than capability - eligible for the fix.
+                // Ordinary driver-managed profile. Only eligible for the fix if its active range is
+                // verifiably narrower than the monitor's native capability - if it already reports
+                // the full native range (within tolerance), there is nothing to fix and SETting
+                // EXCELLENT would be an unnecessary mutation.
+                if (IsWithinTolerance(profile.MinRefreshRateInHz, capability2.MinimumRefreshRateInHz)
+                    && IsWithinTolerance(profile.MaxRefreshRateInHz, capability2.MaximumRefreshRateInHz))
+                {
+                    Log($"Profile is {profile.Profile} but active range {beforeRangeText} already matches the monitor's native capability range; no mutation needed.");
+                    return Finish(IntelVrrRunResult.Create(IntelVrrRunStatus.AlreadyCorrect,
+                        "Current profile already reports the full native range; no mutation needed.",
+                        affectedPanel.PanelName, beforeRangeText, beforeRangeText));
+                }
+
+                break; // narrower than capability - eligible for the fix.
 
             case CtlIntelArcSyncProfile.Excellent:
                 // EXCELLENT but the active range doesn't (yet) show the full native span - still
@@ -146,6 +166,7 @@ internal sealed class IntelVrrRangeTweak
 
         Log("Applying EXCELLENT profile via ctlSetIntelArcSyncProfile.");
         var (setSuccess, setError) = client.TrySetArcSyncProfile(output2, CtlIntelArcSyncProfile.Excellent);
+        FlushCallLog(client);
         if (!setSuccess)
         {
             Log($"SET call failed: {setError}");
@@ -154,6 +175,7 @@ internal sealed class IntelVrrRangeTweak
         }
 
         var verifyProfile = client.TryGetArcSyncProfile(output2);
+        FlushCallLog(client);
         var verifiedOk = verifyProfile is not null
             && verifyProfile.Profile == CtlIntelArcSyncProfile.Excellent
             && IsNativeCapabilityRange(verifyProfile.MinRefreshRateInHz, verifyProfile.MaxRefreshRateInHz);
@@ -220,6 +242,17 @@ internal sealed class IntelVrrRangeTweak
     private static bool IsNativeCapabilityRange(double minHz, double maxHz)
     {
         return Math.Abs(minHz - NativeMinHz) <= ToleranceHz && Math.Abs(maxHz - NativeMaxHz) <= ToleranceHz;
+    }
+
+    private static bool IsWithinTolerance(double a, double b) => Math.Abs(a - b) <= ToleranceHz;
+
+    /// <summary>Appends any native call diagnostics recorded by <paramref name="client"/> since the
+    /// last flush to this run's log, so the detailed log shows every native call attempted (with its
+    /// raw/symbolic IGCL result code), not just a generic pass/fail summary.</summary>
+    private void FlushCallLog(IIntelArcSyncClient client)
+    {
+        for (; _loggedCallCount < client.CallLog.Count; _loggedCallCount++)
+            Log(client.CallLog[_loggedCallCount].ToString());
     }
 
     private static string FormatRange(double minHz, double maxHz) => $"{minHz:0.#}-{maxHz:0.#} Hz";
