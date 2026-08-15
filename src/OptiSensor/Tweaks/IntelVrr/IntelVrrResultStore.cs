@@ -17,13 +17,23 @@ internal static class IntelVrrResultStore
         Converters = { new JsonStringEnumConverter() }
     };
 
-    private static string FilePath => Path.Combine(AppPaths.DataDirectory, "tweaks-intel-vrr-result.json");
+    /// <summary>
+    /// Overrides the base directory the store reads/writes under. Production callers never set
+    /// this (it defaults to <see cref="AppPaths.DataDirectory"/>); tests use it to isolate their
+    /// file I/O to a unique per-test temp directory instead of racing on the shared real data
+    /// directory that other tests/production instances may also be writing to.
+    /// </summary>
+    internal static string? DataDirectoryOverride { get; set; }
+
+    private static string DataDirectory => DataDirectoryOverride ?? AppPaths.DataDirectory;
+
+    private static string FilePath => Path.Combine(DataDirectory, "tweaks-intel-vrr-result.json");
 
     public static void Save(IntelVrrRunResult result)
     {
         try
         {
-            AppPaths.EnsureDataDirectories();
+            Directory.CreateDirectory(DataDirectory);
             var tempPath = $"{FilePath}.tmp";
             File.WriteAllText(tempPath, JsonSerializer.Serialize(result, JsonOptions));
             File.Move(tempPath, FilePath, overwrite: true);
