@@ -6,11 +6,23 @@ namespace OptiSensor.Tests.Tweaks.IntelVrr;
 public class AffectedPanelDetectorTests
 {
     [Fact]
-    public void IsAffectedPanel_AllThreeIdentitiesMatch_ReturnsTrue()
+    public void IsAffectedPanel_AllThreeIdentitiesMatch_ActiveTrue_ReturnsTrue()
     {
-        var identity = new PanelIdentity("CSW", "0801", "PN8007QB1-2");
+        var identity = new PanelIdentity("CSW", "0801", "PN8007QB1-2", Active: true);
 
         Assert.True(AffectedPanelDetector.IsAffectedPanel(identity));
+    }
+
+    [Fact]
+    public void IsAffectedPanel_AllThreeIdentitiesMatch_ActiveFalse_ReturnsFalse()
+    {
+        // Core regression test: an inactive WMI monitor entry (e.g. the internal Claw panel is
+        // disabled in Windows while only an external display is active) must NOT be treated as the
+        // affected panel, even when manufacturer/product code/name otherwise match - see remarks on
+        // AffectedPanelDetector.IsAffectedPanel.
+        var identity = new PanelIdentity("CSW", "0801", "PN8007QB1-2", Active: false);
+
+        Assert.False(AffectedPanelDetector.IsAffectedPanel(identity));
     }
 
     [Fact]

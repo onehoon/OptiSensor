@@ -44,7 +44,18 @@ internal sealed class IntelVrrRangeTweak
             return Finish(IntelVrrRunResult.Create(IntelVrrRunStatus.Disabled, "Disabled by user."));
         }
 
-        var panelIdentities = SafeGetPanelIdentities();
+        IReadOnlyList<PanelIdentity> panelIdentities;
+        try
+        {
+            panelIdentities = _panelIdentitiesProvider();
+        }
+        catch (Exception ex)
+        {
+            Log($"Panel identity lookup failed: {ex.GetType().Name}: {ex.Message}");
+            return Finish(IntelVrrRunResult.Create(IntelVrrRunStatus.Unavailable,
+                $"Could not determine the panel identity: {ex.Message}"));
+        }
+
         LogPanelEnumeration(panelIdentities);
         var affectedPanel = panelIdentities.FirstOrDefault(AffectedPanelDetector.IsAffectedPanel);
         if (affectedPanel is null)
@@ -257,19 +268,6 @@ internal sealed class IntelVrrRangeTweak
     }
 
     private static string FormatRange(double minHz, double maxHz) => $"{minHz:0.#}-{maxHz:0.#} Hz";
-
-    private IReadOnlyList<PanelIdentity> SafeGetPanelIdentities()
-    {
-        try
-        {
-            return _panelIdentitiesProvider();
-        }
-        catch (Exception ex)
-        {
-            Log($"Panel identity lookup failed: {ex.Message}");
-            return [];
-        }
-    }
 
     /// <summary>Logs the full WMI monitor enumeration - every candidate's active state, instance
     /// name, decoded identity, and whether it matches the known affected-panel identity - BEFORE the
