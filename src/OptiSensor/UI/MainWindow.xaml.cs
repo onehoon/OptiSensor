@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private readonly MainWindowViewModel _viewModel;
     private readonly SensorsPage _sensorsPage;
     private readonly OverlayPage _overlayPage;
+    private readonly TweaksPage _tweaksPage;
     private readonly SettingsPage _settingsPage;
     private bool _hwInfoSharedMemoryWarningShown;
     private int _hwInfoSharedMemoryFailureCount;
@@ -46,6 +47,7 @@ public partial class MainWindow : Window
 
         _sensorsPage = new SensorsPage { DataContext = _viewModel };
         _overlayPage = new OverlayPage { DataContext = _viewModel };
+        _tweaksPage = new TweaksPage(_settings);
         _settingsPage = new SettingsPage { DataContext = _viewModel };
         _settingsPage.LoadSettings(_settings);
         _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken());
@@ -367,6 +369,7 @@ public partial class MainWindow : Window
         PageContentControl.Content = page;
         ResetNavButton(SensorsNavButton);
         ResetNavButton(OverlayNavButton);
+        ResetNavButton(TweaksNavButton);
         ResetNavButton(SettingsNavButton);
         selectedButton.Tag = "Selected";
     }
@@ -687,6 +690,13 @@ public partial class MainWindow : Window
     {
         NavigateTo(_overlayPage, OverlayNavButton);
         StopSensorRefresh();
+    }
+
+    private void TweaksNavButton_Click(object sender, RoutedEventArgs e)
+    {
+        NavigateTo(_tweaksPage, TweaksNavButton);
+        StopSensorRefresh();
+        _tweaksPage.RefreshFromDisk();
     }
 
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
