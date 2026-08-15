@@ -21,6 +21,7 @@ internal sealed class ApplicationHost : IDisposable
     private readonly MainWindow _mainWindow;
     private readonly CancellationTokenSource _startupCancellationTokenSource = new();
     private Task _sensorStartupTask = Task.CompletedTask;
+    private Task _tweakStartupTask = Task.CompletedTask;
     private Task? _shutdownTask;
 
     private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
@@ -77,7 +78,7 @@ internal sealed class ApplicationHost : IDisposable
     /// </summary>
     private void StartTweaksInBackground()
     {
-        _ = TweakStartupCoordinator.RunAsync(_settings, _startupCancellationTokenSource.Token);
+        _tweakStartupTask = TweakStartupCoordinator.RunAsync(_settings, _startupCancellationTokenSource.Token);
     }
 
     /// <summary>
@@ -195,10 +196,11 @@ internal sealed class ApplicationHost : IDisposable
 
         var windowShutdownTask = _mainWindow.PrepareForShutdownAsync();
         var sensorStartupCompletion = ObserveSensorStartupCompletionAsync();
+        var tweakStartupCompletion = ObserveTweakStartupCompletionAsync();
 
         try
         {
-            await Task.WhenAll(windowShutdownTask, sensorStartupCompletion).ConfigureAwait(false);
+            await Task.WhenAll(windowShutdownTask, sensorStartupCompletion, tweakStartupCompletion).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -262,6 +264,21 @@ internal sealed class ApplicationHost : IDisposable
         catch (Exception ex)
         {
             SimpleLog.TryWrite($"HWiNFO startup monitoring ended with error during shutdown: {ex.Message}");
+        }
+    }
+
+    private async Task ObserveTweakStartupCompletionAsync()
+    {
+        try
+        {
+            await _tweakStartupTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"Tweaks startup monitoring ended with error during shutdown: {ex.Message}");
         }
     }
 
