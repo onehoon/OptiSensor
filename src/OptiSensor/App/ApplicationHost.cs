@@ -50,13 +50,18 @@ internal sealed class ApplicationHost : IDisposable
         var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
+        // Tweaks (e.g. Intel VRR Range Fix) are started first and fully independently of sensor
+        // services: OptiSensor typically launches at Windows boot, well before any game session,
+        // so there's no reason to gate VRR correction on HWiNFO/sensor readiness. Both paths remain
+        // fire-and-forget with their own try/catch and cancellation - see the remarks on
+        // StartTweaksInBackground and StartSensorServices.
+        host.StartTweaksInBackground();
         host.StartSensorServices();
         SimpleLog.TryWrite(showMainWindow ? "Application shell started." : "Startup mode shell started.");
 
         if (showMainWindow)
             host.ShowMainWindow();
 
-        host.StartTweaksInBackground();
         _ = host.CheckForUpdatesInBackgroundAsync();
 
         return host;
@@ -64,10 +69,11 @@ internal sealed class ApplicationHost : IDisposable
 
     /// <summary>
     /// Starts the Tweaks backend (e.g. Intel VRR Range Fix) as an independently tracked
-    /// fire-and-forget background task. Must be called only after <see cref="StartSensorServices"/>
-    /// - sensor monitoring/publishing must never await or depend on this. Own try/catch and own
-    /// cancellation (the shared startup token), so a fault here can never surface as an unobserved
-    /// task exception or block shutdown.
+    /// fire-and-forget background task. Called before <see cref="StartSensorServices"/> so Tweaks
+    /// get a head start, but the two are fully independent - neither awaits or blocks on the other,
+    /// and call order is not a correctness dependency for either. Own try/catch and own cancellation
+    /// (the shared startup token), so a fault here can never surface as an unobserved task exception
+    /// or block shutdown.
     /// </summary>
     private void StartTweaksInBackground()
     {
