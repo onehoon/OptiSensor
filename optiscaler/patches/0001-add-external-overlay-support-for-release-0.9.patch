@@ -1,25 +1,26 @@
-From cb98af548ad81ec6f1cd631d98b226e2397acd6a Mon Sep 17 00:00:00 2001
-From: OptiSensor Patch Bot <optisensor@example.invalid>
-Date: Sat, 18 Jul 2026 11:09:09 +0900
-Subject: [PATCH] Add external overlay support for release 0.9
+From 61aa17dd1059d02e87a91c2efb9e7479fbd7ec9d Mon Sep 17 00:00:00 2001
+From: OptiSensor Local Build <optisensor-local-build@example.invalid>
+Date: Sat, 22 Aug 2026 00:50:50 +0900
+Subject: [PATCH 1/2] Add external overlay support for OptiSensor 0.9
 
 ---
- OptiScaler.ini                          |   6 ++--
- OptiScaler/Config.h                     |   4 ++--
- OptiScaler/OptiScaler.vcxproj           |   4 +-
- OptiScaler/OptiScaler.vcxproj.filters   |   8 +-
+ OptiScaler.ini                          |   6 +-
+ OptiScaler/Config.h                     |   5 +-
+ OptiScaler/OptiScaler.vcxproj           |   2 +
+ OptiScaler/OptiScaler.vcxproj.filters   |   6 ++
  OptiScaler/menu/menu_common.cpp         |  33 ++++--
  OptiScaler/misc/ExternalOverlayFeed.cpp | 135 ++++++++++++++++++++++++
  OptiScaler/misc/ExternalOverlayFeed.h   |  11 ++
- 7 files changed, 184 insertions(+), 18 deletions(-)
+ 7 files changed, 182 insertions(+), 16 deletions(-)
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.cpp
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.h
 
 diff --git a/OptiScaler.ini b/OptiScaler.ini
-index a9b7a88a..5cb0e915 100644
+index a9b7a88a..27f55aae 100644
 --- a/OptiScaler.ini
 +++ b/OptiScaler.ini
-@@ -767,6 +767,6 @@ DisableSplash=auto
+@@ -768,7 +768,7 @@ TTFFontPath=auto
+ DisableSplash=auto
  
  ; Enables FPS overlay
 -; true or false - Default (auto) is false
@@ -39,7 +40,7 @@ index a9b7a88a..5cb0e915 100644
  
  ; Shortcut key for FPS overlay
 diff --git a/OptiScaler/Config.h b/OptiScaler/Config.h
-index d7909b76..70be10c2 100644
+index c5ac0d6b..ecf2139f 100644
 --- a/OptiScaler/Config.h
 +++ b/OptiScaler/Config.h
 @@ -167,6 +167,7 @@ enum FpsOverlay : uint32_t
@@ -50,7 +51,7 @@ index d7909b76..70be10c2 100644
      FpsOverlay_COUNT,
  };
  
-@@ -289,13 +290,13 @@ class Config
+@@ -288,13 +289,13 @@ class Config
      CustomOptional<bool> OverlayMenu { true };
      CustomOptional<int> ShortcutKey { VK_INSERT };
      CustomOptional<bool> ExtendedLimits { false };
@@ -66,9 +67,8 @@ index d7909b76..70be10c2 100644
      CustomOptional<int> FpsShortcutKey { VK_PRIOR };
      CustomOptional<int> FpsCycleShortcutKey { VK_NEXT };
      CustomOptional<bool> FpsOverlayHorizontal { false };
-
 diff --git a/OptiScaler/OptiScaler.vcxproj b/OptiScaler/OptiScaler.vcxproj
-index 082928b4..fb5b5d98 100644
+index 082928b4..98e3e8d4 100644
 --- a/OptiScaler/OptiScaler.vcxproj
 +++ b/OptiScaler/OptiScaler.vcxproj
 @@ -418,6 +418,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
@@ -88,7 +88,7 @@ index 082928b4..fb5b5d98 100644
      <ClCompile Include="nvapi\fakenvapi.cpp" />
      <ClCompile Include="nvapi\NvApiHooks.cpp" />
 diff --git a/OptiScaler/OptiScaler.vcxproj.filters b/OptiScaler/OptiScaler.vcxproj.filters
-index 961a6db0..0aaea085 100644
+index 961a6db0..fab686c1 100644
 --- a/OptiScaler/OptiScaler.vcxproj.filters
 +++ b/OptiScaler/OptiScaler.vcxproj.filters
 @@ -329,6 +329,9 @@
@@ -112,7 +112,7 @@ index 961a6db0..0aaea085 100644
        <Filter>Source Files</Filter>
      </ClCompile>
 diff --git a/OptiScaler/menu/menu_common.cpp b/OptiScaler/menu/menu_common.cpp
-index 8e60cb7f..9e9d764b 100644
+index 30d440e2..0d09a07e 100644
 --- a/OptiScaler/menu/menu_common.cpp
 +++ b/OptiScaler/menu/menu_common.cpp
 @@ -13,6 +13,7 @@
@@ -139,7 +139,7 @@ index 8e60cb7f..9e9d764b 100644
                  {
 @@ -2537,8 +2541,15 @@ bool MenuCommon::RenderMenu()
                  {
-                     firstLine = StrFmt("%s | FPS: %6.1f %s", api.c_str(), frameRate, fgText.c_str());
+                     firstLine = StrFmt("%s | %6.1f %s", api.c_str(), frameRate, fgText.c_str());
                  }
 +
 +                if (overlayType == FpsOverlay_JustFPSExternal)
@@ -231,7 +231,7 @@ index 8e60cb7f..9e9d764b 100644
                      if (ImGui::BeginCombo("Overlay Type", selectedType))
 diff --git a/OptiScaler/misc/ExternalOverlayFeed.cpp b/OptiScaler/misc/ExternalOverlayFeed.cpp
 new file mode 100644
-index 00000000..c4cf3851
+index 00000000..560fba20
 --- /dev/null
 +++ b/OptiScaler/misc/ExternalOverlayFeed.cpp
 @@ -0,0 +1,135 @@
@@ -387,3 +387,6 @@ index 00000000..dae587f4
 +  public:
 +    static bool TryReadLine(std::string& line);
 +};
+-- 
+2.53.0.windows.2
+
