@@ -17,23 +17,21 @@ public partial class MainWindow : Window
     private readonly SensorPublishService _publishService;
     private readonly AppSettings _settings;
     private readonly MainWindowViewModel _viewModel;
-    private readonly SensorsPage _sensorsPage;
+    private SensorsPage? _sensorsPage;
     private readonly OverlayPage _overlayPage;
-    private readonly TweaksPage _tweaksPage;
-    private readonly SettingsPage _settingsPage;
+    private TweaksPage? _tweaksPage;
+    private SettingsPage? _settingsPage;
     private bool _hwInfoSharedMemoryWarningShown;
     private int _hwInfoSharedMemoryFailureCount;
     private bool _sensorRefreshStarted;
-    private readonly DispatcherTimer _sensorRefreshTimer = new()
-    {
-        Interval = TimeSpan.FromMilliseconds(1000)
-    };
+    private DispatcherTimer? _sensorRefreshTimer;
     private readonly CancellationTokenSource _windowLifetimeCancellation = new();
     private Task _activeSensorRefreshTask = Task.CompletedTask;
     private bool _sensorRefreshResumeRequested;
     private Task? _prepareShutdownTask;
     private bool _isShuttingDown;
     private bool _viewModelDisposed;
+    private bool _allowPermanentClose;
 
     internal MainWindow(ApplicationHost host, SensorPublishService publishService, AppSettings settings)
     {
@@ -45,12 +43,7 @@ public partial class MainWindow : Window
         _settings = settings;
         _viewModel = new MainWindowViewModel(_settings);
 
-        _sensorsPage = new SensorsPage { DataContext = _viewModel };
         _overlayPage = new OverlayPage { DataContext = _viewModel };
-        _tweaksPage = new TweaksPage(_settings);
-        _settingsPage = new SettingsPage { DataContext = _viewModel };
-        _settingsPage.LoadSettings(_settings);
-        _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken());
 
         WirePageEvents();
 
@@ -58,10 +51,6 @@ public partial class MainWindow : Window
         _host.SensorSourceReady += Host_SensorSourceReady;
         _host.SensorSourceStartupFailed += Host_SensorSourceStartupFailed;
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
-        _settingsPage.EditsChanged += SettingsPage_EditsChanged;
-        _sensorRefreshTimer.Tick += SensorRefreshTimer_Tick;
-
-        Loaded += MainWindow_Loaded;
         IsVisibleChanged += MainWindow_IsVisibleChanged;
         NavigateTo(_overlayPage, OverlayNavButton);
         UpdateStatus();
@@ -69,11 +58,10 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (!_host.IsExitRequested)
+        if (!_host.IsExitRequested && !_allowPermanentClose)
         {
             e.Cancel = true;
-            StopSensorRefresh();
-            Hide();
+            _host.RequestHideMainWindow();
             return;
         }
 
@@ -86,7 +74,7 @@ public partial class MainWindow : Window
 
         if (WindowState == WindowState.Minimized)
         {
-            Hide();
+            _host.RequestHideMainWindow();
             WindowState = WindowState.Normal;
         }
     }
@@ -94,7 +82,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         DetachLifetimeEventHandlers();
-        _sensorRefreshTimer.Stop();
+        _sensorRefreshTimer?.Stop();
 
         // The normal exit path already awaited PrepareForShutdownAsync (which disposes the
         // view model only after any active sensor refresh finished) before the window closed.
@@ -112,16 +100,17 @@ public partial class MainWindow : Window
     /// Called by ApplicationHost.ShutdownAsync() once exit has been confirmed. Idempotent:
     /// repeated calls return the same in-flight/completed task.
     /// </summary>
-    internal Task PrepareForShutdownAsync()
-    {
-        return _prepareShutdownTask ??= RunPrepareForShutdownAsync();
-    }
+    internal Task PrepareForShutdownAsync() =>
+        _prepareShutdownTask ??= RunPrepareForLifetimeEndAsync();
 
-    private async Task RunPrepareForShutdownAsync()
+    internal Task PrepareForSessionTeardownAsync() =>
+        _prepareShutdownTask ??= RunPrepareForLifetimeEndAsync();
+
+    private async Task RunPrepareForLifetimeEndAsync()
     {
         _isShuttingDown = true;
 
-        _sensorRefreshTimer.Stop();
+        _sensorRefreshTimer?.Stop();
         _sensorRefreshStarted = false;
         _windowLifetimeCancellation.Cancel();
 
@@ -156,9 +145,10 @@ public partial class MainWindow : Window
         _host.SensorSourceReady -= Host_SensorSourceReady;
         _host.SensorSourceStartupFailed -= Host_SensorSourceStartupFailed;
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
-        _settingsPage.EditsChanged -= SettingsPage_EditsChanged;
-        _sensorRefreshTimer.Tick -= SensorRefreshTimer_Tick;
-        Loaded -= MainWindow_Loaded;
+        if (_settingsPage is not null)
+            _settingsPage.EditsChanged -= SettingsPage_EditsChanged;
+        if (_sensorRefreshTimer is not null)
+            _sensorRefreshTimer.Tick -= SensorRefreshTimer_Tick;
         IsVisibleChanged -= MainWindow_IsVisibleChanged;
     }
 
@@ -173,13 +163,64 @@ public partial class MainWindow : Window
         _overlayPage.RemoveGroupRequested += (_, _) => RemoveOverlayGroup();
         _overlayPage.SaveRequested += (_, _) => SaveSettings();
 
-        _settingsPage.SaveRequested += (_, _) => SaveSettings();
-        _settingsPage.OpenSettingsFolderRequested += (_, _) => OpenSettingsFolder();
-        _settingsPage.HideRequested += (_, _) => Hide();
-        _settingsPage.ExitRequested += (_, _) => _host.RequestExit();
-        _settingsPage.SaveGitHubTokenRequested += (_, token) => SaveGitHubToken(token);
-        _settingsPage.RemoveGitHubTokenRequested += (_, _) => RemoveGitHubToken();
-        _settingsPage.CheckForUpdatesRequested += async (_, _) => await CheckForUpdatesAsync();
+    }
+
+    private SensorsPage GetOrCreateSensorsPage() =>
+        _sensorsPage ??= new SensorsPage { DataContext = _viewModel };
+
+    private TweaksPage GetOrCreateTweaksPage() =>
+        _tweaksPage ??= new TweaksPage(_settings);
+
+    private SettingsPage GetOrCreateSettingsPage()
+    {
+        if (_settingsPage is not null)
+            return _settingsPage;
+
+        var page = new SettingsPage { DataContext = _viewModel };
+        page.LoadSettings(_settings);
+        page.UpdateGitHubTokenState(GitHubTokenStore.HasToken());
+        page.SaveRequested += (_, _) => SaveSettings();
+        page.OpenSettingsFolderRequested += (_, _) => OpenSettingsFolder();
+        page.HideRequested += (_, _) => _host.RequestHideMainWindow();
+        page.ExitRequested += (_, _) => _host.RequestExit();
+        page.SaveGitHubTokenRequested += (_, token) => SaveGitHubToken(token);
+        page.RemoveGitHubTokenRequested += (_, _) => RemoveGitHubToken();
+        page.CheckForUpdatesRequested += async (_, _) => await CheckForUpdatesAsync();
+        page.EditsChanged += SettingsPage_EditsChanged;
+        return _settingsPage = page;
+    }
+
+    internal bool HasUnsavedChanges => IsDirty();
+
+    internal void HidePreservingSession()
+    {
+        StopSensorRefresh();
+        Hide();
+    }
+
+    internal void HideForSessionTeardown()
+    {
+        StopSensorRefresh();
+        Hide();
+    }
+
+    internal void CloseAfterSessionTeardown()
+    {
+        _allowPermanentClose = true;
+        Close();
+    }
+
+    private bool IsSensorsPageActive =>
+        _sensorsPage is not null && ReferenceEquals(PageContentControl.Content, _sensorsPage);
+
+    private DispatcherTimer GetOrCreateSensorRefreshTimer()
+    {
+        if (_sensorRefreshTimer is not null)
+            return _sensorRefreshTimer;
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
+        timer.Tick += SensorRefreshTimer_Tick;
+        return _sensorRefreshTimer = timer;
     }
 
     private static string GetApplicationVersion()
@@ -218,11 +259,6 @@ public partial class MainWindow : Window
         QueueSensorRefresh();
     }
 
-    private void MainWindow_Loaded(object? sender, RoutedEventArgs e)
-    {
-        StartSensorRefreshWhenReady();
-    }
-
     private void MainWindow_IsVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
     {
         if (IsVisible)
@@ -250,7 +286,7 @@ public partial class MainWindow : Window
 
         Dispatcher.BeginInvoke(() =>
         {
-            if (!IsShutdownInProgress())
+            if (!IsShutdownInProgress() && IsSensorsPageActive)
                 StartSensorRefreshWhenReady();
         });
     }
@@ -279,7 +315,8 @@ public partial class MainWindow : Window
         if (_isShuttingDown ||
             _sensorRefreshStarted ||
             !_host.IsSensorSourceReady ||
-            !IsVisible)
+            !IsVisible ||
+            !IsSensorsPageActive)
             return;
 
         _sensorRefreshStarted = true;
@@ -304,8 +341,8 @@ public partial class MainWindow : Window
     {
         await RunSensorRefreshAsync(cancellationToken).ConfigureAwait(true);
 
-        if (!_isShuttingDown && IsVisible && ReferenceEquals(PageContentControl.Content, _sensorsPage))
-            _sensorRefreshTimer.Start();
+        if (!_isShuttingDown && IsVisible && IsSensorsPageActive)
+            GetOrCreateSensorRefreshTimer().Start();
 
         if (!_sensorRefreshResumeRequested)
             return;
@@ -322,7 +359,7 @@ public partial class MainWindow : Window
 
     private void StopSensorRefresh()
     {
-        _sensorRefreshTimer.Stop();
+        _sensorRefreshTimer?.Stop();
         _sensorRefreshStarted = false;
         _sensorRefreshResumeRequested = false;
     }
@@ -333,7 +370,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void QueueSensorRefresh()
     {
-        if (_isShuttingDown || !_activeSensorRefreshTask.IsCompleted)
+        if (_isShuttingDown || !_activeSensorRefreshTask.IsCompleted || !IsSensorsPageActive)
             return;
 
         _activeSensorRefreshTask = RunSensorRefreshCycleAsync(_windowLifetimeCancellation.Token);
@@ -387,15 +424,15 @@ public partial class MainWindow : Window
         if (_viewModel.IsRefreshing)
             return;
 
-        if (ReferenceEquals(PageContentControl.Content, _sensorsPage) && _sensorsPage.ShouldDeferRefresh)
+        if (!IsSensorsPageActive || _sensorsPage!.ShouldDeferRefresh)
             return;
 
         try
         {
-            _sensorsPage.CaptureScrollPosition();
+            _sensorsPage!.CaptureScrollPosition();
             await _viewModel.RefreshDetectedSensorsAsync(cancellationToken).ConfigureAwait(true);
             _hwInfoSharedMemoryFailureCount = 0;
-            _sensorsPage.RestoreScrollPosition();
+            _sensorsPage!.RestoreScrollPosition();
 
             if (!_isShuttingDown)
                 UpdateStatus();
@@ -507,7 +544,7 @@ public partial class MainWindow : Window
         public static readonly SaveSettingsResult Failed = new(false, false);
     }
 
-    private bool IsDirty() => _viewModel.HasUnsavedChanges || _settingsPage.HasUnsavedChanges;
+    private bool IsDirty() => _viewModel.HasUnsavedChanges || (_settingsPage?.HasUnsavedChanges ?? false);
 
     /// <summary>
     /// Called by ApplicationHost.RequestExit() before it commits to shutting down.
@@ -549,6 +586,19 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool TryGetGeneralSettingsDraft(out GeneralSettingsDraft? draft, out string? errorMessage)
+    {
+        if (_settingsPage is not null)
+            return _settingsPage.TryCreateDraft(out draft, out errorMessage);
+
+        draft = new GeneralSettingsDraft(
+            _settings.StartWithWindows,
+            _settings.SensorSource,
+            _settings.ClampedPublishIntervalMs);
+        errorMessage = null;
+        return true;
+    }
+
     /// <summary>
     /// The single Save transaction shared by the Overlay and Settings pages' Save
     /// buttons, and by the dirty-exit confirmation. Validates the full Draft,
@@ -562,7 +612,7 @@ public partial class MainWindow : Window
     {
         _overlayPage.CommitEdits();
 
-        if (!_settingsPage.TryCreateDraft(out var generalDraft, out var settingsErrorMessage))
+        if (!TryGetGeneralSettingsDraft(out var generalDraft, out var settingsErrorMessage))
         {
             System.Windows.MessageBox.Show(settingsErrorMessage, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Warning);
             return SaveSettingsResult.Failed;
@@ -604,7 +654,7 @@ public partial class MainWindow : Window
             : StartupRegistration.Unregister();
 
         _viewModel.MarkSaved();
-        _settingsPage.AcceptSavedDraft(generalDraft);
+        _settingsPage?.AcceptSavedDraft(generalDraft);
         UpdateStatus();
 
         if (!startupResult.Success)
@@ -633,55 +683,56 @@ public partial class MainWindow : Window
     {
         if (!GitHubTokenStore.Save(token, out var errorMessage))
         {
-            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
+            _settingsPage?.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
             return;
         }
 
-        _settingsPage.UpdateGitHubTokenState(true, "Token saved in Windows Credential Manager. The update feed is not configured yet.");
+        _settingsPage?.UpdateGitHubTokenState(true, "Token saved in Windows Credential Manager. The update feed is not configured yet.");
     }
 
     private void RemoveGitHubToken()
     {
         if (!GitHubTokenStore.Delete(out var errorMessage))
         {
-            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
+            _settingsPage?.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
             return;
         }
 
-        _settingsPage.UpdateGitHubTokenState(false, "Token removed from Windows Credential Manager.");
+        _settingsPage?.UpdateGitHubTokenState(false, "Token removed from Windows Credential Manager.");
     }
 
     private async Task CheckForUpdatesAsync()
     {
-        _settingsPage.SetUpdateCheckInProgress(true);
+        var settingsPage = GetOrCreateSettingsPage();
+        settingsPage.SetUpdateCheckInProgress(true);
         try
         {
             var result = await GitHubUpdateService.DownloadLatestAsync(message =>
-                Dispatcher.BeginInvoke(() => _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), message)));
+                Dispatcher.BeginInvoke(() => settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), message)));
 
-            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
+            settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
             if (!result.IsReady)
                 return;
 
-            _settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
+            settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
             GitHubUpdateService.ApplyAndRestart(result);
         }
         catch (Exception ex)
         {
             SimpleLog.TryWrite($"GitHub update check failed: {ex.Message}");
-            _settingsPage.UpdateGitHubTokenState(
+            settingsPage.UpdateGitHubTokenState(
                 GitHubTokenStore.HasToken(),
                 "Could not check GitHub Releases. Verify the token has read access to this repository.");
         }
         finally
         {
-            _settingsPage.SetUpdateCheckInProgress(false);
+            settingsPage.SetUpdateCheckInProgress(false);
         }
     }
 
     private void SensorsNavButton_Click(object sender, RoutedEventArgs e)
     {
-        NavigateTo(_sensorsPage, SensorsNavButton);
+        NavigateTo(GetOrCreateSensorsPage(), SensorsNavButton);
         StopSensorRefresh();
         StartSensorRefreshWhenReady();
     }
@@ -694,14 +745,15 @@ public partial class MainWindow : Window
 
     private void TweaksNavButton_Click(object sender, RoutedEventArgs e)
     {
-        NavigateTo(_tweaksPage, TweaksNavButton);
+        var page = GetOrCreateTweaksPage();
+        NavigateTo(page, TweaksNavButton);
         StopSensorRefresh();
-        _tweaksPage.RefreshFromDisk();
+        page.RefreshFromDisk();
     }
 
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
     {
-        NavigateTo(_settingsPage, SettingsNavButton);
+        NavigateTo(GetOrCreateSettingsPage(), SettingsNavButton);
         StopSensorRefresh();
     }
 }

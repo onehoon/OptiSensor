@@ -23,6 +23,8 @@ internal sealed class ApplicationHost : IDisposable
     private Task _sensorStartupTask = Task.CompletedTask;
     private Task _tweakStartupTask = Task.CompletedTask;
     private Task? _shutdownTask;
+    private Task _mainWindowTeardownTask = Task.CompletedTask;
+    private bool _showMainWindowAfterTeardown;
 
     private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
     private bool _disposed;
@@ -161,6 +163,12 @@ internal sealed class ApplicationHost : IDisposable
         if (IsUiCreationBlocked(dispatcher))
             return;
 
+        if (!_mainWindowTeardownTask.IsCompleted)
+        {
+            _showMainWindowAfterTeardown = true;
+            return;
+        }
+
         if (_mainWindow is null)
         {
             _mainWindow = CreateMainWindow();
@@ -191,6 +199,32 @@ internal sealed class ApplicationHost : IDisposable
             dispatcher.HasShutdownFinished;
     }
 
+    internal void RequestHideMainWindow()
+    {
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (!dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(RequestHideMainWindow);
+            return;
+        }
+
+        if (IsExitRequested || _shutdownTask is not null || _mainWindow is null)
+            return;
+
+        var window = _mainWindow;
+        if (window.HasUnsavedChanges)
+        {
+            window.HidePreservingSession();
+            return;
+        }
+
+        if (!_mainWindowTeardownTask.IsCompleted)
+            return;
+
+        window.HideForSessionTeardown();
+        _mainWindowTeardownTask = TearDownMainWindowAsync(window);
+    }
+
     public void RequestExit()
     {
         var dispatcher = System.Windows.Application.Current.Dispatcher;
@@ -218,7 +252,9 @@ internal sealed class ApplicationHost : IDisposable
 
         _startupCancellationTokenSource.Cancel();
 
-        var windowShutdownTask = _mainWindow?.PrepareForShutdownAsync() ?? Task.CompletedTask;
+        var windowShutdownTask = WaitForMainWindowTeardownAsync();
+        if (_mainWindow is not null)
+            windowShutdownTask = Task.WhenAll(windowShutdownTask, _mainWindow.PrepareForShutdownAsync());
         var sensorStartupCompletion = ObserveSensorStartupCompletionAsync();
         var tweakStartupCompletion = ObserveTweakStartupCompletionAsync();
 
@@ -272,6 +308,43 @@ internal sealed class ApplicationHost : IDisposable
             // Last-resort observation so a fault here can't strand the app half-shut-down
             // as an unobserved _shutdownTask failure.
             SimpleLog.TryWrite($"Error during final shutdown dispatch: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+        }
+    }
+
+    private async Task WaitForMainWindowTeardownAsync()
+    {
+        try
+        {
+            await _mainWindowTeardownTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"UI session teardown failed during shutdown: {ex.Message}");
+        }
+    }
+
+    private async Task TearDownMainWindowAsync(MainWindow window)
+    {
+        try
+        {
+            await window.PrepareForSessionTeardownAsync().ConfigureAwait(false);
+
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                window.CloseAfterSessionTeardown();
+                if (ReferenceEquals(_mainWindow, window))
+                    _mainWindow = null;
+
+                var reopen = _showMainWindowAfterTeardown;
+                _showMainWindowAfterTeardown = false;
+                if (reopen && !IsExitRequested)
+                    ShowMainWindow();
+            });
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"UI session teardown failed: {ex.Message}");
             SimpleLog.TryWriteException(ex);
         }
     }

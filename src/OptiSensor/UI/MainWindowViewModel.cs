@@ -15,7 +15,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private const string UngroupedGroupName = "Ungrouped";
     private readonly AppSettings _settings;
     private readonly OverlayOutputComposer _overlayOutputComposer = new(new OverlayLineBuilder());
-    private readonly SensorDiscoveryService _sensorDiscoveryService;
+    private SensorDiscoveryService? _sensorDiscoveryService;
     private readonly ObservableCollection<SelectedOverlaySensorViewModel> _emptySelectedSensors = [];
     private bool _hasUnsavedChanges;
     private bool _isRefreshing;
@@ -26,7 +26,6 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public MainWindowViewModel(AppSettings settings)
     {
         _settings = settings;
-        _sensorDiscoveryService = new SensorDiscoveryService(settings.SensorSource);
 
         var categoryFilterSnapshot = _settings.GetActiveSensorCategoryFilterSnapshot();
         foreach (var category in Enum.GetValues<OptiSensorCategory>())
@@ -143,8 +142,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             }
 
             var useFastStart = !_initialSensorRefreshCompleted;
+            var discoveryService = _sensorDiscoveryService ??= new SensorDiscoveryService(_settings.SensorSource);
             var snapshot = await Task.Run(
-                () => _sensorDiscoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart),
+                () => discoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart),
                 cancellationToken).ConfigureAwait(true);
 
             // The reader read completed before checking cancellation again: a shutdown
@@ -343,7 +343,8 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return;
 
         _disposed = true;
-        _sensorDiscoveryService.Dispose();
+        _sensorDiscoveryService?.Dispose();
+        _sensorDiscoveryService = null;
     }
 
     public void AddOverlayGroup()

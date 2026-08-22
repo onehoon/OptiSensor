@@ -74,7 +74,7 @@ public sealed class ApplicationHostBackgroundStartupTests
         var source = ReadApplicationHostSource();
 
         Assert.Contains("_mainWindow is not null && !_mainWindow.TryPrepareForExit()", source);
-        Assert.Contains("_mainWindow?.PrepareForShutdownAsync() ?? Task.CompletedTask", source);
+        Assert.Contains("WaitForMainWindowTeardownAsync()", source);
         Assert.Contains("_mainWindow?.IsVisible == true", source);
     }
 
