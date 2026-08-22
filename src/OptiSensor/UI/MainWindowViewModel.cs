@@ -303,11 +303,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             .ToArray();
     }
 
-    public string GetOverlayPreviewText()
+    public string GetOverlayPreviewText(IReadOnlyList<DetectedSensorInfo>? runtimeSensors = null)
     {
+        var sensors = runtimeSensors ?? DetectedSensors.Select(sensor => sensor.Sensor).ToArray();
         var snapshot = new LibreSensorSnapshot(
-            DetectedSensors.Select(sensor => sensor.Sensor).ToArray(),
-            new LibreReadMetrics(0, 0, DetectedSensors.Count, 0, 0, 0, 0, false));
+            sensors,
+            new LibreReadMetrics(0, 0, sensors.Count, 0, 0, 0, 0, false));
         var groups = CreateDraftOverlayGroupsSnapshot();
 
         var composition = _overlayOutputComposer.Compose(snapshot, groups);
@@ -315,6 +316,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return composition.Line;
 
         return BuildEmptyPreviewText();
+    }
+
+    internal void UpdateSelectedSensorRuntimeValues(IReadOnlyCollection<DetectedSensorInfo> sensors)
+    {
+        if (_disposed)
+            return;
+
+        UpdateSelectedSensorAvailability(sensors);
     }
 
     /// <summary>

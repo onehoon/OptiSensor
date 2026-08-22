@@ -1,4 +1,7 @@
 using System.Runtime.CompilerServices;
+using OptiSensor.Models;
+using OptiSensor.Settings;
+using OptiSensor.UI;
 using Xunit;
 
 namespace OptiSensor.Tests.UI;
@@ -79,6 +82,7 @@ public sealed class LazyUiLifecycleTests
         Assert.Contains("_windowLifetimeCancellation.Token", source);
         Assert.Contains("cancellationToken.IsCancellationRequested", source);
         Assert.Contains("GitHubUpdateService.ApplyAndRestart(result)", source);
+        Assert.Contains("UpdateSelectedSensorRuntimeValues", source);
     }
 
     [Fact]
@@ -95,5 +99,60 @@ public sealed class LazyUiLifecycleTests
         var downloadEnd = updateService.IndexOf(".ConfigureAwait(false);", downloadStart, StringComparison.Ordinal);
         Assert.True(downloadStart >= 0 && downloadEnd > downloadStart);
         Assert.Contains("cancellationToken", updateService[downloadStart..downloadEnd]);
+    }
+
+    [Fact]
+    public void OverlayPreviewUsesRuntimeSnapshotWithoutPopulatingDetectedSensors()
+    {
+        var settings = new AppSettings
+        {
+            SensorSource = SensorSourceKind.Libre,
+            LibreProfile = new SensorSourceProfile
+            {
+                OverlayGroups =
+                [
+                new OverlayGroup
+                {
+                    Id = "gpu",
+                    Name = "GPU",
+                    Order = 0,
+                    Enabled = true,
+                    Sensors =
+                    [
+                        new SelectedOverlaySensor
+                        {
+                            SensorId = "gpu-temp",
+                            HardwareType = "GpuNvidia",
+                            HardwareName = "GPU",
+                            SensorType = "Temperature",
+                            SensorName = "GPU Core",
+                            Category = OptiSensorCategory.Gpu,
+                            DisplayName = "GPU",
+                            Unit = "°C",
+                            Format = "{0:0}C",
+                            Order = 0,
+                            Enabled = true
+                        }
+                    ]
+                }
+                ]
+            }
+        };
+
+        using var viewModel = new MainWindowViewModel(settings);
+        var runtimeSensors = new[]
+        {
+            new DetectedSensorInfo(
+                "gpu-temp", "GpuNvidia", "GPU", "Temperature", "GPU Core",
+                OptiSensorCategory.Gpu, "°C", 64f)
+        };
+
+        viewModel.UpdateSelectedSensorRuntimeValues(runtimeSensors);
+        var preview = viewModel.GetOverlayPreviewText(runtimeSensors);
+
+        Assert.Contains("64", preview);
+        Assert.DoesNotContain("Not found", viewModel.SelectedSensors[0].CurrentValueText,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, viewModel.DetectedSensorCount);
     }
 }

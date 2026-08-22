@@ -59,7 +59,12 @@ internal sealed class SensorPublishRunner : IDisposable
             }
         }
 
-        return new SensorPublishResult(overlayLine, effectiveSnapshot.Sensors.Count, composition.EnabledSelectedSensorCount, composition.TotalSelectedSensorCount);
+        return new SensorPublishResult(
+            overlayLine,
+            effectiveSnapshot.Sensors.ToArray(),
+            effectiveSnapshot.Sensors.Count,
+            composition.EnabledSelectedSensorCount,
+            composition.TotalSelectedSensorCount);
     }
 
     public Task RunLoopAsync(int publishIntervalMs, Action<SensorPublishResult> onPublished, CancellationToken cancellationToken)

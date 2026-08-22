@@ -90,8 +90,16 @@ public partial class MainWindow : Window
         // This only covers an abnormal path where OnClosed fires without going through that.
         if (!_viewModelDisposed && _activeSensorRefreshTask.IsCompleted)
         {
-            _viewModelDisposed = true;
-            _viewModel.Dispose();
+            try
+            {
+                _viewModel.Dispose();
+                _viewModelDisposed = true;
+            }
+            catch (Exception ex)
+            {
+                SimpleLog.TryWrite($"Final MainWindowViewModel disposal failed: {ex.Message}");
+                SimpleLog.TryWriteException(ex);
+            }
         }
 
         base.OnClosed(e);
@@ -146,14 +154,24 @@ public partial class MainWindow : Window
             SimpleLog.TryWriteException(ex);
         }
 
-        if (!_viewModelDisposed)
+        try
         {
-            _viewModelDisposed = true;
-            _viewModel.Dispose();
+            if (!_viewModelDisposed)
+            {
+                _viewModel.Dispose();
+                _viewModelDisposed = true;
+            }
         }
-
-        _activeUpdateCheckTask = Task.CompletedTask;
-        _windowLifetimeCancellation.Dispose();
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"MainWindowViewModel disposal failed: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+        }
+        finally
+        {
+            _activeUpdateCheckTask = Task.CompletedTask;
+            _windowLifetimeCancellation.Dispose();
+        }
     }
 
     private void DetachLifetimeEventHandlers()
@@ -399,7 +417,11 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         var status = GetStatusText();
-        var lastOverlay = _viewModel.GetOverlayPreviewText();
+        var runtimeSensors = _publishService.LastSensors;
+        if (runtimeSensors.Count > 0)
+            _viewModel.UpdateSelectedSensorRuntimeValues(runtimeSensors);
+
+        var lastOverlay = _viewModel.GetOverlayPreviewText(runtimeSensors.Count > 0 ? runtimeSensors : null);
         var publishDetail =
             $"Interval {_settings.ClampedPublishIntervalMs} ms · Detected {_viewModel.DetectedSensorCount} · Selected {_viewModel.EnabledSelectedSensorCount}/{_viewModel.TotalSelectedSensorCount}";
         var settingsState = $"Settings: {(IsDirty() ? "Unsaved changes" : "Saved")}";

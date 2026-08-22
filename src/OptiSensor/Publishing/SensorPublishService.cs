@@ -1,4 +1,5 @@
 using OptiSensor.App;
+using OptiSensor.Models;
 
 namespace OptiSensor.Publishing;
 
@@ -17,6 +18,7 @@ internal sealed class SensorPublishService : IDisposable
 
     public bool IsRunning { get; private set; }
     public string? LastOverlayLine { get; private set; }
+    public IReadOnlyList<DetectedSensorInfo> LastSensors { get; private set; } = Array.Empty<DetectedSensorInfo>();
     public int LastDetectedSensorCount { get; private set; }
     public int EnabledSelectedSensorCount { get; private set; }
     public int TotalSelectedSensorCount { get; private set; }
@@ -121,6 +123,7 @@ internal sealed class SensorPublishService : IDisposable
     private void OnPublished(SensorPublishResult result)
     {
         LastOverlayLine = result.OverlayLine;
+        LastSensors = result.Sensors.ToArray();
         LastDetectedSensorCount = result.DetectedSensorCount;
         EnabledSelectedSensorCount = result.EnabledSelectedSensorCount;
         TotalSelectedSensorCount = result.TotalSelectedSensorCount;
