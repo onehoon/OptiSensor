@@ -61,7 +61,7 @@ internal sealed class SensorPublishRunner : IDisposable
 
         return new SensorPublishResult(
             overlayLine,
-            effectiveSnapshot.Sensors.ToArray(),
+            effectiveSnapshot.Sensors,
             effectiveSnapshot.Sensors.Count,
             composition.EnabledSelectedSensorCount,
             composition.TotalSelectedSensorCount);

@@ -155,4 +155,70 @@ public sealed class LazyUiLifecycleTests
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, viewModel.DetectedSensorCount);
     }
+
+    [Fact]
+    public void EmptyRuntimeSnapshotClearsPreviouslyAvailableSelectedSensorValue()
+    {
+        var settings = new AppSettings
+        {
+            SensorSource = SensorSourceKind.Libre,
+            LibreProfile = new SensorSourceProfile
+            {
+                OverlayGroups =
+                [
+                    new OverlayGroup
+                    {
+                        Id = "gpu",
+                        Name = "GPU",
+                        Order = 0,
+                        Enabled = true,
+                        Sensors =
+                        [
+                            new SelectedOverlaySensor
+                            {
+                                SensorId = "gpu-temp",
+                                HardwareType = "GpuNvidia",
+                                HardwareName = "GPU",
+                                SensorType = "Temperature",
+                                SensorName = "GPU Core",
+                                Category = OptiSensorCategory.Gpu,
+                                DisplayName = "GPU",
+                                Unit = "°C",
+                                Format = "{0:0}C",
+                                Order = 0,
+                                Enabled = true
+                            }
+                        ]
+                    }
+                ]
+            }
+        };
+
+        using var viewModel = new MainWindowViewModel(settings);
+        viewModel.UpdateSelectedSensorRuntimeValues(
+        [
+            new DetectedSensorInfo(
+                "gpu-temp", "GpuNvidia", "GPU", "Temperature", "GPU Core",
+                OptiSensorCategory.Gpu, "°C", 64f)
+        ]);
+
+        Assert.Contains("64", viewModel.SelectedSensors[0].CurrentValueText);
+        Assert.True(viewModel.SelectedSensors[0].IsAvailable);
+
+        viewModel.UpdateSelectedSensorRuntimeValues(Array.Empty<DetectedSensorInfo>());
+
+        Assert.Equal("Not found", viewModel.SelectedSensors[0].CurrentValueText);
+        Assert.False(viewModel.SelectedSensors[0].IsAvailable);
+    }
+
+    [Fact]
+    public void RuntimeSnapshotBridgeAvoidsAdditionalArrayCopies()
+    {
+        var runner = ReadSource(Path.Combine("Publishing", "SensorPublishRunner.cs"));
+        var service = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
+
+        Assert.DoesNotContain("effectiveSnapshot.Sensors.ToArray()", runner);
+        Assert.DoesNotContain("result.Sensors.ToArray()", service);
+        Assert.Contains("public IReadOnlyList<DetectedSensorInfo>? LastSensors", service);
+    }
 }

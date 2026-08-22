@@ -18,7 +18,9 @@ internal sealed class SensorPublishService : IDisposable
 
     public bool IsRunning { get; private set; }
     public string? LastOverlayLine { get; private set; }
-    public IReadOnlyList<DetectedSensorInfo> LastSensors { get; private set; } = Array.Empty<DetectedSensorInfo>();
+    // null means no successful publish snapshot has been observed yet; an empty
+    // collection is a real successful snapshot with zero detected sensors.
+    public IReadOnlyList<DetectedSensorInfo>? LastSensors { get; private set; }
     public int LastDetectedSensorCount { get; private set; }
     public int EnabledSelectedSensorCount { get; private set; }
     public int TotalSelectedSensorCount { get; private set; }
@@ -71,6 +73,7 @@ internal sealed class SensorPublishService : IDisposable
         }
 
         IsRunning = false;
+        LastSensors = null;
         SimpleLog.TryWrite("Sensor publish service stopped.");
         OnStatusChanged();
     }
@@ -102,6 +105,7 @@ internal sealed class SensorPublishService : IDisposable
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                LastSensors = null;
                 SimpleLog.TryWriteException(ex);
                 OnStatusChanged();
 
@@ -123,7 +127,7 @@ internal sealed class SensorPublishService : IDisposable
     private void OnPublished(SensorPublishResult result)
     {
         LastOverlayLine = result.OverlayLine;
-        LastSensors = result.Sensors.ToArray();
+        LastSensors = result.Sensors;
         LastDetectedSensorCount = result.DetectedSensorCount;
         EnabledSelectedSensorCount = result.EnabledSelectedSensorCount;
         TotalSelectedSensorCount = result.TotalSelectedSensorCount;

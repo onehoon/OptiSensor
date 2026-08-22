@@ -418,10 +418,16 @@ public partial class MainWindow : Window
     {
         var status = GetStatusText();
         var runtimeSensors = _publishService.LastSensors;
-        if (runtimeSensors.Count > 0)
+        string lastOverlay;
+        if (runtimeSensors is not null)
+        {
             _viewModel.UpdateSelectedSensorRuntimeValues(runtimeSensors);
-
-        var lastOverlay = _viewModel.GetOverlayPreviewText(runtimeSensors.Count > 0 ? runtimeSensors : null);
+            lastOverlay = _viewModel.GetOverlayPreviewText(runtimeSensors);
+        }
+        else
+        {
+            lastOverlay = _viewModel.GetOverlayPreviewText();
+        }
         var publishDetail =
             $"Interval {_settings.ClampedPublishIntervalMs} ms · Detected {_viewModel.DetectedSensorCount} · Selected {_viewModel.EnabledSelectedSensorCount}/{_viewModel.TotalSelectedSensorCount}";
         var settingsState = $"Settings: {(IsDirty() ? "Unsaved changes" : "Saved")}";
