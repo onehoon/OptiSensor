@@ -230,6 +230,9 @@ public partial class MainWindow : Window
 
     internal bool HasUnsavedChanges => IsDirty();
 
+    internal bool ShouldPreserveSessionOnHide =>
+        IsDirty() || (_settingsPage?.HasPendingCredentialInput ?? false);
+
     internal void HidePreservingSession()
     {
         StopSensorRefresh();

@@ -221,4 +221,23 @@ public sealed class LazyUiLifecycleTests
         Assert.DoesNotContain("result.Sensors.ToArray()", service);
         Assert.Contains("public IReadOnlyList<DetectedSensorInfo>? LastSensors", service);
     }
+
+    [Fact]
+    public void PendingCredentialInputPreservesUiSessionWithoutJoiningSettingsSaveDraft()
+    {
+        var mainWindow = ReadSource(Path.Combine("UI", "MainWindow.xaml.cs"));
+        var settingsPage = ReadSource(Path.Combine("UI", "Views", "Pages", "SettingsPage.xaml.cs"));
+        var host = ReadSource(Path.Combine("App", "ApplicationHost.cs"));
+
+        Assert.Contains("internal bool HasPendingCredentialInput", settingsPage);
+        Assert.Contains("GitHubTokenPasswordBox.Password", settingsPage);
+        Assert.Contains("internal bool ShouldPreserveSessionOnHide", mainWindow);
+        Assert.Contains("_settingsPage?.HasPendingCredentialInput ?? false", mainWindow);
+        Assert.Contains("window.ShouldPreserveSessionOnHide", host);
+
+        var isDirtyStart = mainWindow.IndexOf("private bool IsDirty()", StringComparison.Ordinal);
+        var tryPrepareForExitStart = mainWindow.IndexOf("internal bool TryPrepareForExit()", isDirtyStart, StringComparison.Ordinal);
+        Assert.True(isDirtyStart >= 0 && tryPrepareForExitStart > isDirtyStart);
+        Assert.DoesNotContain("HasPendingCredentialInput", mainWindow[isDirtyStart..tryPrepareForExitStart]);
+    }
 }

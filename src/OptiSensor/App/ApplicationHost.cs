@@ -213,7 +213,7 @@ internal sealed class ApplicationHost : IDisposable
             return;
 
         var window = _mainWindow;
-        if (window.HasUnsavedChanges)
+        if (window.ShouldPreserveSessionOnHide)
         {
             window.HidePreservingSession();
             return;

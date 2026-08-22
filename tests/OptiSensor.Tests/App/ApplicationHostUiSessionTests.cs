@@ -18,7 +18,7 @@ public sealed class ApplicationHostUiSessionTests
     {
         var source = ReadApplicationHostSource();
 
-        Assert.Contains("window.HasUnsavedChanges", source);
+        Assert.Contains("window.ShouldPreserveSessionOnHide", source);
         Assert.Contains("window.HidePreservingSession()", source);
         Assert.Contains("window.HideForSessionTeardown()", source);
         Assert.Contains("_mainWindowTeardownTask = TearDownMainWindowAsync(window)", source);
