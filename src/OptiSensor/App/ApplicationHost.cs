@@ -18,7 +18,8 @@ internal sealed class ApplicationHost : IDisposable
     private readonly AppSettings _settings;
     private readonly SensorPublishService _publishService;
     private readonly TrayIconService _trayIcon;
-    private readonly MainWindow _mainWindow;
+    private readonly Func<ApplicationHost, SensorPublishService, AppSettings, MainWindow> _mainWindowFactory;
+    private MainWindow? _mainWindow;
     private readonly CancellationTokenSource _startupCancellationTokenSource = new();
     private Task _sensorStartupTask = Task.CompletedTask;
     private Task _tweakStartupTask = Task.CompletedTask;
@@ -27,7 +28,11 @@ internal sealed class ApplicationHost : IDisposable
     private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
     private bool _disposed;
 
-    private ApplicationHost(SingleInstanceGuard singleInstance, AppSettings settings, SensorPublishService publishService)
+    private ApplicationHost(
+        SingleInstanceGuard singleInstance,
+        AppSettings settings,
+        SensorPublishService publishService,
+        Func<ApplicationHost, SensorPublishService, AppSettings, MainWindow>? mainWindowFactory = null)
     {
         _singleInstance = singleInstance;
         _settings = settings;
@@ -35,7 +40,8 @@ internal sealed class ApplicationHost : IDisposable
         _publishService.StatusChanged += OnPublishServiceStatusChanged;
 
         _trayIcon = new TrayIconService(ShowMainWindow, RequestExit);
-        _mainWindow = new MainWindow(this, _publishService, _settings);
+        _mainWindowFactory = mainWindowFactory ?? ((host, service, appSettings) =>
+            new MainWindow(host, service, appSettings));
     }
 
     public bool IsExitRequested { get; private set; }
@@ -116,8 +122,8 @@ internal sealed class ApplicationHost : IDisposable
     {
         var dispatcher = System.Windows.Application.Current.Dispatcher;
         return dispatcher.CheckAccess()
-            ? Task.FromResult(_mainWindow.IsVisible)
-            : dispatcher.InvokeAsync(() => _mainWindow.IsVisible).Task;
+            ? Task.FromResult(_mainWindow?.IsVisible == true)
+            : dispatcher.InvokeAsync(() => _mainWindow?.IsVisible == true).Task;
     }
 
     private static void EnsureStartupTaskForInstalledApp(AppSettings settings)
@@ -154,6 +160,12 @@ internal sealed class ApplicationHost : IDisposable
             return;
         }
 
+        if (_mainWindow is null)
+        {
+            _mainWindow = _mainWindowFactory(this, _publishService, _settings);
+            SimpleLog.TryWrite("MainWindow created on first UI request.");
+        }
+
         if (!_mainWindow.IsVisible)
             _mainWindow.Show();
 
@@ -179,7 +191,7 @@ internal sealed class ApplicationHost : IDisposable
         if (IsExitRequested || _shutdownTask is not null)
             return;
 
-        if (!_mainWindow.TryPrepareForExit())
+        if (_mainWindow is not null && !_mainWindow.TryPrepareForExit())
             return;
 
         IsExitRequested = true;
@@ -194,7 +206,7 @@ internal sealed class ApplicationHost : IDisposable
 
         _startupCancellationTokenSource.Cancel();
 
-        var windowShutdownTask = _mainWindow.PrepareForShutdownAsync();
+        var windowShutdownTask = _mainWindow?.PrepareForShutdownAsync() ?? Task.CompletedTask;
         var sensorStartupCompletion = ObserveSensorStartupCompletionAsync();
         var tweakStartupCompletion = ObserveTweakStartupCompletionAsync();
 
