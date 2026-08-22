@@ -767,7 +767,9 @@ public partial class MainWindow : Window
 
                     settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), message);
                 });
-            });
+            }, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (cancellationToken.IsCancellationRequested ||
                 IsShutdownInProgress() ||

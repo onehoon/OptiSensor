@@ -80,4 +80,20 @@ public sealed class LazyUiLifecycleTests
         Assert.Contains("cancellationToken.IsCancellationRequested", source);
         Assert.Contains("GitHubUpdateService.ApplyAndRestart(result)", source);
     }
+
+    [Fact]
+    public void ManualUpdateCheckPassesCancellationToUpdateService()
+    {
+        var mainWindow = ReadSource(Path.Combine("UI", "MainWindow.xaml.cs"));
+        var updateService = ReadSource(Path.Combine("Updates", "GitHubUpdateService.cs"));
+
+        Assert.Contains("}, cancellationToken);", mainWindow);
+        Assert.Contains("CancellationToken cancellationToken = default", updateService);
+        Assert.Contains(".WaitAsync(cancellationToken)", updateService);
+
+        var downloadStart = updateService.IndexOf("await manager.DownloadUpdatesAsync(", StringComparison.Ordinal);
+        var downloadEnd = updateService.IndexOf(".ConfigureAwait(false);", downloadStart, StringComparison.Ordinal);
+        Assert.True(downloadStart >= 0 && downloadEnd > downloadStart);
+        Assert.Contains("cancellationToken", updateService[downloadStart..downloadEnd]);
+    }
 }

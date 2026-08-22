@@ -68,4 +68,20 @@ public sealed class ApplicationHostUiSessionTests
         Assert.Contains("_mainWindowTeardownInProgress = false", source);
         Assert.Contains("_mainWindow = null", source);
     }
+
+    [Fact]
+    public void ShowDefersCreationWhileTeardownIsInProgress()
+    {
+        var source = ReadApplicationHostSource();
+        var showStart = source.IndexOf("public void ShowMainWindow()", StringComparison.Ordinal);
+        var showEnd = source.IndexOf("private MainWindow CreateMainWindow()", showStart, StringComparison.Ordinal);
+        Assert.True(showStart >= 0 && showEnd > showStart);
+
+        var showMethod = source[showStart..showEnd];
+        var guard = showMethod.IndexOf("if (_mainWindowTeardownInProgress)", StringComparison.Ordinal);
+        var pending = showMethod.IndexOf("_showMainWindowAfterTeardown = true", StringComparison.Ordinal);
+        var create = showMethod.IndexOf("_mainWindow = CreateMainWindow()", StringComparison.Ordinal);
+
+        Assert.True(guard >= 0 && pending > guard && create > pending);
+    }
 }
