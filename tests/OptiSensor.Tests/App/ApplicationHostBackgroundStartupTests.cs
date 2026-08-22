@@ -14,7 +14,7 @@ public sealed class ApplicationHostBackgroundStartupTests
     }
 
     [Fact]
-    public void Constructor_StoresWindowFactoryWithoutConstructingMainWindow()
+    public void Constructor_DoesNotConstructMainWindow()
     {
         var source = ReadApplicationHostSource();
         var constructorStart = source.IndexOf("private ApplicationHost(", StringComparison.Ordinal);
@@ -23,7 +23,7 @@ public sealed class ApplicationHostBackgroundStartupTests
         Assert.InRange(constructorStart, 0, startMethodStart - 1);
         var constructor = source[constructorStart..startMethodStart];
         Assert.DoesNotContain("_mainWindow = new MainWindow", constructor);
-        Assert.Contains("_mainWindowFactory", constructor);
+        Assert.Contains("private MainWindow CreateMainWindow()", source);
     }
 
     [Fact]
@@ -35,7 +35,7 @@ public sealed class ApplicationHostBackgroundStartupTests
         var showMethod = source[showStart..requestExitStart];
 
         Assert.Contains("if (_mainWindow is null)", showMethod);
-        Assert.Contains("_mainWindow = _mainWindowFactory", showMethod);
+        Assert.Contains("_mainWindow = CreateMainWindow()", showMethod);
         Assert.DoesNotContain("_mainWindow = new MainWindow", showMethod);
         Assert.Contains("_mainWindow.IsVisible", showMethod);
     }
@@ -58,10 +58,7 @@ public sealed class ApplicationHostBackgroundStartupTests
         var requestExitStart = source.IndexOf("public void RequestExit()", showStart, StringComparison.Ordinal);
         var showMethod = source[showStart..requestExitStart];
 
-        Assert.Equal(2, CountOccurrences(showMethod, "if (_disposed ||"));
-        Assert.Contains("IsExitRequested ||", showMethod);
-        Assert.Contains("dispatcher.HasShutdownStarted ||", showMethod);
-        Assert.Contains("dispatcher.HasShutdownFinished)", showMethod);
+        Assert.Equal(2, CountOccurrences(showMethod, "IsUiCreationBlocked(dispatcher)"));
     }
 
     private static int CountOccurrences(string text, string value)

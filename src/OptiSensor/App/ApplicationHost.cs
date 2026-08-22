@@ -18,7 +18,6 @@ internal sealed class ApplicationHost : IDisposable
     private readonly AppSettings _settings;
     private readonly SensorPublishService _publishService;
     private readonly TrayIconService _trayIcon;
-    private readonly Func<ApplicationHost, SensorPublishService, AppSettings, MainWindow> _mainWindowFactory;
     private MainWindow? _mainWindow;
     private readonly CancellationTokenSource _startupCancellationTokenSource = new();
     private Task _sensorStartupTask = Task.CompletedTask;
@@ -28,11 +27,7 @@ internal sealed class ApplicationHost : IDisposable
     private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
     private bool _disposed;
 
-    private ApplicationHost(
-        SingleInstanceGuard singleInstance,
-        AppSettings settings,
-        SensorPublishService publishService,
-        Func<ApplicationHost, SensorPublishService, AppSettings, MainWindow>? mainWindowFactory = null)
+    private ApplicationHost(SingleInstanceGuard singleInstance, AppSettings settings, SensorPublishService publishService)
     {
         _singleInstance = singleInstance;
         _settings = settings;
@@ -40,8 +35,6 @@ internal sealed class ApplicationHost : IDisposable
         _publishService.StatusChanged += OnPublishServiceStatusChanged;
 
         _trayIcon = new TrayIconService(ShowMainWindow, RequestExit);
-        _mainWindowFactory = mainWindowFactory ?? ((host, service, appSettings) =>
-            new MainWindow(host, service, appSettings));
     }
 
     public bool IsExitRequested { get; private set; }
@@ -156,13 +149,8 @@ internal sealed class ApplicationHost : IDisposable
         var dispatcher = System.Windows.Application.Current.Dispatcher;
         if (!dispatcher.CheckAccess())
         {
-            if (_disposed ||
-                IsExitRequested ||
-                dispatcher.HasShutdownStarted ||
-                dispatcher.HasShutdownFinished)
-            {
+            if (IsUiCreationBlocked(dispatcher))
                 return;
-            }
 
             _ = dispatcher.BeginInvoke(ShowMainWindow);
             return;
@@ -170,17 +158,12 @@ internal sealed class ApplicationHost : IDisposable
 
         // Shutdown may have started after this request was queued but before the
         // callback reached the dispatcher. Never create UI during host shutdown.
-        if (_disposed ||
-            IsExitRequested ||
-            dispatcher.HasShutdownStarted ||
-            dispatcher.HasShutdownFinished)
-        {
+        if (IsUiCreationBlocked(dispatcher))
             return;
-        }
 
         if (_mainWindow is null)
         {
-            _mainWindow = _mainWindowFactory(this, _publishService, _settings);
+            _mainWindow = CreateMainWindow();
             SimpleLog.TryWrite("MainWindow created on first UI request.");
         }
 
@@ -195,6 +178,17 @@ internal sealed class ApplicationHost : IDisposable
         _mainWindow.Topmost = true;
         _mainWindow.Topmost = false;
         _mainWindow.Focus();
+    }
+
+    private MainWindow CreateMainWindow() =>
+        new(this, _publishService, _settings);
+
+    private bool IsUiCreationBlocked(System.Windows.Threading.Dispatcher dispatcher)
+    {
+        return _disposed ||
+            IsExitRequested ||
+            dispatcher.HasShutdownStarted ||
+            dispatcher.HasShutdownFinished;
     }
 
     public void RequestExit()
