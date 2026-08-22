@@ -49,4 +49,27 @@ public sealed class ApplicationHostBackgroundStartupTests
         Assert.Contains("_mainWindow?.PrepareForShutdownAsync() ?? Task.CompletedTask", source);
         Assert.Contains("_mainWindow?.IsVisible == true", source);
     }
+
+    [Fact]
+    public void ShowMainWindow_RechecksLifetimeBeforeLazyConstruction()
+    {
+        var source = ReadApplicationHostSource();
+        var showStart = source.IndexOf("public void ShowMainWindow()", StringComparison.Ordinal);
+        var requestExitStart = source.IndexOf("public void RequestExit()", showStart, StringComparison.Ordinal);
+        var showMethod = source[showStart..requestExitStart];
+
+        Assert.Equal(2, CountOccurrences(showMethod, "if (_disposed ||"));
+        Assert.Contains("IsExitRequested ||", showMethod);
+        Assert.Contains("dispatcher.HasShutdownStarted ||", showMethod);
+        Assert.Contains("dispatcher.HasShutdownFinished)", showMethod);
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        for (var index = 0; (index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0; index += value.Length)
+            count++;
+
+        return count;
+    }
 }

@@ -156,7 +156,25 @@ internal sealed class ApplicationHost : IDisposable
         var dispatcher = System.Windows.Application.Current.Dispatcher;
         if (!dispatcher.CheckAccess())
         {
+            if (_disposed ||
+                IsExitRequested ||
+                dispatcher.HasShutdownStarted ||
+                dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
             _ = dispatcher.BeginInvoke(ShowMainWindow);
+            return;
+        }
+
+        // Shutdown may have started after this request was queued but before the
+        // callback reached the dispatcher. Never create UI during host shutdown.
+        if (_disposed ||
+            IsExitRequested ||
+            dispatcher.HasShutdownStarted ||
+            dispatcher.HasShutdownFinished)
+        {
             return;
         }
 
