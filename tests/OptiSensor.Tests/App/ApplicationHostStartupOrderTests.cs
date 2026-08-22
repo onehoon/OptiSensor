@@ -4,10 +4,10 @@ using Xunit;
 namespace OptiSensor.Tests.App;
 
 /// <summary>
-/// ApplicationHost.Start() wires up WPF (System.Windows.Application.Current, MainWindow, the tray
-/// icon) and can't be exercised end-to-end from a headless xunit run without a live UI thread, so
-/// this is a structural/source-level check rather than a behavioral one. It pins down the property
-/// this branch changes: Tweaks startup is kicked off before sensor services.
+/// ApplicationHost.Start() depends on the WPF application/dispatcher and tray lifecycle, so the
+/// startup ordering is pinned with a structural source-level check rather than an end-to-end
+/// headless WPF test. MainWindow construction is intentionally lazy and is covered separately by
+/// ApplicationHostBackgroundStartupTests.
 /// </summary>
 public class ApplicationHostStartupOrderTests
 {
