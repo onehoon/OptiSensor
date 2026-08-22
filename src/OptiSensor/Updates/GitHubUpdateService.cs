@@ -7,17 +7,25 @@ internal static class GitHubUpdateService
 {
     private const string RepositoryUrl = "https://github.com/onehoon/OptiSensor";
 
-    public static async Task<PreparedUpdateResult> DownloadLatestAsync(Action<string>? reportProgress = null)
+    public static async Task<PreparedUpdateResult> DownloadLatestAsync(
+        Action<string>? reportProgress = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!GitHubTokenStore.TryLoad(out var token) || string.IsNullOrWhiteSpace(token))
             return PreparedUpdateResult.NoToken();
 
+        cancellationToken.ThrowIfCancellationRequested();
         var manager = new UpdateManager(new GithubSource(RepositoryUrl, token, prerelease: false));
         if (!manager.IsInstalled)
             return PreparedUpdateResult.NotInstalled();
 
         reportProgress?.Invoke("Checking GitHub Releases...");
-        var update = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
+        var update = await manager.CheckForUpdatesAsync()
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         if (update is null)
             return PreparedUpdateResult.UpToDate();
 
@@ -25,8 +33,14 @@ internal static class GitHubUpdateService
         reportProgress?.Invoke($"Downloading version {version}...");
         await manager.DownloadUpdatesAsync(
             update,
-            percent => reportProgress?.Invoke($"Downloading version {version}: {percent}%"))
+            percent =>
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                    reportProgress?.Invoke($"Downloading version {version}: {percent}%");
+            },
+            cancellationToken)
             .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
 
         return PreparedUpdateResult.Ready(manager, update.TargetFullRelease, version);
     }

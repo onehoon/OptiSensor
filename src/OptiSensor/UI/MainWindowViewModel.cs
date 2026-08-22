@@ -15,7 +15,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private const string UngroupedGroupName = "Ungrouped";
     private readonly AppSettings _settings;
     private readonly OverlayOutputComposer _overlayOutputComposer = new(new OverlayLineBuilder());
-    private readonly SensorDiscoveryService _sensorDiscoveryService;
+    private SensorDiscoveryService? _sensorDiscoveryService;
     private readonly ObservableCollection<SelectedOverlaySensorViewModel> _emptySelectedSensors = [];
     private bool _hasUnsavedChanges;
     private bool _isRefreshing;
@@ -26,7 +26,6 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public MainWindowViewModel(AppSettings settings)
     {
         _settings = settings;
-        _sensorDiscoveryService = new SensorDiscoveryService(settings.SensorSource);
 
         var categoryFilterSnapshot = _settings.GetActiveSensorCategoryFilterSnapshot();
         foreach (var category in Enum.GetValues<OptiSensorCategory>())
@@ -143,8 +142,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             }
 
             var useFastStart = !_initialSensorRefreshCompleted;
+            var discoveryService = _sensorDiscoveryService ??= new SensorDiscoveryService(_settings.SensorSource);
             var snapshot = await Task.Run(
-                () => _sensorDiscoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart),
+                () => discoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart),
                 cancellationToken).ConfigureAwait(true);
 
             // The reader read completed before checking cancellation again: a shutdown
@@ -303,11 +303,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             .ToArray();
     }
 
-    public string GetOverlayPreviewText()
+    public string GetOverlayPreviewText(IReadOnlyList<DetectedSensorInfo>? runtimeSensors = null)
     {
+        var sensors = runtimeSensors ?? DetectedSensors.Select(sensor => sensor.Sensor).ToArray();
         var snapshot = new LibreSensorSnapshot(
-            DetectedSensors.Select(sensor => sensor.Sensor).ToArray(),
-            new LibreReadMetrics(0, 0, DetectedSensors.Count, 0, 0, 0, 0, false));
+            sensors,
+            new LibreReadMetrics(0, 0, sensors.Count, 0, 0, 0, 0, false));
         var groups = CreateDraftOverlayGroupsSnapshot();
 
         var composition = _overlayOutputComposer.Compose(snapshot, groups);
@@ -315,6 +316,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return composition.Line;
 
         return BuildEmptyPreviewText();
+    }
+
+    internal void UpdateSelectedSensorRuntimeValues(IReadOnlyCollection<DetectedSensorInfo> sensors)
+    {
+        if (_disposed)
+            return;
+
+        UpdateSelectedSensorAvailability(sensors);
     }
 
     /// <summary>
@@ -343,7 +352,8 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return;
 
         _disposed = true;
-        _sensorDiscoveryService.Dispose();
+        _sensorDiscoveryService?.Dispose();
+        _sensorDiscoveryService = null;
     }
 
     public void AddOverlayGroup()

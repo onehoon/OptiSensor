@@ -23,6 +23,9 @@ internal sealed class ApplicationHost : IDisposable
     private Task _sensorStartupTask = Task.CompletedTask;
     private Task _tweakStartupTask = Task.CompletedTask;
     private Task? _shutdownTask;
+    private Task _mainWindowTeardownTask = Task.CompletedTask;
+    private bool _mainWindowTeardownInProgress;
+    private bool _showMainWindowAfterTeardown;
 
     private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
     private bool _disposed;
@@ -161,10 +164,16 @@ internal sealed class ApplicationHost : IDisposable
         if (IsUiCreationBlocked(dispatcher))
             return;
 
+        if (_mainWindowTeardownInProgress)
+        {
+            _showMainWindowAfterTeardown = true;
+            return;
+        }
+
         if (_mainWindow is null)
         {
             _mainWindow = CreateMainWindow();
-            SimpleLog.TryWrite("MainWindow created on first UI request.");
+            SimpleLog.TryWrite("MainWindow UI session created.");
         }
 
         if (!_mainWindow.IsVisible)
@@ -189,6 +198,33 @@ internal sealed class ApplicationHost : IDisposable
             IsExitRequested ||
             dispatcher.HasShutdownStarted ||
             dispatcher.HasShutdownFinished;
+    }
+
+    internal void RequestHideMainWindow()
+    {
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (!dispatcher.CheckAccess())
+        {
+            _ = dispatcher.BeginInvoke(RequestHideMainWindow);
+            return;
+        }
+
+        if (IsExitRequested || _shutdownTask is not null || _mainWindow is null)
+            return;
+
+        var window = _mainWindow;
+        if (window.ShouldPreserveSessionOnHide)
+        {
+            window.HidePreservingSession();
+            return;
+        }
+
+        if (_mainWindowTeardownInProgress)
+            return;
+
+        window.HideForSessionTeardown();
+        _mainWindowTeardownInProgress = true;
+        _mainWindowTeardownTask = TearDownMainWindowAsync(window);
     }
 
     public void RequestExit()
@@ -218,7 +254,9 @@ internal sealed class ApplicationHost : IDisposable
 
         _startupCancellationTokenSource.Cancel();
 
-        var windowShutdownTask = _mainWindow?.PrepareForShutdownAsync() ?? Task.CompletedTask;
+        var windowShutdownTask = WaitForMainWindowTeardownAsync();
+        if (_mainWindow is not null)
+            windowShutdownTask = Task.WhenAll(windowShutdownTask, _mainWindow.PrepareForShutdownAsync());
         var sensorStartupCompletion = ObserveSensorStartupCompletionAsync();
         var tweakStartupCompletion = ObserveTweakStartupCompletionAsync();
 
@@ -274,6 +312,103 @@ internal sealed class ApplicationHost : IDisposable
             SimpleLog.TryWrite($"Error during final shutdown dispatch: {ex.Message}");
             SimpleLog.TryWriteException(ex);
         }
+    }
+
+    private async Task WaitForMainWindowTeardownAsync()
+    {
+        try
+        {
+            await _mainWindowTeardownTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"UI session teardown failed during shutdown: {ex.Message}");
+        }
+    }
+
+    private async Task TearDownMainWindowAsync(MainWindow window)
+    {
+        Exception? cleanupFailure = null;
+        try
+        {
+            await window.PrepareForSessionTeardownAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            cleanupFailure = ex;
+            SimpleLog.TryWrite($"UI session teardown preparation failed: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+        }
+
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            return;
+
+        try
+        {
+            await dispatcher.InvokeAsync(() => CompleteMainWindowTeardown(window, cleanupFailure));
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"UI session teardown finalization failed: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+
+            if (!dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+            {
+                try
+                {
+                    await dispatcher.InvokeAsync(() =>
+                    {
+                        if (ReferenceEquals(_mainWindow, window))
+                            _mainWindow = null;
+
+                        _mainWindowTeardownInProgress = false;
+                        _showMainWindowAfterTeardown = false;
+                        MarkMainWindowTeardownFinished();
+                    });
+                }
+                catch
+                {
+                    // Application shutdown may have won the race.
+                }
+            }
+        }
+    }
+
+    private void CompleteMainWindowTeardown(MainWindow window, Exception? cleanupFailure)
+    {
+        try
+        {
+            window.CloseAfterSessionTeardown();
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"Failed to close retired MainWindow: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+        }
+
+        if (ReferenceEquals(_mainWindow, window))
+            _mainWindow = null;
+
+        var reopen = _showMainWindowAfterTeardown;
+        _showMainWindowAfterTeardown = false;
+        MarkMainWindowTeardownFinished();
+
+        if (cleanupFailure is not null)
+            SimpleLog.TryWrite("Retired the failed UI session; background runtime remains active.");
+        else
+            SimpleLog.TryWrite("MainWindow UI session teardown completed.");
+
+        if (reopen && !IsExitRequested && _shutdownTask is null && !_disposed)
+            ShowMainWindow();
+    }
+
+    private void MarkMainWindowTeardownFinished()
+    {
+        // Do not keep the completed async teardown state machine rooted from the
+        // process-lifetime host; it may retain the retired MainWindow graph.
+        _mainWindowTeardownTask = Task.CompletedTask;
+        _mainWindowTeardownInProgress = false;
     }
 
     private async Task ObserveSensorStartupCompletionAsync()

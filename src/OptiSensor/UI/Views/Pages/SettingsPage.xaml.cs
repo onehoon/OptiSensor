@@ -45,6 +45,11 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
         }
     }
 
+    // Credential input is intentionally separate from the AppSettings draft.
+    // It is saved explicitly to Credential Manager by the token action.
+    internal bool HasPendingCredentialInput =>
+        !string.IsNullOrEmpty(GitHubTokenPasswordBox.Password);
+
     internal void LoadSettings(AppSettings settings)
     {
         LoadControls(settings.StartWithWindows, settings.SensorSource, settings.ClampedPublishIntervalMs);
