@@ -85,9 +85,9 @@ public partial class MainWindow : Window
         DetachLifetimeEventHandlers();
         _sensorRefreshTimer?.Stop();
 
-        // The normal exit path already awaited PrepareForShutdownAsync (which disposes the
-        // view model only after any active sensor refresh finished) before the window closed.
-        // This only covers an abnormal path where OnClosed fires without going through that.
+        // Normal application shutdown and clean UI-session teardown both run the lifetime
+        // cleanup pipeline before permanently closing this window. This fallback only covers
+        // an abnormal close that bypassed that pipeline.
         if (!_viewModelDisposed && _activeSensorRefreshTask.IsCompleted)
         {
             try
@@ -106,12 +106,16 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Called by ApplicationHost.ShutdownAsync() once exit has been confirmed. Idempotent:
-    /// repeated calls return the same in-flight/completed task.
+    /// Completes this window's UI lifetime before full application shutdown. Shares the same
+    /// idempotent cleanup task used by clean UI-session teardown.
     /// </summary>
     internal Task PrepareForShutdownAsync() =>
         _prepareShutdownTask ??= RunPrepareForLifetimeEndAsync();
 
+    /// <summary>
+    /// Completes this window's UI lifetime before the host permanently retires a clean
+    /// UI session while the background runtime remains alive.
+    /// </summary>
     internal Task PrepareForSessionTeardownAsync() =>
         _prepareShutdownTask ??= RunPrepareForLifetimeEndAsync();
 

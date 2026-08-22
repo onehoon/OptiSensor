@@ -173,7 +173,7 @@ internal sealed class ApplicationHost : IDisposable
         if (_mainWindow is null)
         {
             _mainWindow = CreateMainWindow();
-            SimpleLog.TryWrite("MainWindow created on first UI request.");
+            SimpleLog.TryWrite("MainWindow UI session created.");
         }
 
         if (!_mainWindow.IsVisible)
@@ -396,6 +396,8 @@ internal sealed class ApplicationHost : IDisposable
 
         if (cleanupFailure is not null)
             SimpleLog.TryWrite("Retired the failed UI session; background runtime remains active.");
+        else
+            SimpleLog.TryWrite("MainWindow UI session teardown completed.");
 
         if (reopen && !IsExitRequested && _shutdownTask is null && !_disposed)
             ShowMainWindow();
