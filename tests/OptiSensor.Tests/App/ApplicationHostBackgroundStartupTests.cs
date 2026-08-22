@@ -51,22 +51,19 @@ public sealed class ApplicationHostBackgroundStartupTests
     }
 
     [Fact]
-    public void ShowMainWindow_RechecksLifetimeBeforeLazyConstruction()
+    public void ShowMainWindow_LazyCreationOccursOnlyAfterLifetimeGuard()
     {
         var source = ReadApplicationHostSource();
         var showStart = source.IndexOf("public void ShowMainWindow()", StringComparison.Ordinal);
         var requestExitStart = source.IndexOf("public void RequestExit()", showStart, StringComparison.Ordinal);
+        Assert.True(showStart >= 0 && requestExitStart > showStart);
         var showMethod = source[showStart..requestExitStart];
 
-        Assert.Equal(2, CountOccurrences(showMethod, "IsUiCreationBlocked(dispatcher)"));
-    }
+        var secondGuard = showMethod.LastIndexOf("IsUiCreationBlocked(dispatcher)", StringComparison.Ordinal);
+        var creation = showMethod.IndexOf("CreateMainWindow()", StringComparison.Ordinal);
 
-    private static int CountOccurrences(string text, string value)
-    {
-        var count = 0;
-        for (var index = 0; (index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0; index += value.Length)
-            count++;
-
-        return count;
+        Assert.True(secondGuard >= 0, "Expected a UI-thread lifetime guard before lazy window creation.");
+        Assert.True(creation > secondGuard,
+            "MainWindow creation must happen only after the post-dispatch lifetime guard.");
     }
 }
