@@ -364,6 +364,7 @@ internal sealed class ApplicationHost : IDisposable
 
                         _mainWindowTeardownInProgress = false;
                         _showMainWindowAfterTeardown = false;
+                        MarkMainWindowTeardownFinished();
                     });
                 }
                 catch
@@ -389,16 +390,23 @@ internal sealed class ApplicationHost : IDisposable
         if (ReferenceEquals(_mainWindow, window))
             _mainWindow = null;
 
-        _mainWindowTeardownInProgress = false;
-
         var reopen = _showMainWindowAfterTeardown;
         _showMainWindowAfterTeardown = false;
+        MarkMainWindowTeardownFinished();
 
         if (cleanupFailure is not null)
             SimpleLog.TryWrite("Retired the failed UI session; background runtime remains active.");
 
         if (reopen && !IsExitRequested && _shutdownTask is null && !_disposed)
             ShowMainWindow();
+    }
+
+    private void MarkMainWindowTeardownFinished()
+    {
+        // Do not keep the completed async teardown state machine rooted from the
+        // process-lifetime host; it may retain the retired MainWindow graph.
+        _mainWindowTeardownTask = Task.CompletedTask;
+        _mainWindowTeardownInProgress = false;
     }
 
     private async Task ObserveSensorStartupCompletionAsync()

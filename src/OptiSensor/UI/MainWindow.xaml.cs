@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private DispatcherTimer? _sensorRefreshTimer;
     private readonly CancellationTokenSource _windowLifetimeCancellation = new();
     private Task _activeSensorRefreshTask = Task.CompletedTask;
+    private Task _activeUpdateCheckTask = Task.CompletedTask;
     private bool _sensorRefreshResumeRequested;
     private Task? _prepareShutdownTask;
     private bool _isShuttingDown;
@@ -130,12 +131,28 @@ public partial class MainWindow : Window
             SimpleLog.TryWrite($"Active sensor refresh ended with error during shutdown: {ex.Message}");
         }
 
+        try
+        {
+            await _activeUpdateCheckTask.ConfigureAwait(false);
+            SimpleLog.TryWrite("Active UI update check completed.");
+        }
+        catch (OperationCanceledException)
+        {
+            SimpleLog.TryWrite("Active UI update check canceled.");
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"Active UI update check ended with error during teardown: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+        }
+
         if (!_viewModelDisposed)
         {
             _viewModelDisposed = true;
             _viewModel.Dispose();
         }
 
+        _activeUpdateCheckTask = Task.CompletedTask;
         _windowLifetimeCancellation.Dispose();
     }
 
@@ -146,7 +163,10 @@ public partial class MainWindow : Window
         _host.SensorSourceStartupFailed -= Host_SensorSourceStartupFailed;
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
         if (_settingsPage is not null)
+        {
             _settingsPage.EditsChanged -= SettingsPage_EditsChanged;
+            _settingsPage.CheckForUpdatesRequested -= SettingsPage_CheckForUpdatesRequested;
+        }
         if (_sensorRefreshTimer is not null)
             _sensorRefreshTimer.Tick -= SensorRefreshTimer_Tick;
         IsVisibleChanged -= MainWindow_IsVisibleChanged;
@@ -185,7 +205,7 @@ public partial class MainWindow : Window
         page.ExitRequested += (_, _) => _host.RequestExit();
         page.SaveGitHubTokenRequested += (_, token) => SaveGitHubToken(token);
         page.RemoveGitHubTokenRequested += (_, _) => RemoveGitHubToken();
-        page.CheckForUpdatesRequested += async (_, _) => await CheckForUpdatesAsync();
+        page.CheckForUpdatesRequested += SettingsPage_CheckForUpdatesRequested;
         page.EditsChanged += SettingsPage_EditsChanged;
         return _settingsPage = page;
     }
@@ -701,32 +721,96 @@ public partial class MainWindow : Window
         _settingsPage?.UpdateGitHubTokenState(false, "Token removed from Windows Credential Manager.");
     }
 
-    private async Task CheckForUpdatesAsync()
+    private async void SettingsPage_CheckForUpdatesRequested(object? sender, EventArgs e)
     {
-        var settingsPage = GetOrCreateSettingsPage();
+        if (_isShuttingDown || !_activeUpdateCheckTask.IsCompleted || sender is not SettingsPage settingsPage)
+            return;
+
+        var task = CheckForUpdatesAsync(settingsPage, _windowLifetimeCancellation.Token);
+        _activeUpdateCheckTask = task;
+
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            SimpleLog.TryWrite($"UI update check ended unexpectedly: {ex.Message}");
+            SimpleLog.TryWriteException(ex);
+        }
+    }
+
+    private async Task CheckForUpdatesAsync(SettingsPage settingsPage, CancellationToken cancellationToken)
+    {
+        if (_isShuttingDown || cancellationToken.IsCancellationRequested)
+            return;
+
         settingsPage.SetUpdateCheckInProgress(true);
         try
         {
             var result = await GitHubUpdateService.DownloadLatestAsync(message =>
-                Dispatcher.BeginInvoke(() => settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), message)));
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return;
+
+                _ = Dispatcher.BeginInvoke(() =>
+                {
+                    if (cancellationToken.IsCancellationRequested ||
+                        IsShutdownInProgress() ||
+                        !ReferenceEquals(_settingsPage, settingsPage))
+                    {
+                        return;
+                    }
+
+                    settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), message);
+                });
+            });
+
+            if (cancellationToken.IsCancellationRequested ||
+                IsShutdownInProgress() ||
+                !ReferenceEquals(_settingsPage, settingsPage))
+            {
+                return;
+            }
 
             settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
             if (!result.IsReady)
                 return;
 
-            settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
+            if (cancellationToken.IsCancellationRequested || IsShutdownInProgress())
+                return;
+
             GitHubUpdateService.ApplyAndRestart(result);
         }
         catch (Exception ex)
         {
+            if (cancellationToken.IsCancellationRequested || IsShutdownInProgress())
+            {
+                SimpleLog.TryWrite("UI update check completed after UI-session cancellation.");
+                return;
+            }
+
             SimpleLog.TryWrite($"GitHub update check failed: {ex.Message}");
-            settingsPage.UpdateGitHubTokenState(
-                GitHubTokenStore.HasToken(),
-                "Could not check GitHub Releases. Verify the token has read access to this repository.");
+            SimpleLog.TryWriteException(ex);
+
+            if (ReferenceEquals(_settingsPage, settingsPage))
+            {
+                settingsPage.UpdateGitHubTokenState(
+                    GitHubTokenStore.HasToken(),
+                    "Could not check GitHub Releases. Verify the token has read access to this repository.");
+            }
         }
         finally
         {
-            settingsPage.SetUpdateCheckInProgress(false);
+            if (!cancellationToken.IsCancellationRequested &&
+                !IsShutdownInProgress() &&
+                ReferenceEquals(_settingsPage, settingsPage))
+            {
+                settingsPage.SetUpdateCheckInProgress(false);
+            }
         }
     }
 

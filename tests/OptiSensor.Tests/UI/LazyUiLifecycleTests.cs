@@ -66,4 +66,18 @@ public sealed class LazyUiLifecycleTests
         Assert.Contains("_settings.StartWithWindows", source);
         Assert.Contains("_settingsPage?.AcceptSavedDraft", source);
     }
+
+    [Fact]
+    public void SettingsUpdateCheckIsTrackedByWindowLifetime()
+    {
+        var source = ReadSource(Path.Combine("UI", "MainWindow.xaml.cs"));
+
+        Assert.Contains("private Task _activeUpdateCheckTask", source);
+        Assert.Contains("SettingsPage_CheckForUpdatesRequested", source);
+        Assert.Contains("_activeUpdateCheckTask = task", source);
+        Assert.Contains("await _activeUpdateCheckTask", source);
+        Assert.Contains("_windowLifetimeCancellation.Token", source);
+        Assert.Contains("cancellationToken.IsCancellationRequested", source);
+        Assert.Contains("GitHubUpdateService.ApplyAndRestart(result)", source);
+    }
 }

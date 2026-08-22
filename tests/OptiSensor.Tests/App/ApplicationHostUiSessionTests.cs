@@ -41,9 +41,10 @@ public sealed class ApplicationHostUiSessionTests
         var completeEnd = source.IndexOf("private async Task ObserveSensorStartupCompletionAsync", completeStart, StringComparison.Ordinal);
         Assert.True(completeStart >= 0 && completeEnd > completeStart);
         var completion = source[completeStart..completeEnd];
-        var markFinished = completion.IndexOf("_mainWindowTeardownInProgress = false", StringComparison.Ordinal);
+        var markFinished = completion.IndexOf("MarkMainWindowTeardownFinished()", StringComparison.Ordinal);
         var reopenCall = completion.IndexOf("ShowMainWindow();", StringComparison.Ordinal);
         Assert.True(markFinished >= 0 && reopenCall > markFinished);
+        Assert.Contains("_mainWindowTeardownTask = Task.CompletedTask", source);
     }
 
     [Fact]
