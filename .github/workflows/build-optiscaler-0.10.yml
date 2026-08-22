@@ -118,3 +118,21 @@ jobs:
             /p:Platform=$env:OPTISCALER_PLATFORM `
             /p:SolutionDir="$env:GITHUB_WORKSPACE\.work\OptiScaler\" `
             /p:PostBuildEventUseInBuild=false
+
+      - name: Collect OptiScaler DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dll = Get-ChildItem "$env:GITHUB_WORKSPACE/.work/OptiScaler" -Recurse -Filter "OptiScaler.dll" |
+            Where-Object { $_.FullName -match "\\x64\\" -and $_.FullName -match "\\Release\\" } |
+            Select-Object -First 1
+          if (-not $dll) { throw "OptiScaler.dll not found after build." }
+          Copy-Item $dll.FullName "$env:GITHUB_WORKSPACE/OptiScaler.dll"
+
+      - name: Upload OptiScaler DLL
+        uses: actions/upload-artifact@v7
+        with:
+          name: OptiScaler-0.10.dll
+          path: OptiScaler.dll
+          if-no-files-found: error
+          retention-days: 14
