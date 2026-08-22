@@ -34,7 +34,16 @@ public sealed class ApplicationHostUiSessionTests
         Assert.Contains("ReferenceEquals(_mainWindow, window)", source);
         Assert.Contains("_mainWindow = null", source);
         Assert.Contains("_showMainWindowAfterTeardown", source);
-        Assert.Contains("if (reopen && !IsExitRequested)", source);
+        Assert.Contains("private bool _mainWindowTeardownInProgress", source);
+        Assert.Contains("if (reopen && !IsExitRequested && _shutdownTask is null && !_disposed)", source);
+
+        var completeStart = source.IndexOf("private void CompleteMainWindowTeardown(", StringComparison.Ordinal);
+        var completeEnd = source.IndexOf("private async Task ObserveSensorStartupCompletionAsync", completeStart, StringComparison.Ordinal);
+        Assert.True(completeStart >= 0 && completeEnd > completeStart);
+        var completion = source[completeStart..completeEnd];
+        var markFinished = completion.IndexOf("_mainWindowTeardownInProgress = false", StringComparison.Ordinal);
+        var reopenCall = completion.IndexOf("ShowMainWindow();", StringComparison.Ordinal);
+        Assert.True(markFinished >= 0 && reopenCall > markFinished);
     }
 
     [Fact]
@@ -45,5 +54,17 @@ public sealed class ApplicationHostUiSessionTests
         Assert.Contains("var windowShutdownTask = WaitForMainWindowTeardownAsync()", source);
         Assert.Contains("Task.WhenAll(windowShutdownTask, _mainWindow.PrepareForShutdownAsync())", source);
         Assert.Contains("await _mainWindowTeardownTask.ConfigureAwait(false)", source);
+    }
+
+    [Fact]
+    public void TeardownFailureStillRetiresOldSession()
+    {
+        var source = ReadApplicationHostSource();
+
+        Assert.Contains("Exception? cleanupFailure = null", source);
+        Assert.Contains("CompleteMainWindowTeardown(window, cleanupFailure)", source);
+        Assert.Contains("Failed to close retired MainWindow", source);
+        Assert.Contains("_mainWindowTeardownInProgress = false", source);
+        Assert.Contains("_mainWindow = null", source);
     }
 }
