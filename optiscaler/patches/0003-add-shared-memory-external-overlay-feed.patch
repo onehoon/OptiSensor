@@ -1,30 +1,30 @@
-From 5509f70a44bc4df724bafc07e589fe08df0125ab Mon Sep 17 00:00:00 2001
-From: OptiSensor Patch Bot <optisensor@example.invalid>
-Date: Wed, 1 Jul 2026 11:41:18 +0900
-Subject: [PATCH 3/5] Add shared memory external overlay feed
+From ea4192dd9c9b85856f6ed8ee3b6a911594279f9c Mon Sep 17 00:00:00 2001
+From: OptiSensor Local Build <optisensor-local-build@example.invalid>
+Date: Sat, 22 Aug 2026 22:35:33 +0900
+Subject: [PATCH] Add shared memory external overlay feed
 
 ---
  OptiScaler/OptiScaler.vcxproj           |   4 +-
- OptiScaler/OptiScaler.vcxproj.filters   |   8 +-
+ OptiScaler/OptiScaler.vcxproj.filters   |   6 ++
  OptiScaler/misc/ExternalOverlayFeed.cpp | 135 ++++++++++++++++++++++++
  OptiScaler/misc/ExternalOverlayFeed.h   |  11 ++
- 4 files changed, 156 insertions(+), 2 deletions(-)
+ 4 files changed, 155 insertions(+), 1 deletion(-)
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.cpp
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.h
 
 diff --git a/OptiScaler/OptiScaler.vcxproj b/OptiScaler/OptiScaler.vcxproj
-index 7f19050b..5bc6f67a 100644
+index 960fea4d..0c300926 100644
 --- a/OptiScaler/OptiScaler.vcxproj
 +++ b/OptiScaler/OptiScaler.vcxproj
-@@ -368,6 +368,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
-     <ClInclude Include="shaders\Shader_Common.h" />
+@@ -375,6 +375,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+     <ClInclude Include="misc\SkipSpoof.h" />
      <ClInclude Include="spoofing\User32_Spoofing.h" />
      <ClInclude Include="hooks\VulkanwDx12_Hooks.h" />
 +    <ClInclude Include="misc\ExternalOverlayFeed.h" />
      <ClInclude Include="misc\IdentifyGpu.h" />
      <ClInclude Include="inputs\FSR2_Dx11.h" />
      <ClInclude Include="inputs\FSR2_Vk.h" />
-@@ -623,6 +624,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+@@ -631,6 +632,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
      <ClCompile Include="menu\input\input_system_window.cpp" />
      <ClCompile Include="menu\input\input_system_windows_hooks.cpp" />
      <ClCompile Include="menu\input\input_system_xinput.cpp" />
@@ -32,8 +32,15 @@ index 7f19050b..5bc6f67a 100644
      <ClCompile Include="misc\IdentifyGpu.cpp" />
      <ClCompile Include="inputs\FSR2_Dx11.cpp" />
      <ClCompile Include="inputs\FSR2_Vk.cpp" />
+@@ -843,4 +845,4 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+   <ImportGroup Label="ExtensionTargets">
+   </ImportGroup>
+-</Project>
+\ No newline at end of file
++</Project>
 diff --git a/OptiScaler/OptiScaler.vcxproj.filters b/OptiScaler/OptiScaler.vcxproj.filters
-index 408a0049..cd79b5f6 100644
+index acc8ee5e..3c4d623f 100644
 --- a/OptiScaler/OptiScaler.vcxproj.filters
 +++ b/OptiScaler/OptiScaler.vcxproj.filters
 @@ -311,6 +311,9 @@
@@ -46,7 +53,7 @@ index 408a0049..cd79b5f6 100644
      <ClInclude Include="inputs\FfxApi_Vk.h">
        <Filter>Header Files</Filter>
      </ClInclude>
-@@ -1109,6 +1112,9 @@
+@@ -1130,6 +1133,9 @@
      <ClCompile Include="misc\FrameLimit.cpp">
        <Filter>Source Files</Filter>
      </ClCompile>
@@ -58,7 +65,7 @@ index 408a0049..cd79b5f6 100644
      </ClCompile>
 diff --git a/OptiScaler/misc/ExternalOverlayFeed.cpp b/OptiScaler/misc/ExternalOverlayFeed.cpp
 new file mode 100644
-index 00000000..cbd996bd
+index 00000000..27f66c5d
 --- /dev/null
 +++ b/OptiScaler/misc/ExternalOverlayFeed.cpp
 @@ -0,0 +1,135 @@
@@ -216,4 +223,5 @@ index 00000000..dae587f4
 +};
 -- 
 2.53.0.windows.2
+
 
