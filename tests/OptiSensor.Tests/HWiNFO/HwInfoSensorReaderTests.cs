@@ -29,6 +29,7 @@ public sealed class HwInfoSensorReaderTests
         Assert.Equal("Core Temp", mapped.SensorName);
         Assert.Equal("°C", mapped.Unit);
         Assert.Equal(55, mapped.Value);
+        Assert.Equal("SensorTypeTemp", mapped.SensorType);
         Assert.Equal(OptiSensorCategory.Gpu, mapped.Category);
     }
 

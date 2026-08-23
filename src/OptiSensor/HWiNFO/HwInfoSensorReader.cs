@@ -55,12 +55,14 @@ internal sealed class HwInfoSensorReader : ISensorReader
             SensorId: $"hwinfo/{reading.Sensor.Id}/{reading.Sensor.Instance}/{reading.ReadingId}",
             HardwareType: hardware,
             HardwareName: hardware,
-            SensorType: type.ToString(),
+            SensorType: ToCompatibleSensorTypeName(type),
             SensorName: name,
             Category: category,
             Unit: reading.Unit,
             Value: value);
     }
+
+    private static string ToCompatibleSensorTypeName(SensorType type) => $"SensorType{type}";
 
     private static OptiSensorCategory Classify(SensorType type, string sensorName, string hardwareName)
     {
