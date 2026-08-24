@@ -7,11 +7,11 @@ namespace OptiSensor.HWiNFO;
 
 internal sealed class HwInfoSensorReader : ISensorReader
 {
-    private readonly SharedMemoryReader _reader = new(1000);
+    private readonly SharedMemoryReader _reader = new();
 
     public void Open()
     {
-        // SharedMemoryReader opens the mapping on each read so HWiNFO can restart independently.
+        // SharedMemoryReader manages the mapping lazily and can reopen stale mappings.
     }
 
     public LibreSensorSnapshot ReadSnapshot(
@@ -20,9 +20,9 @@ internal sealed class HwInfoSensorReader : ISensorReader
         bool fastStart = false)
     {
         var stopwatch = Stopwatch.StartNew();
-        var readings = _reader.ReadLocal();
+        var result = _reader.ReadLocal();
         var included = includedCategories is null ? null : includedCategories.ToHashSet();
-        var sensors = readings
+        var sensors = result.Readings
             .Select(Map)
             .Where(sensor => sensor.Value.HasValue)
             .Where(sensor => included is null || included.Contains(sensor.Category))
@@ -44,37 +44,30 @@ internal sealed class HwInfoSensorReader : ISensorReader
 
     public void Dispose() => _reader.Dispose();
 
-    private static DetectedSensorInfo Map(SensorReading reading)
+    internal static DetectedSensorInfo Map(SensorReading reading)
     {
-        var type = Get(reading, "ReadingType");
-        var name = Get(reading, "LabelUser");
-        if (string.IsNullOrWhiteSpace(name)) name = Get(reading, "LabelOrig");
-        var hardware = Get(reading, "SensorNameUser");
-        if (string.IsNullOrWhiteSpace(hardware)) hardware = Get(reading, "SensorNameOrig");
-        var sensorId = Get(reading, "SensorId");
-        var instance = Get(reading, "SensorInstance");
-        var readingId = Get(reading, "ReadingId");
-        var unit = Get(reading, "Unit");
-        var value = double.TryParse(Get(reading, "Value"), out var parsed) ? (float?)parsed : null;
+        var name = string.IsNullOrWhiteSpace(reading.LabelUser) ? reading.LabelOrig : reading.LabelUser;
+        var hardware = string.IsNullOrWhiteSpace(reading.Sensor.NameUser) ? reading.Sensor.NameOrig : reading.Sensor.NameUser;
+        var type = reading.ReadingType;
+        var value = (float)reading.Value;
         var category = Classify(type, name, hardware);
         return new DetectedSensorInfo(
-            SensorId: $"hwinfo/{sensorId}/{instance}/{readingId}",
+            SensorId: $"hwinfo/{reading.Sensor.Id}/{reading.Sensor.Instance}/{reading.ReadingId}",
             HardwareType: hardware,
             HardwareName: hardware,
-            SensorType: type,
+            SensorType: ToCompatibleSensorTypeName(type),
             SensorName: name,
             Category: category,
-            Unit: unit,
+            Unit: reading.Unit,
             Value: value);
     }
 
-    private static string Get(SensorReading reading, string propertyName) => reading.GetType().GetProperty(propertyName)?.GetValue(reading)?.ToString() ?? string.Empty;
+    private static string ToCompatibleSensorTypeName(SensorType type) => $"SensorType{type}";
 
-    private static OptiSensorCategory Classify(string type, string sensorName, string hardwareName)
+    private static OptiSensorCategory Classify(SensorType type, string sensorName, string hardwareName)
     {
-        var typeName = type;
-        if (typeName.Contains("Fan", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Fan;
-        if (typeName.Contains("Power", StringComparison.OrdinalIgnoreCase) || typeName.Contains("Volt", StringComparison.OrdinalIgnoreCase) || typeName.Contains("Current", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Power;
+        if (type == SensorType.Fan) return OptiSensorCategory.Fan;
+        if (type is SensorType.Power or SensorType.Volt or SensorType.Current) return OptiSensorCategory.Power;
         if (hardwareName.Contains("Battery", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Battery;
         if (hardwareName.Contains("GPU", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Gpu;
         if (hardwareName.Contains("CPU", StringComparison.OrdinalIgnoreCase) || hardwareName.Contains("Processor", StringComparison.OrdinalIgnoreCase)) return OptiSensorCategory.Cpu;
