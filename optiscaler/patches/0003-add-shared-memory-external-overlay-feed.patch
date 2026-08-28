@@ -16,8 +16,9 @@ diff --git a/OptiScaler/OptiScaler.vcxproj b/OptiScaler/OptiScaler.vcxproj
 index 960fea4d..0c300926 100644
 --- a/OptiScaler/OptiScaler.vcxproj
 +++ b/OptiScaler/OptiScaler.vcxproj
-@@ -375,6 +375,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+@@ -375,7 +375,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
      <ClInclude Include="misc\SkipSpoof.h" />
+     <ClInclude Include="shaders\Shader_Dx11.h" />
      <ClInclude Include="spoofing\User32_Spoofing.h" />
      <ClInclude Include="hooks\VulkanwDx12_Hooks.h" />
 +    <ClInclude Include="misc\ExternalOverlayFeed.h" />
