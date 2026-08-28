@@ -111,12 +111,14 @@ internal sealed class SensorPublishService : IDisposable
             {
                 await RunPublishSessionAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 break;
             }
             catch (Exception ex)
             {
+                // Any other exception - including a spurious OperationCanceledException that is
+                // not this service stopping - is a session fault: record it and recreate.
                 LastError = ex.Message;
                 LastOverlayLine = null;
                 SimpleLog.TryWriteException(ex);
@@ -163,10 +165,14 @@ internal sealed class SensorPublishService : IDisposable
         {
             while (!sessionToken.IsCancellationRequested)
             {
-                // Surface a sampling-loop fault into the session so RunLoop's 5-second recreate
-                // policy runs instead of publishing a frozen snapshot forever.
+                // The sampling loop only ends by session cancellation or a fault. If it has
+                // stopped, end this publishing session so RunLoop's 5-second recreate policy
+                // runs instead of publishing a frozen snapshot forever.
                 if (samplingTask.IsCompleted)
-                    await samplingTask.ConfigureAwait(false);
+                {
+                    await samplingTask.ConfigureAwait(false); // rethrows a fault / cancellation
+                    throw new InvalidOperationException("Native telemetry sampling loop stopped unexpectedly.");
+                }
 
                 // Publish-only tick: read the retained latest snapshot, never re-sample here.
                 var line = ClawTelemetryFormatter.Format(sampler.Latest);
@@ -211,21 +217,17 @@ internal sealed class SensorPublishService : IDisposable
 
     private static async Task RunSamplingLoopAsync(ClawTelemetrySampler sampler, CancellationToken cancellationToken)
     {
+        // Runs until the session token is cancelled (task ends Canceled) or a native read throws
+        // (task ends Faulted). Either way the publish loop observes completion and ends the
+        // session; RunPublishSessionAsync's finally sorts the cancellation case from the fault.
         var coreTicks = 0;
-        try
+        while (!cancellationToken.IsCancellationRequested)
         {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
-                sampler.SampleCore();
+            await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
+            sampler.SampleCore();
 
-                if (++coreTicks % BatterySampleEveryNCoreTicks == 0)
-                    sampler.SampleBattery();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Normal session end - the publish loop owns fault reporting.
+            if (++coreTicks % BatterySampleEveryNCoreTicks == 0)
+                sampler.SampleBattery();
         }
     }
 

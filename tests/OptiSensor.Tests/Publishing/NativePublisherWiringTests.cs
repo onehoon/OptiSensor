@@ -107,9 +107,12 @@ public class NativePublisherWiringTests
         Assert.Contains("Task.Delay(Volatile.Read(ref _publishIntervalMs), sessionToken)", session);
         Assert.DoesNotContain("RunSamplingLoopAsync(sampler, cancellationToken)", session);
 
-        // A sampling-loop fault is observed by the publish loop (so RunLoop's retry runs)...
-        Assert.Contains("if (samplingTask.IsCompleted)", session);
-        Assert.Contains("await samplingTask", session);
+        // Any sampling-loop stop (fault OR unexpected clean exit) ends the publish session so
+        // RunLoop's retry runs - a completed sampling task is never silently ignored.
+        var completedGuard = session.IndexOf("if (samplingTask.IsCompleted)", StringComparison.Ordinal);
+        var completedBlock = session[completedGuard..session.IndexOf("Publish-only tick", completedGuard, StringComparison.Ordinal)];
+        Assert.Contains("await samplingTask", completedBlock);
+        Assert.Contains("throw new InvalidOperationException", completedBlock);
 
         // ...and a publish-side fault cancels the sampling loop instead of awaiting it forever.
         var finallyIndex = session.LastIndexOf("finally", StringComparison.Ordinal);
@@ -120,10 +123,33 @@ public class NativePublisherWiringTests
             finallyBody.IndexOf("await samplingTask", StringComparison.Ordinal),
             "finally must cancel the session before awaiting the sampling task.");
 
-        // RunLoop still records LastError + waits 5 s + recreates on any session exception.
+        // The sampling loop must not swallow cancellation/faults itself - the task's terminal
+        // state is what the publish loop and finally rely on to tell stop from fault.
+        var samplingLoop = source[sessionEnd..source.IndexOf("private void OnStatusChanged", StringComparison.Ordinal)];
+        Assert.DoesNotContain("catch (OperationCanceledException)", samplingLoop);
+
+        // RunLoop treats a session exception - including a spurious OperationCanceledException
+        // that is not this service stopping - as a fault: LastError + 5 s + recreate.
         var runLoop = source[source.IndexOf("private async Task RunLoop", StringComparison.Ordinal)..sessionStart];
+        Assert.Contains("catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)", runLoop);
         Assert.Contains("LastError = ex.Message;", runLoop);
         Assert.Contains("Task.Delay(TimeSpan.FromSeconds(5)", runLoop);
+    }
+
+    [Fact]
+    public async Task SensorPublishService_StopDuringPrimingTearsDownPromptly()
+    {
+        // Cancelling while the session is still in the priming delay must not hang on the
+        // 5-second retry backoff or leave the service running.
+        using var service = new OptiSensor.Publishing.SensorPublishService();
+        service.Start(500);
+        await Task.Delay(200); // still inside the ~1 s priming window
+
+        var stop = service.StopAsync();
+        Assert.True(await Task.WhenAny(stop, Task.Delay(TimeSpan.FromSeconds(3))) == stop,
+            "StopAsync during priming must complete promptly, not wait out the retry backoff.");
+        Assert.False(service.IsRunning);
+        Assert.Null(service.LastError);
     }
 
     [Fact]
