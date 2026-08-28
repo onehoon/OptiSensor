@@ -19,7 +19,7 @@ This branch (`main`) carries only the OptiSensor application source and its own 
 
 The OptiScaler patch stack that reads this app's shared-memory feed, and the combined-package build that pairs a patched `OptiScaler.dll` with this app's installer, live on the version-specific `release/0.9`/`release/0.10` branches instead — see [Branch Layout](#branch-layout).
 
-Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, private GitHub update-feed activation, and game or OptiScaler activity based publishing.
+Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, release-channel support, and game or OptiScaler activity based publishing.
 
 The helper source is organized under `src/OptiSensor` by role:
 
