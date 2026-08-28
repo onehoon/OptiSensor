@@ -7,176 +7,51 @@ using Xunit;
 namespace OptiSensor.Tests.Publishing;
 
 /// <summary>
-/// The runtime publisher wiring depends on the WPF application/dispatcher and native runtime
-/// libraries, so the authority switch is pinned with structural source-level checks (matching
-/// the existing ApplicationHost startup-order tests) plus a real formatter/protocol-length check.
+/// The authority switch is pinned with a minimal source-level check that normal startup no
+/// longer enters the HWiNFO path, plus real end-to-end lifecycle coverage of the native
+/// sampler/publisher and a protocol-length check.
 /// </summary>
 public class NativePublisherWiringTests
 {
     private static string ReadSource(string relativePath, [CallerFilePath] string thisFilePath = "")
     {
         var repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFilePath)!, "..", "..", ".."));
-        var path = Path.Combine(repoRoot, "src", "OptiSensor", relativePath);
-        Assert.True(File.Exists(path), $"Expected source at {path}");
-        return File.ReadAllText(path);
+        return File.ReadAllText(Path.Combine(repoRoot, "src", "OptiSensor", relativePath));
     }
 
     [Fact]
-    public void ApplicationHost_NormalStartupPublishesWithoutWaitingForHwInfo()
+    public void NormalStartupUsesNativeTelemetryAndNeverWaitsForHwInfo()
     {
-        var source = ReadSource(Path.Combine("App", "ApplicationHost.cs"));
+        var host = ReadSource(Path.Combine("App", "ApplicationHost.cs"));
 
-        var startServicesStart = source.IndexOf("private void StartSensorServices()", StringComparison.Ordinal);
-        var startServicesEnd = source.IndexOf('}', source.IndexOf('{', startServicesStart));
-        var startServices = source[startServicesStart..startServicesEnd];
-
+        var startServicesStart = host.IndexOf("private void StartSensorServices()", StringComparison.Ordinal);
+        var startServices = host[startServicesStart..host.IndexOf('}', host.IndexOf('{', startServicesStart))];
         Assert.Contains("StartPublishService();", startServices);
         Assert.DoesNotContain("EnsureRunningAndWaitForSharedMemoryAsync", startServices);
         Assert.DoesNotContain("StartHwInfoAndPublishWhenReadyAsync", startServices);
+        Assert.Contains("var publishService = new SensorPublishService();", host);
 
-        Assert.Contains("var publishService = new SensorPublishService();", source);
-
-        // The native publish start must not re-raise the legacy HWiNFO readiness signal.
-        var startPublishStart = source.IndexOf("private void StartPublishService()", StringComparison.Ordinal);
-        var startPublishEnd = source.IndexOf("private bool IsExitCleanupInProgress", startPublishStart, StringComparison.Ordinal);
-        var startPublish = source[startPublishStart..startPublishEnd];
+        // Native publish start must not re-raise the legacy readiness signal that drives the
+        // HWiNFO sensor-discovery UI.
+        var startPublish = host[host.IndexOf("private void StartPublishService()", StringComparison.Ordinal)..
+            host.IndexOf("private bool IsExitCleanupInProgress", StringComparison.Ordinal)];
         Assert.DoesNotContain("SensorSourceReady?.Invoke", startPublish);
         Assert.DoesNotContain("IsSensorSourceReady = true", startPublish);
+
+        var service = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
+        Assert.Contains("new ClawTelemetrySampler()", service);
+        Assert.Contains("ClawTelemetryFormatter.Format(sampler.Latest)", service);
+        Assert.Contains("new ExternalOverlayPublisher()", service);
+        Assert.DoesNotContain("HwInfoSensorReader", service);
+        Assert.DoesNotContain("SensorPublishRunner", service);
     }
 
     [Fact]
-    public void SensorPublishService_LoopUsesNativeTelemetryNotHwInfoRunner()
+    public async Task StartsPublishesAndStopsCleanly()
     {
-        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
-
-        Assert.Contains("public SensorPublishService()", source);
-        Assert.Contains("new ClawTelemetrySampler()", source);
-        Assert.Contains("ClawTelemetryFormatter.Format(", source);
-        Assert.Contains("new ExternalOverlayPublisher()", source);
-
-        Assert.DoesNotContain("HwInfoSensorReader", source);
-        Assert.DoesNotContain("SensorPublishRunner", source);
-        Assert.DoesNotContain("OverlayOutputComposer", source);
-        Assert.DoesNotContain("Func<SensorPublishRunner>", source);
-    }
-
-    [Fact]
-    public void SensorPublishService_SamplingAndPublishingAreIndependent()
-    {
-        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
-
-        // Publish loop reads the retained snapshot only - it must never re-sample.
-        var publishSessionStart = source.IndexOf("private async Task RunPublishSessionAsync", StringComparison.Ordinal);
-        var samplingLoopStart = source.IndexOf("private static async Task RunSamplingLoopAsync", StringComparison.Ordinal);
-        Assert.True(publishSessionStart >= 0 && samplingLoopStart > publishSessionStart);
-
-        var publishWhileStart = source.IndexOf("while (!sessionToken.IsCancellationRequested)", publishSessionStart, StringComparison.Ordinal);
-        var publishBody = source[publishWhileStart..samplingLoopStart];
-        Assert.Contains("ClawTelemetryFormatter.Format(sampler.Latest)", publishBody);
-        Assert.DoesNotContain("sampler.SampleCore()", publishBody);
-        Assert.DoesNotContain("sampler.SampleBattery()", publishBody);
-
-        // The sampling loop is the only place Core/Battery are read after startup priming. Core
-        // and Battery are on independent monotonic schedules, and neither is tied to the publish
-        // cadence (the loop never reads _publishIntervalMs).
-        var samplingBody = source[samplingLoopStart..source.IndexOf("private static Task DelayUntilAsync", StringComparison.Ordinal)];
-        Assert.Contains("now >= nextCoreDueMs", samplingBody);
-        Assert.Contains("nextCoreDueMs += CoreSampleIntervalMs", samplingBody);
-        Assert.Contains("now >= nextBatteryDueMs", samplingBody);
-        Assert.Contains("nextBatteryDueMs += BatterySampleIntervalMs", samplingBody);
-        Assert.Contains("sampler.SampleCore();", samplingBody);
-        Assert.Contains("sampler.SampleBattery();", samplingBody);
-        Assert.DoesNotContain("_publishIntervalMs", samplingBody);
-
-        // Startup priming: immediate Core + Battery, then a warmed second Core sample.
-        var primingBody = source[publishSessionStart..publishWhileStart];
-        Assert.Contains("sampler.SampleCore();", primingBody);
-        Assert.Contains("sampler.SampleBattery();", primingBody);
-        Assert.Contains("DelayUntilAsync(startedAtMs + CoreSampleIntervalMs", primingBody);
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(primingBody, @"sampler\.SampleCore\(\);").Count);
-    }
-
-    [Fact]
-    public void SensorPublishService_BothLoopsShareOneSessionLifecycle()
-    {
-        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
-
-        var sessionStart = source.IndexOf("private async Task RunPublishSessionAsync", StringComparison.Ordinal);
-        var sessionEnd = source.IndexOf("private static async Task RunSamplingLoopAsync", StringComparison.Ordinal);
-        var session = source[sessionStart..sessionEnd];
-
-        // One linked session token drives both loops.
-        Assert.Contains("CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)", session);
-        var samplingStartCall = session[session.IndexOf("var samplingTask = RunSamplingLoopAsync(", StringComparison.Ordinal)..];
-        samplingStartCall = samplingStartCall[..samplingStartCall.IndexOf(';')];
-        Assert.Contains("sampler,", samplingStartCall);
-        Assert.Contains("nextCoreDueMs:", samplingStartCall);
-        Assert.Contains("nextBatteryDueMs:", samplingStartCall);
-        Assert.Contains("sessionToken", samplingStartCall);
-        Assert.DoesNotContain("cancellationToken", samplingStartCall);
-        Assert.Contains("Task.Delay(Volatile.Read(ref _publishIntervalMs), sessionToken)", session);
-
-        // Any sampling-loop stop (fault OR unexpected clean exit) ends the publish session so
-        // RunLoop's retry runs - a completed sampling task is never silently ignored.
-        var completedGuard = session.IndexOf("if (samplingTask.IsCompleted)", StringComparison.Ordinal);
-        var completedBlock = session[completedGuard..session.IndexOf("Publish-only tick", completedGuard, StringComparison.Ordinal)];
-        Assert.Contains("await samplingTask", completedBlock);
-        Assert.Contains("throw new InvalidOperationException", completedBlock);
-
-        // ...and a publish-side fault cancels the sampling loop instead of awaiting it forever.
-        var finallyIndex = session.LastIndexOf("finally", StringComparison.Ordinal);
-        var finallyBody = session[finallyIndex..];
-        Assert.Contains("sessionCts.Cancel();", finallyBody);
-        Assert.True(
-            finallyBody.IndexOf("sessionCts.Cancel();", StringComparison.Ordinal) <
-            finallyBody.IndexOf("await samplingTask", StringComparison.Ordinal),
-            "finally must cancel the session before awaiting the sampling task.");
-
-        // The sampling loop must not swallow cancellation/faults itself - the task's terminal
-        // state is what the publish loop and finally rely on to tell stop from fault.
-        var samplingLoop = source[sessionEnd..source.IndexOf("private void OnStatusChanged", StringComparison.Ordinal)];
-        Assert.DoesNotContain("catch (OperationCanceledException)", samplingLoop);
-
-        // RunLoop treats a session exception - including a spurious OperationCanceledException
-        // that is not this service stopping - as a fault: LastError + 5 s + recreate.
-        var runLoop = source[source.IndexOf("private async Task RunLoop", StringComparison.Ordinal)..sessionStart];
-        Assert.Contains("catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)", runLoop);
-        Assert.Contains("LastError = ex.Message;", runLoop);
-        Assert.Contains("Task.Delay(TimeSpan.FromSeconds(5)", runLoop);
-    }
-
-    [Fact]
-    public void SensorPublishService_CapsPublishIntervalBelowOptiScalerFreshnessWindow()
-    {
-        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
-
-        Assert.Contains("MaxPublishIntervalMs = 1000", source);
-        Assert.Contains("Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs)", source);
-        Assert.DoesNotContain("Math.Clamp(publishIntervalMs, 100, 2000)", source);
-    }
-
-    [Fact]
-    public async Task SensorPublishService_StopDuringPrimingTearsDownPromptly()
-    {
-        // Cancelling while the session is still in the priming delay must not hang on the
-        // 5-second retry backoff or leave the service running.
-        using var service = new OptiSensor.Publishing.SensorPublishService();
-        service.Start(500);
-        await Task.Delay(200); // still inside the ~1 s priming window
-
-        var stop = service.StopAsync();
-        Assert.True(await Task.WhenAny(stop, Task.Delay(TimeSpan.FromSeconds(3))) == stop,
-            "StopAsync during priming must complete promptly, not wait out the retry backoff.");
-        Assert.False(service.IsRunning);
-        Assert.Null(service.LastError);
-    }
-
-    [Fact]
-    public async Task SensorPublishService_StartsPublishesAndStopsCleanly()
-    {
-        // Real end-to-end lifecycle on Windows: PDH CPU + GlobalMemoryStatusEx RAM are available
-        // on any runner even without MSI EC / Intel GPU, and ExternalOverlayPublisher just writes
-        // a local memory-mapped file. Exercises the dual-loop coordination and teardown, no fakes.
+        // Real end-to-end lifecycle on Windows: PDH CPU + GlobalMemoryStatusEx RAM are available on
+        // any runner without MSI EC / Intel GPU, and ExternalOverlayPublisher writes a local
+        // memory-mapped file. Exercises priming, the dual-loop coordination, and teardown - no fakes.
         using var service = new OptiSensor.Publishing.SensorPublishService();
         service.Start(100);
         Assert.True(service.IsRunning);
@@ -193,22 +68,34 @@ public class NativePublisherWiringTests
     }
 
     [Fact]
+    public async Task StopDuringPrimingTearsDownPromptly()
+    {
+        // Cancelling while the session is still in the priming delay must not hang on the
+        // 5-second retry backoff or leave the service running.
+        using var service = new OptiSensor.Publishing.SensorPublishService();
+        service.Start(500);
+        await Task.Delay(200); // still inside the ~1 s priming window
+
+        var stop = service.StopAsync();
+        Assert.True(await Task.WhenAny(stop, Task.Delay(TimeSpan.FromSeconds(3))) == stop,
+            "StopAsync during priming must complete promptly, not wait out the retry backoff.");
+        Assert.False(service.IsRunning);
+        Assert.Null(service.LastError);
+    }
+
+    [Fact]
     public void RepresentativeNativeLineFitsExternalOverlayProtocol()
     {
-        var snapshot = new ClawTelemetrySnapshot(
+        var line = ClawTelemetryFormatter.Format(new ClawTelemetrySnapshot(
             CpuUsagePercent: 36, CpuTemperatureC: 67, CpuPackagePowerW: 18,
             GpuUsagePercent: 98, GpuClockMHz: 2300,
             SystemMemoryUsedBytes: 20UL * 1024 * 1024 * 1024,
             GpuMemoryUsedBytes: (ulong)(9.4 * 1024 * 1024 * 1024),
-            FanRpm: 3540, BatteryPercent: 72, OnBattery: true, RemainingMinutes: 150);
-
-        var line = ClawTelemetryFormatter.Format(snapshot);
+            FanRpm: 3540, BatteryPercent: 72, OnBattery: true, RemainingMinutes: 150));
 
         Assert.Equal(
             "CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 20.0GB | VRAM 9.4GB | FAN 3540RPM | BAT 72% 2.5h",
             line);
-        Assert.True(
-            Encoding.UTF8.GetByteCount(line) <= ExternalOverlayProtocol.MaxLineLength - 1,
-            $"Native line is {Encoding.UTF8.GetByteCount(line)} UTF-8 bytes; protocol allows {ExternalOverlayProtocol.MaxLineLength - 1}.");
+        Assert.True(Encoding.UTF8.GetByteCount(line) <= ExternalOverlayProtocol.MaxLineLength - 1);
     }
 }

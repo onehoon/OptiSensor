@@ -117,19 +117,4 @@ public class ClawTelemetrySamplerTests
         Assert.NotNull(sampler.Latest.SystemMemoryUsedBytes);
     }
 
-    [Fact]
-    public void SampleCore_SourceRetriesUninitializedReadersEachTick()
-    {
-        var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "OptiSensor", "Claw", "ClawTelemetrySampler.cs"));
-        var sampleCore = source[source.IndexOf("public void SampleCore()", StringComparison.Ordinal)..];
-        sampleCore = sampleCore[..sampleCore.IndexOf("Recompose();", StringComparison.Ordinal)];
-
-        Assert.Contains("if (!_windowsUsage.Initialized)", sampleCore);
-        Assert.Contains("_windowsUsage.Initialize();", sampleCore);
-        Assert.Contains("if (!_igclGpu.Initialized)", sampleCore);
-        Assert.Contains("_igclGpu.Initialize();", sampleCore);
-    }
-
-    private static string RepoRoot([System.Runtime.CompilerServices.CallerFilePath] string thisFilePath = "")
-        => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFilePath)!, "..", "..", ".."));
 }

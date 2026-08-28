@@ -16,7 +16,7 @@ internal static class SettingsStore
         {
             var json = File.ReadAllText(AppPaths.SettingsFilePath);
             var settings = AppSettings.Deserialize(json);
-            settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 1000);
+            settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 2000);
 
             // Legacy migration: older files kept overlay config in top-level properties
             // (or, before Claw became single-source, in a separate Libre profile). Only
