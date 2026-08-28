@@ -67,30 +67,66 @@ public class ClawTelemetrySamplerTests
             first);
     }
 
-    [Fact]
-    public void Compose_ScheduledUnavailableReadClearsThatSource()
-    {
-        // A scheduled read is authoritative: when IGCL / Windows power report unavailable, the
-        // composed snapshot drops those fields rather than showing the previous value forever.
-        var withGpuAndBattery = ClawTelemetrySampler.Compose(
-            usage: new WindowsUsageSnapshot(50, 100, 200),
-            power: new WindowsPowerSnapshot(72, 150, true),
-            ec: new MsiEcTelemetrySnapshot(67, null, null, 3540, 18),
-            gpu: new IgclGpuTelemetrySnapshot(98, 2300));
-        Assert.Equal(98, withGpuAndBattery.GpuUsagePercent);
-        Assert.Equal(72, withGpuAndBattery.BatteryPercent);
+    // ---- last-successful-value-per-metric retention -----------------------
+    // A valid reading, then one unavailable scheduled read (whole or partial), must keep the last
+    // valid metric(s); a later valid reading updates them.
 
-        var afterLoss = ClawTelemetrySampler.Compose(
-            usage: new WindowsUsageSnapshot(50, 100, 200),
-            power: null,   // GetSystemPowerStatus failed this cycle
-            ec: new MsiEcTelemetrySnapshot(67, null, null, 3540, 18),
-            gpu: null);    // ctlPowerTelemetryGetV2 failed this cycle
-        Assert.Null(afterLoss.GpuUsagePercent);
-        Assert.Null(afterLoss.GpuClockMHz);
-        Assert.Null(afterLoss.BatteryPercent);
-        // Sources that still read fine are unaffected.
-        Assert.Equal(50, afterLoss.CpuUsagePercent);
-        Assert.Equal(67, afterLoss.CpuTemperatureC);
+    [Fact]
+    public void MergeUsage_OneUnavailableReadKeepsLastValidThenValidReadUpdates()
+    {
+        var v1 = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(50, 100, 200), null);
+
+        // Whole read failed this cycle.
+        Assert.Same(v1, ClawTelemetrySampler.MergeUsage(null, v1));
+
+        // Partial read: CPU present, RAM + VRAM unavailable this cycle.
+        var afterPartialMiss = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(55, null, null), v1);
+        Assert.Equal(55, afterPartialMiss!.CpuUsagePercent);
+        Assert.Equal(100ul, afterPartialMiss.SystemMemoryUsedBytes);   // kept
+        Assert.Equal(200ul, afterPartialMiss.IntelGpuMemoryUsedBytes); // kept
+
+        var v2 = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(60, 120, 220), afterPartialMiss);
+        Assert.Equal(60, v2!.CpuUsagePercent);
+        Assert.Equal(120ul, v2.SystemMemoryUsedBytes);
+        Assert.Equal(220ul, v2.IntelGpuMemoryUsedBytes);
+    }
+
+    [Fact]
+    public void MergeGpu_OneUnavailableReadKeepsLastValid()
+    {
+        var v1 = ClawTelemetrySampler.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300), null);
+        Assert.Same(v1, ClawTelemetrySampler.MergeGpu(null, v1)); // ctlPowerTelemetryGetV2 failed
+
+        // IGCL re-primed: clock read, usage unavailable while the delta baseline rebuilds.
+        var partial = ClawTelemetrySampler.MergeGpu(new IgclGpuTelemetrySnapshot(null, 2400), v1);
+        Assert.Equal(98, partial!.GpuUsagePercent); // kept
+        Assert.Equal(2400, partial.GpuClockMHz);
+    }
+
+    [Fact]
+    public void MergeEc_UnavailableReadingsKeepLastValidAndGenuineZeroReplaces()
+    {
+        var v1 = new MsiEcTelemetrySnapshot(CpuTempC: 67, Fan1Rpm: 3000, Fan2Rpm: 3100, HudFanRpm: 3050, CpuPackagePowerW: 18);
+
+        var merged = ClawTelemetrySampler.MergeEc(
+            new MsiEcTelemetrySnapshot(CpuTempC: null, Fan1Rpm: null, Fan2Rpm: null, HudFanRpm: null, CpuPackagePowerW: 0),
+            v1);
+
+        Assert.Equal(67, merged.CpuTempC);       // kept
+        Assert.Equal(3050, merged.HudFanRpm);    // kept
+        Assert.Equal(0, merged.CpuPackagePowerW); // genuine 0 W is a value, replaces
+    }
+
+    [Fact]
+    public void MergePower_OneUnavailableReadKeepsBatteryForItsFullInterval()
+    {
+        var v1 = ClawTelemetrySampler.MergePower(new WindowsPowerSnapshot(72, 150, true), null);
+        Assert.Same(v1, ClawTelemetrySampler.MergePower(null, v1)); // GetSystemPowerStatus failed
+
+        var partial = ClawTelemetrySampler.MergePower(new WindowsPowerSnapshot(70, null, true), v1);
+        Assert.Equal(70, partial!.BatteryPercent);
+        Assert.Equal(150, partial.RemainingMinutes); // kept
+        Assert.Equal(true, partial.OnBattery);
     }
 
     [Fact]
