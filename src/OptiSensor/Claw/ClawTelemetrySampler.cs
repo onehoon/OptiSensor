@@ -4,11 +4,12 @@ namespace OptiSensor.Claw;
 /// The single concrete owner of the merged native Claw telemetry readers. Sampling and
 /// publishing are independent: the sampling loop refreshes a source group on its own cadence
 /// (Core ~1000 ms, Battery ~5000 ms) and recomposes <see cref="Latest"/>; the publish loop only
-/// reads <see cref="Latest"/>. The retained store is <b>last successful value per metric</b>: a
-/// scheduled read that returns a value for a metric replaces it, but a "not due" tick and a
-/// scheduled read that returns unavailable for a metric both leave the previous value intact. A
-/// fresh publishing session starts empty, so session recreation is the reset boundary. Not
-/// started by the application from this type; <see cref="Publishing"/> drives it.
+/// reads <see cref="Latest"/>. The retention boundary is the <b>sampling cadence</b>: when a
+/// source is not due it is simply not read and <see cref="Latest"/> stays unchanged; when it is
+/// due it is read and its snapshot replaced with that read's result, <b>including null /
+/// unavailable fields</b> - a metric a due read reports unavailable becomes unavailable rather
+/// than immortal stale data. A fresh publishing session starts empty. Not started by the
+/// application from this type; <see cref="Publishing"/> drives it.
 /// </summary>
 internal sealed class ClawTelemetrySampler : IDisposable
 {
@@ -45,8 +46,9 @@ internal sealed class ClawTelemetrySampler : IDisposable
     /// <summary>
     /// Core read: MSI EC (CPU temp / TDP / fan) + Windows CPU usage / RAM / Intel GPU memory +
     /// IGCL GPU usage / clock. Intended cadence ~1000 ms. Windows/IGCL rate counters need a
-    /// second Core sample after the first to warm up. Each metric is only replaced when this read
-    /// produced a value for it; a one-cycle miss keeps the last successful value.
+    /// second Core sample after the first to warm up. The read replaces each source snapshot
+    /// wholesale, including null fields - a metric this read reports unavailable becomes
+    /// unavailable, not indefinitely stale.
     /// </summary>
     public void SampleCore()
     {
@@ -57,63 +59,17 @@ internal sealed class ClawTelemetrySampler : IDisposable
         if (!_igclGpu.Initialized)
             _igclGpu.Initialize();
 
-        _usage = MergeUsage(_windowsUsage.Sample(), _usage);
-        _ec = MergeEc(_msiEc.ReadSnapshot(), _ec);
-        _gpu = MergeGpu(_igclGpu.Sample(), _gpu);
+        _usage = _windowsUsage.Sample();
+        _ec = _msiEc.ReadSnapshot();
+        _gpu = _igclGpu.Sample();
         Recompose();
     }
 
     /// <summary>Battery read (percent / on-battery / remaining time). Intended cadence ~5000 ms.</summary>
     public void SampleBattery()
     {
-        _power = MergePower(WindowsPowerTelemetry.Read(), _power);
+        _power = WindowsPowerTelemetry.Read();
         Recompose();
-    }
-
-    // Merge = last-successful-value per metric: a value from this read wins; a null field (whole
-    // read failed, or that metric unavailable this cycle) keeps the retained value. A genuine
-    // numeric 0 is a value, since nullable presence - not non-zero - is the validity signal.
-
-    internal static WindowsUsageSnapshot? MergeUsage(WindowsUsageSnapshot? incoming, WindowsUsageSnapshot? retained)
-    {
-        if (incoming is null)
-            return retained;
-
-        return new WindowsUsageSnapshot(
-            CpuUsagePercent: incoming.CpuUsagePercent ?? retained?.CpuUsagePercent,
-            SystemMemoryUsedBytes: incoming.SystemMemoryUsedBytes ?? retained?.SystemMemoryUsedBytes,
-            IntelGpuMemoryUsedBytes: incoming.IntelGpuMemoryUsedBytes ?? retained?.IntelGpuMemoryUsedBytes);
-    }
-
-    internal static MsiEcTelemetrySnapshot MergeEc(MsiEcTelemetrySnapshot incoming, MsiEcTelemetrySnapshot retained)
-    {
-        return new MsiEcTelemetrySnapshot(
-            CpuTempC: incoming.CpuTempC ?? retained.CpuTempC,
-            Fan1Rpm: incoming.Fan1Rpm ?? retained.Fan1Rpm,
-            Fan2Rpm: incoming.Fan2Rpm ?? retained.Fan2Rpm,
-            HudFanRpm: incoming.HudFanRpm ?? retained.HudFanRpm,
-            CpuPackagePowerW: incoming.CpuPackagePowerW ?? retained.CpuPackagePowerW);
-    }
-
-    internal static IgclGpuTelemetrySnapshot? MergeGpu(IgclGpuTelemetrySnapshot? incoming, IgclGpuTelemetrySnapshot? retained)
-    {
-        if (incoming is null)
-            return retained;
-
-        return new IgclGpuTelemetrySnapshot(
-            GpuUsagePercent: incoming.GpuUsagePercent ?? retained?.GpuUsagePercent,
-            GpuClockMHz: incoming.GpuClockMHz ?? retained?.GpuClockMHz);
-    }
-
-    internal static WindowsPowerSnapshot? MergePower(WindowsPowerSnapshot? incoming, WindowsPowerSnapshot? retained)
-    {
-        if (incoming is null)
-            return retained;
-
-        return new WindowsPowerSnapshot(
-            BatteryPercent: incoming.BatteryPercent ?? retained?.BatteryPercent,
-            RemainingMinutes: incoming.RemainingMinutes ?? retained?.RemainingMinutes,
-            OnBattery: incoming.OnBattery ?? retained?.OnBattery);
     }
 
     private void Recompose() =>

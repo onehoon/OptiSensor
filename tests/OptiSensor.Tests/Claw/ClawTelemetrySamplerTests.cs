@@ -51,82 +51,55 @@ public class ClawTelemetrySamplerTests
         Assert.Equal(3540, snapshot.FanRpm);
     }
 
+    // ---- retention boundary = sampling cadence --------------------------
+    // not due  -> Latest unchanged (SampleCore/SampleBattery simply not called)
+    // due read -> replace that source snapshot wholesale, including null/unavailable fields
+
     [Fact]
-    public void Latest_IsARetainedGetterThatReadingDoesNotMutate()
+    public void Latest_PublishOnlyReadsKeepLastSample()
     {
         using var sampler = new ClawTelemetrySampler();
 
-        var first = sampler.Latest;
-        var second = sampler.Latest;
-
-        // A publish-only tick just reads Latest; repeated reads with no sampling in between
-        // return the same retained snapshot rather than a freshly re-sampled (possibly gapped) one.
-        Assert.Same(first, second);
+        // Repeated reads with no sampling in between return the same retained snapshot; a
+        // publish tick never re-samples or gaps a value.
+        var before = sampler.Latest;
+        Assert.Same(before, sampler.Latest);
         Assert.Equal(
             new ClawTelemetrySnapshot(null, null, null, null, null, null, null, null, null, null, null),
-            first);
-    }
-
-    // ---- last-successful-value-per-metric retention -----------------------
-    // A valid reading, then one unavailable scheduled read (whole or partial), must keep the last
-    // valid metric(s); a later valid reading updates them.
-
-    [Fact]
-    public void MergeUsage_OneUnavailableReadKeepsLastValidThenValidReadUpdates()
-    {
-        var v1 = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(50, 100, 200), null);
-
-        // Whole read failed this cycle.
-        Assert.Same(v1, ClawTelemetrySampler.MergeUsage(null, v1));
-
-        // Partial read: CPU present, RAM + VRAM unavailable this cycle.
-        var afterPartialMiss = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(55, null, null), v1);
-        Assert.Equal(55, afterPartialMiss!.CpuUsagePercent);
-        Assert.Equal(100ul, afterPartialMiss.SystemMemoryUsedBytes);   // kept
-        Assert.Equal(200ul, afterPartialMiss.IntelGpuMemoryUsedBytes); // kept
-
-        var v2 = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(60, 120, 220), afterPartialMiss);
-        Assert.Equal(60, v2!.CpuUsagePercent);
-        Assert.Equal(120ul, v2.SystemMemoryUsedBytes);
-        Assert.Equal(220ul, v2.IntelGpuMemoryUsedBytes);
+            before);
     }
 
     [Fact]
-    public void MergeGpu_OneUnavailableReadKeepsLastValid()
+    public void Compose_DueReadUnavailableClearsThatSourceFields()
     {
-        var v1 = ClawTelemetrySampler.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300), null);
-        Assert.Same(v1, ClawTelemetrySampler.MergeGpu(null, v1)); // ctlPowerTelemetryGetV2 failed
+        var previous = ClawTelemetrySampler.Compose(
+            usage: null, power: null, ec: MsiEcTelemetrySnapshot.Empty,
+            gpu: new IgclGpuTelemetrySnapshot(98, 2300));
+        Assert.Equal(98, previous.GpuUsagePercent);
+        Assert.Equal(2300, previous.GpuClockMHz);
 
-        // IGCL re-primed: clock read, usage unavailable while the delta baseline rebuilds.
-        var partial = ClawTelemetrySampler.MergeGpu(new IgclGpuTelemetrySnapshot(null, 2400), v1);
-        Assert.Equal(98, partial!.GpuUsagePercent); // kept
-        Assert.Equal(2400, partial.GpuClockMHz);
+        // Next scheduled Core read: IGCL failed -> gpu snapshot is null -> GPU segment is gone,
+        // not the old 98% / 2300 MHz.
+        var afterFailedDueRead = ClawTelemetrySampler.Compose(
+            usage: null, power: null, ec: MsiEcTelemetrySnapshot.Empty, gpu: null);
+        Assert.Null(afterFailedDueRead.GpuUsagePercent);
+        Assert.Null(afterFailedDueRead.GpuClockMHz);
     }
 
     [Fact]
-    public void MergeEc_UnavailableReadingsKeepLastValidAndGenuineZeroReplaces()
+    public void Compose_BatteryDcEstimateDoesNotSurviveIntoANewBatterySessionWithoutAFreshEstimate()
     {
-        var v1 = new MsiEcTelemetrySnapshot(CpuTempC: 67, Fan1Rpm: 3000, Fan2Rpm: 3100, HudFanRpm: 3050, CpuPackagePowerW: 18);
+        // An earlier discharge had RemainingMinutes = 150. After AC then unplugging again, Windows
+        // reports OnBattery = true but no new estimate yet: the read snapshot itself carries the
+        // null, so the formatter can never show the previous "2.5h".
+        var fresh = new WindowsPowerSnapshot(BatteryPercent: 70, RemainingMinutes: null, OnBattery: true);
+        Assert.Null(fresh.RemainingMinutes);
 
-        var merged = ClawTelemetrySampler.MergeEc(
-            new MsiEcTelemetrySnapshot(CpuTempC: null, Fan1Rpm: null, Fan2Rpm: null, HudFanRpm: null, CpuPackagePowerW: 0),
-            v1);
-
-        Assert.Equal(67, merged.CpuTempC);       // kept
-        Assert.Equal(3050, merged.HudFanRpm);    // kept
-        Assert.Equal(0, merged.CpuPackagePowerW); // genuine 0 W is a value, replaces
-    }
-
-    [Fact]
-    public void MergePower_OneUnavailableReadKeepsBatteryForItsFullInterval()
-    {
-        var v1 = ClawTelemetrySampler.MergePower(new WindowsPowerSnapshot(72, 150, true), null);
-        Assert.Same(v1, ClawTelemetrySampler.MergePower(null, v1)); // GetSystemPowerStatus failed
-
-        var partial = ClawTelemetrySampler.MergePower(new WindowsPowerSnapshot(70, null, true), v1);
-        Assert.Equal(70, partial!.BatteryPercent);
-        Assert.Equal(150, partial.RemainingMinutes); // kept
-        Assert.Equal(true, partial.OnBattery);
+        var composed = ClawTelemetrySampler.Compose(
+            usage: null, power: fresh, ec: MsiEcTelemetrySnapshot.Empty, gpu: null);
+        Assert.Equal(70, composed.BatteryPercent);
+        Assert.Equal(true, composed.OnBattery);
+        Assert.Null(composed.RemainingMinutes);
     }
 
     [Fact]
