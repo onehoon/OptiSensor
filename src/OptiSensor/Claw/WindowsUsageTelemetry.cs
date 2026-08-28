@@ -40,6 +40,9 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
     private readonly List<nint> _intelSharedMemoryCounters = [];
     private int _intelMemoryRebindAttempts;
 
+    /// <summary>Whether the PDH query and CPU counter are open. Once true it stays true until disposed.</summary>
+    public bool Initialized => _query != nint.Zero && _cpuCounter != nint.Zero;
+
     /// <summary>
     /// Opens the PDH query, adds the CPU counter, binds the Intel GPU-memory counters, and does
     /// the initial priming collect. ClawHUD requires one primed collect before a rate counter

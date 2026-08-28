@@ -12,8 +12,7 @@ public class AppSettingsTests
     {
         var original = new AppSettings
         {
-            StartWithWindows = true,
-            PublishIntervalMs = 500
+            StartWithWindows = true
         };
         original.HwInfoProfile.OverlayGroups =
         [
@@ -28,13 +27,11 @@ public class AppSettingsTests
         copy.HwInfoProfile.OverlayGroups[0].Sensors[0].DisplayName = "Mutated Sensor";
         copy.HwInfoProfile.OverlayGroups.Add(SensorFixture.CreateGroup("new", "New", 1, true));
         copy.HwInfoProfile.SensorCategoryFilters[OptiSensorCategory.Gpu] = false;
-        copy.PublishIntervalMs = 2000;
 
         Assert.Equal("GPU", original.HwInfoProfile.OverlayGroups[0].Name);
         Assert.Equal("GPU", original.HwInfoProfile.OverlayGroups[0].Sensors[0].DisplayName);
         Assert.Single(original.HwInfoProfile.OverlayGroups);
         Assert.True(original.HwInfoProfile.SensorCategoryFilters[OptiSensorCategory.Gpu]);
-        Assert.Equal(500, original.PublishIntervalMs);
     }
 
     [Fact]
@@ -43,22 +40,20 @@ public class AppSettingsTests
         var original = new AppSettings
         {
             StartWithWindows = false,
-            StartMinimized = false,
-            PublishIntervalMs = 1500
+            StartMinimized = false
         };
 
         var copy = original.CreateCopy();
 
         Assert.False(copy.StartWithWindows);
         Assert.False(copy.StartMinimized);
-        Assert.Equal(1500, copy.PublishIntervalMs);
     }
 
     [Fact]
     public void ApplyFrom_AppliesEverythingFromSource()
     {
-        var target = new AppSettings { StartWithWindows = false, PublishIntervalMs = 500 };
-        var source = new AppSettings { StartWithWindows = true, PublishIntervalMs = 1000 };
+        var target = new AppSettings { StartWithWindows = false };
+        var source = new AppSettings { StartWithWindows = true };
         source.HwInfoProfile.OverlayGroups =
         [
             SensorFixture.CreateGroup("g1", "GPU", 0, true, SensorFixture.CreateSelectedSensor("gpu-temp", "GPU", "{0:0}°C", 0))
@@ -67,7 +62,6 @@ public class AppSettingsTests
         target.ApplyFrom(source);
 
         Assert.True(target.StartWithWindows);
-        Assert.Equal(1000, target.PublishIntervalMs);
         Assert.Equal("GPU", target.HwInfoProfile.OverlayGroups[0].Name);
 
         // Deep copy: mutating source afterward must not affect target.

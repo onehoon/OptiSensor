@@ -1,6 +1,5 @@
 using OptiSensor.App;
 using OptiSensor.Publishing;
-using OptiSensor.Settings;
 
 namespace OptiSensor.Cli;
 
@@ -23,11 +22,10 @@ internal static class CliCommands
             return;
         }
 
-        var settings = AppSettings.LoadOrCreate();
         using var runner = createRunner();
         runner.Open();
 
-        runner.RunLoopAsync(settings.ClampedPublishIntervalMs, PrintResult, CancellationToken.None)
+        runner.RunLoopAsync(1000, PrintResult, CancellationToken.None)
             .GetAwaiter()
             .GetResult();
     }

@@ -26,9 +26,6 @@ internal sealed class AppSettings
     [JsonPropertyName("startMinimized")]
     public bool StartMinimized { get; set; } = true;
 
-    [JsonPropertyName("publishIntervalMs")]
-    public int PublishIntervalMs { get; set; } = 500;
-
     [JsonPropertyName("hwInfoProfile")]
     public SensorSourceProfile HwInfoProfile { get; set; } = new();
 
@@ -45,9 +42,6 @@ internal sealed class AppSettings
     /// only persists the flag - it never triggers the tweak itself.</summary>
     [JsonPropertyName("intelVrrRangeFixEnabled")]
     public bool IntelVrrRangeFixEnabled { get; set; }
-
-    [JsonIgnore]
-    public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 2000);
 
     [JsonIgnore]
     public IReadOnlyList<SelectedOverlaySensor> EnabledSelectedSensors =>
@@ -176,7 +170,6 @@ internal sealed class AppSettings
             {
                 StartWithWindows = source.StartWithWindows;
                 StartMinimized = source.StartMinimized;
-                PublishIntervalMs = source.PublishIntervalMs;
                 HwInfoProfile = CopyProfile(source.HwInfoProfile);
                 SelectedSensors = source.SelectedSensors.Select(sensor => sensor.Copy()).ToList();
                 OverlayGroups = source.OverlayGroups.Select(group => group.Copy()).ToList();
