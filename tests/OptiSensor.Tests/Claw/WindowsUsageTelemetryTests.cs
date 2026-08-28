@@ -8,6 +8,17 @@ public class WindowsUsageTelemetryTests
     private const ulong Gib = 1024ul * 1024 * 1024;
 
     [Fact]
+    public void Initialized_IsFalseBeforeInitializeAndTrueAfterASuccessfulInitialize()
+    {
+        using var reader = new WindowsUsageTelemetryReader();
+        Assert.False(reader.Initialized);
+
+        // The "% Processor Utility" counter exists on any supported Windows, so Initialize succeeds.
+        Assert.True(reader.Initialize());
+        Assert.True(reader.Initialized);
+    }
+
+    [Fact]
     public void UsedPhysicalMemory_TotalMinusAvailable()
     {
         Assert.Equal(20 * Gib, WindowsUsageTelemetryReader.UsedPhysicalMemory(32 * Gib, 12 * Gib));

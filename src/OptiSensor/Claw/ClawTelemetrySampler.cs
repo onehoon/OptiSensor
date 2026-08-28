@@ -29,7 +29,11 @@ internal sealed class ClawTelemetrySampler : IDisposable
     /// </summary>
     public ClawTelemetrySnapshot Latest => Volatile.Read(ref _latest);
 
-    /// <summary>Initializes the readers that require it. Their own init/retry policies are unchanged.</summary>
+    /// <summary>
+    /// First attempt to bring up the stateful readers. A reader that is not ready yet (e.g. PDH /
+    /// IGCL during early Windows boot) is retried by <see cref="SampleCore"/> on the Core cadence,
+    /// so a transient startup miss never becomes a permanently missing metric.
+    /// </summary>
     public void Initialize()
     {
         _windowsUsage.Initialize();
@@ -44,6 +48,13 @@ internal sealed class ClawTelemetrySampler : IDisposable
     /// </summary>
     public void SampleCore()
     {
+        // Retry readers that never came up. Once initialized they stay initialized, so this only
+        // costs a check per tick in steady state.
+        if (!_windowsUsage.Initialized)
+            _windowsUsage.Initialize();
+        if (!_igclGpu.Initialized)
+            _igclGpu.Initialize();
+
         _usage = MergeUsage(_windowsUsage.Sample(), _usage);
         _ec = MergeEc(_msiEc.ReadSnapshot(), _ec);
         _gpu = MergeGpu(_igclGpu.Sample(), _gpu);

@@ -106,6 +106,37 @@ public class ClawTelemetrySamplerTests
     }
 
     [Fact]
+    public void SampleCore_SelfInitializesReadersThatAreNotYetInitialized()
+    {
+        using var sampler = new ClawTelemetrySampler();
+
+        // Deliberately skip Initialize(): a startup init miss must not be permanent, so SampleCore
+        // brings up any reader that is not ready yet on its own 1 s cadence.
+        sampler.SampleCore(); // initializes + priming sample
+        sampler.SampleCore(); // warmed sample
+
+        // Windows RAM (GlobalMemoryStatusEx behind the PDH-gated reader) is available on any
+        // Windows runner once that reader is up - proof SampleCore initialized it.
+        Assert.NotNull(sampler.Latest.SystemMemoryUsedBytes);
+    }
+
+    [Fact]
+    public void SampleCore_SourceRetriesUninitializedReadersEachTick()
+    {
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "OptiSensor", "Claw", "ClawTelemetrySampler.cs"));
+        var sampleCore = source[source.IndexOf("public void SampleCore()", StringComparison.Ordinal)..];
+        sampleCore = sampleCore[..sampleCore.IndexOf("Recompose();", StringComparison.Ordinal)];
+
+        Assert.Contains("if (!_windowsUsage.Initialized)", sampleCore);
+        Assert.Contains("_windowsUsage.Initialize();", sampleCore);
+        Assert.Contains("if (!_igclGpu.Initialized)", sampleCore);
+        Assert.Contains("_igclGpu.Initialize();", sampleCore);
+    }
+
+    private static string RepoRoot([System.Runtime.CompilerServices.CallerFilePath] string thisFilePath = "")
+        => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFilePath)!, "..", "..", ".."));
+
+    [Fact]
     public void MergeGpu_KeepsRetainedUsageWhenNewSampleIsWarmingUp()
     {
         var retained = new IgclGpuTelemetrySnapshot(GpuUsagePercent: 90, GpuClockMHz: 2200);
