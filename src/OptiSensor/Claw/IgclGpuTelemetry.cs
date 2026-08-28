@@ -178,6 +178,13 @@ internal sealed class IgclGpuTelemetryReader : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate uint TelemetryFn(nint device, ref PowerTelemetryV2 telemetry);
 
+    // Copyright (C) 2025 Intel Corporation
+    // Selected read-only ABI declarations below are derived from Intel IGCL
+    // igcl_api.h at b6c462933502e13d1537dd5024949a51be30e63d and are redistributed
+    // under the Intel Software License Agreement bundled at:
+    // third_party/Intel-IGCL-LICENSE.txt
+    // OptiSensor does not redistribute ControlLib.dll.
+
     [StructLayout(LayoutKind.Sequential)]
     private struct InitArgs
     {
