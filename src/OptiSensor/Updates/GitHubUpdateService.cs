@@ -12,12 +12,7 @@ internal static class GitHubUpdateService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
-        if (!GitHubTokenStore.TryLoad(out var token) || string.IsNullOrWhiteSpace(token))
-            return PreparedUpdateResult.NoToken();
-
-        cancellationToken.ThrowIfCancellationRequested();
-        var manager = new UpdateManager(new GithubSource(RepositoryUrl, token, prerelease: false));
+        var manager = new UpdateManager(new GithubSource(RepositoryUrl, null, prerelease: false));
         if (!manager.IsInstalled)
             return PreparedUpdateResult.NotInstalled();
 
@@ -60,9 +55,6 @@ internal sealed record PreparedUpdateResult(
     string Message,
     bool IsReady)
 {
-    public static PreparedUpdateResult NoToken() =>
-        new(null, null, "Save a GitHub update token first.", false);
-
     public static PreparedUpdateResult NotInstalled() =>
         new(null, null, "Updates are available after installing OptiSensor with the Velopack Setup.exe.", false);
 

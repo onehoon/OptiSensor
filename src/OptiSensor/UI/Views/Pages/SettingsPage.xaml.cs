@@ -26,8 +26,6 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     public event EventHandler? OpenSettingsFolderRequested;
     public event EventHandler? HideRequested;
     public event EventHandler? ExitRequested;
-    public event EventHandler<string>? SaveGitHubTokenRequested;
-    public event EventHandler? RemoveGitHubTokenRequested;
     public event EventHandler? CheckForUpdatesRequested;
 
     internal event EventHandler? EditsChanged;
@@ -44,11 +42,6 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
             EditsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
-
-    // Credential input is intentionally separate from the AppSettings draft.
-    // It is saved explicitly to Credential Manager by the token action.
-    internal bool HasPendingCredentialInput =>
-        !string.IsNullOrEmpty(GitHubTokenPasswordBox.Password);
 
     internal void LoadSettings(AppSettings settings)
     {
@@ -134,13 +127,7 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
         HasUnsavedChanges = current != _baseline;
     }
 
-    internal void UpdateGitHubTokenState(bool hasToken, string? message = null)
-    {
-        GitHubTokenStateTextBlock.Text = message ?? (hasToken
-            ? "A token is stored in Windows Credential Manager. The update feed is not configured yet."
-            : "No token is stored. This is optional until a private update feed is configured.");
-        GitHubTokenPasswordBox.Password = string.Empty;
-    }
+    internal void SetUpdateStatus(string message) => UpdateStateTextBlock.Text = message;
 
     internal void SetUpdateCheckInProgress(bool isInProgress)
     {
@@ -165,16 +152,6 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     private void ExitButton_Click(object sender, RoutedEventArgs e)
     {
         ExitRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void SaveGitHubTokenButton_Click(object sender, RoutedEventArgs e)
-    {
-        SaveGitHubTokenRequested?.Invoke(this, GitHubTokenPasswordBox.Password);
-    }
-
-    private void RemoveGitHubTokenButton_Click(object sender, RoutedEventArgs e)
-    {
-        RemoveGitHubTokenRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
