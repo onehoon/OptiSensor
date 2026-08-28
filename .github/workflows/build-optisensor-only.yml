@@ -2,14 +2,6 @@ name: Build OptiSensor Only
 
 on:
   workflow_dispatch:
-    inputs:
-      edition:
-        description: "OptiSensor edition to release"
-        required: true
-        type: choice
-        options:
-          - desktop
-          - claw
 
 permissions:
   contents: write
@@ -20,40 +12,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Resolve edition
-        id: edition
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $edition = "${{ inputs.edition }}"
-
-          switch ($edition) {
-              "desktop" {
-                  $sourceRef = "main"
-                  $channel = "win"
-                  $editionTitle = "Desktop"
-              }
-              "claw" {
-                  $sourceRef = "claw"
-                  $channel = "claw"
-                  $editionTitle = "Claw"
-              }
-              default {
-                  throw "Unsupported edition: $edition"
-              }
-          }
-
-          "source_ref=$sourceRef" >> $env:GITHUB_OUTPUT
-          "channel=$channel" >> $env:GITHUB_OUTPUT
-          "edition_title=$editionTitle" >> $env:GITHUB_OUTPUT
-          Write-Host "Edition: $editionTitle"
-          Write-Host "Source ref: $sourceRef"
-          Write-Host "Channel: $channel"
-
       - name: Checkout OptiSensor
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.edition.outputs.source_ref }}
           fetch-depth: 0
 
       - name: Setup .NET
@@ -76,104 +37,128 @@ jobs:
           "tag=v$version" >> $env:GITHUB_OUTPUT
           Write-Host "OptiSensor version: $version"
 
-      - name: Restore
-        shell: pwsh
-        run: |
-          dotnet restore .\src\OptiSensor\OptiSensor.csproj `
-            --force-evaluate `
-            --no-http-cache
-
-      - name: Show resolved LibreHardwareMonitor version
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $assetsPath = ".\src\OptiSensor\obj\project.assets.json"
-          if (-not (Test-Path $assetsPath)) {
-            throw "OptiSensor project.assets.json was not produced by restore."
-          }
-
-          $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json
-          $resolved = $assets.libraries.PSObject.Properties.Name |
-            Where-Object { $_ -like "LibreHardwareMonitorLib/*" } |
-            Select-Object -First 1
-          if (-not $resolved) {
-            throw "LibreHardwareMonitorLib was not found in project.assets.json."
-          }
-
-          Write-Host "Resolved $resolved"
-
-      - name: Build OptiSensor
-        run: dotnet build .\src\OptiSensor\OptiSensor.csproj -c Release --no-restore -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }}.0 -p:FileVersion=${{ steps.version.outputs.version }}.0 -p:InformationalVersion=${{ steps.version.outputs.version }}
-
-      - name: Publish and package Velopack release
+      - name: Publish and package both editions
+        id: pack
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $version = "${{ steps.version.outputs.version }}"
-          $channel = "${{ steps.edition.outputs.channel }}"
-          $publishDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/publish"
-          $releaseDir = Join-Path $env:GITHUB_WORKSPACE ".artifacts/release"
-          dotnet publish .\src\OptiSensor\OptiSensor.csproj `
-            -c Release `
-            -r win-x64 `
-            --self-contained false `
-            -p:Version=$version `
-            -p:AssemblyVersion=$version.0 `
-            -p:FileVersion=$version.0 `
-            -p:InformationalVersion=$version `
-            -p:PublishSingleFile=true `
-            -p:PublishReadyToRun=false `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:DebugType=None `
-            -p:DebugSymbols=false `
-            -o $publishDir
+          $workspace = $env:GITHUB_WORKSPACE
+          $releaseDir = Join-Path $workspace ".artifacts/release"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
-          $exe = Join-Path $publishDir "OptiSensor.exe"
-          if (-not (Test-Path $exe)) { throw "OptiSensor.exe not found after publish." }
+          # One repository-wide version, published to both Velopack channels within a
+          # single GitHub Release so neither edition's update feed depends on the other
+          # edition having released within the last 10 GitHub Releases.
+          $editions = @(
+            [pscustomobject]@{ SourceRef = "main"; Channel = "win";  Title = "Desktop" },
+            [pscustomobject]@{ SourceRef = "claw"; Channel = "claw"; Title = "Claw" }
+          )
+
+          git fetch origin main claw --force
 
           dotnet tool install vpk --tool-path .tools --version 1.2.0
-          & ".\.tools\vpk.exe" pack `
-            --packId "OptiSensor" `
-            --packVersion $version `
-            --packDir $publishDir `
-            --mainExe "OptiSensor.exe" `
-            --packTitle "OptiSensor" `
-            --packAuthors "onehoon" `
-            --runtime "win-x64" `
-            --framework "net10-x64-desktop" `
-            --channel $channel `
-            --icon ".\src\OptiSensor\Assets\OptiSensor.ico" `
-            --outputDir $releaseDir
+
+          foreach ($edition in $editions) {
+            Write-Host "::group::Package $($edition.Title) ($($edition.SourceRef) -> channel $($edition.Channel))"
+
+            $work = Join-Path $workspace ".editions/$($edition.Channel)"
+            if (Test-Path $work) { git worktree remove --force $work }
+            git worktree add --force $work "origin/$($edition.SourceRef)"
+
+            $commit = (git -C $work rev-parse HEAD).Trim()
+            Write-Host "Edition: $($edition.Title)"
+            Write-Host "Source ref: $($edition.SourceRef)"
+            Write-Host "Channel: $($edition.Channel)"
+            Write-Host "Version: $version"
+            Write-Host "Commit: $commit"
+
+            $proj = Join-Path $work "src/OptiSensor/OptiSensor.csproj"
+            $publishDir = Join-Path $workspace ".artifacts/publish/$($edition.Channel)"
+
+            dotnet restore $proj --force-evaluate --no-http-cache
+
+            $assetsPath = Join-Path $work "src/OptiSensor/obj/project.assets.json"
+            if (-not (Test-Path $assetsPath)) {
+              throw "OptiSensor project.assets.json was not produced by restore for $($edition.Title)."
+            }
+            $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json
+            $resolved = $assets.libraries.PSObject.Properties.Name |
+              Where-Object { $_ -like "LibreHardwareMonitorLib/*" } |
+              Select-Object -First 1
+            if (-not $resolved) {
+              throw "LibreHardwareMonitorLib was not found in project.assets.json for $($edition.Title)."
+            }
+            Write-Host "Resolved $resolved"
+
+            dotnet build $proj -c Release --no-restore `
+              -p:Version=$version `
+              -p:AssemblyVersion=$version.0 `
+              -p:FileVersion=$version.0 `
+              -p:InformationalVersion=$version
+
+            dotnet publish $proj `
+              -c Release `
+              -r win-x64 `
+              --self-contained false `
+              -p:Version=$version `
+              -p:AssemblyVersion=$version.0 `
+              -p:FileVersion=$version.0 `
+              -p:InformationalVersion=$version `
+              -p:PublishSingleFile=true `
+              -p:PublishReadyToRun=false `
+              -p:IncludeNativeLibrariesForSelfExtract=true `
+              -p:DebugType=None `
+              -p:DebugSymbols=false `
+              -o $publishDir
+
+            $exe = Join-Path $publishDir "OptiSensor.exe"
+            if (-not (Test-Path $exe)) { throw "OptiSensor.exe not found after publish for $($edition.Title)." }
+
+            & ".\.tools\vpk.exe" pack `
+              --packId "OptiSensor" `
+              --packVersion $version `
+              --packDir $publishDir `
+              --mainExe "OptiSensor.exe" `
+              --packTitle "OptiSensor" `
+              --packAuthors "onehoon" `
+              --runtime "win-x64" `
+              --framework "net10-x64-desktop" `
+              --channel $edition.Channel `
+              --icon (Join-Path $work "src/OptiSensor/Assets/OptiSensor.ico") `
+              --outputDir $releaseDir
+
+            $feed = Join-Path $releaseDir "releases.$($edition.Channel).json"
+            if (-not (Test-Path $feed)) {
+              throw "Expected Velopack channel feed was not produced: $feed"
+            }
+            Write-Host "Verified channel feed: $feed"
+
+            git worktree remove --force $work
+            Write-Host "::endgroup::"
+          }
 
           if (-not (Get-ChildItem $releaseDir -Filter "*-Setup.exe" -File)) {
             throw "Velopack Setup.exe was not produced."
           }
-
-          $feed = Join-Path $releaseDir "releases.$channel.json"
-          if (-not (Test-Path $feed)) {
-            throw "Expected Velopack channel feed was not produced: $feed"
-          }
-          Write-Host "Verified channel feed: $feed"
 
       - name: Tag Velopack release
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $tag = "${{ steps.version.outputs.tag }}"
-          Write-Host "Edition: ${{ steps.edition.outputs.edition_title }}"
-          Write-Host "Source ref: ${{ steps.edition.outputs.source_ref }}"
-          Write-Host "Channel: ${{ steps.edition.outputs.channel }}"
           Write-Host "Version: ${{ steps.version.outputs.version }}"
-          Write-Host "Commit: $(git rev-parse HEAD)"
+          Write-Host "main commit: $(git rev-parse origin/main)"
+          Write-Host "claw commit: $(git rev-parse origin/claw)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a $tag -m "OptiSensor $tag"
+          git tag -a $tag -m "OptiSensor $tag" origin/main
           git push origin $tag
 
       - name: Publish GitHub Release feed
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: OptiSensor ${{ steps.edition.outputs.edition_title }} ${{ steps.version.outputs.tag }}
+          name: OptiSensor ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           files: .artifacts/release/*
