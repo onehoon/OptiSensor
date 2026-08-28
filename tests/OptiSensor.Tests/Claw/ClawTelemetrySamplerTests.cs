@@ -50,4 +50,20 @@ public class ClawTelemetrySamplerTests
         Assert.Equal(18, snapshot.CpuPackagePowerW);
         Assert.Equal(3540, snapshot.FanRpm);
     }
+
+    [Fact]
+    public void Latest_IsARetainedGetterThatReadingDoesNotMutate()
+    {
+        using var sampler = new ClawTelemetrySampler();
+
+        var first = sampler.Latest;
+        var second = sampler.Latest;
+
+        // A publish-only tick just reads Latest; repeated reads with no sampling in between
+        // return the same retained snapshot rather than a freshly re-sampled (possibly gapped) one.
+        Assert.Same(first, second);
+        Assert.Equal(
+            new ClawTelemetrySnapshot(null, null, null, null, null, null, null, null, null, null, null),
+            first);
+    }
 }

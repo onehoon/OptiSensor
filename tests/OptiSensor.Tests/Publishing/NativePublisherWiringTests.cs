@@ -61,6 +61,38 @@ public class NativePublisherWiringTests
     }
 
     [Fact]
+    public void SensorPublishService_SamplingAndPublishingAreIndependent()
+    {
+        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
+
+        // Publish loop reads the retained snapshot only - it must never re-sample.
+        var publishSessionStart = source.IndexOf("private async Task RunPublishSessionAsync", StringComparison.Ordinal);
+        var samplingLoopStart = source.IndexOf("private static async Task RunSamplingLoopAsync", StringComparison.Ordinal);
+        Assert.True(publishSessionStart >= 0 && samplingLoopStart > publishSessionStart);
+
+        var publishWhileStart = source.IndexOf("while (!cancellationToken.IsCancellationRequested)", publishSessionStart, StringComparison.Ordinal);
+        var publishBody = source[publishWhileStart..samplingLoopStart];
+        Assert.Contains("ClawTelemetryFormatter.Format(sampler.Latest)", publishBody);
+        Assert.DoesNotContain("sampler.SampleCore()", publishBody);
+        Assert.DoesNotContain("sampler.SampleBattery()", publishBody);
+
+        // The sampling loop is the only place Core/Battery are read after startup priming, and
+        // Battery runs at a multiple of the Core cadence - not at the publish cadence.
+        var samplingBody = source[samplingLoopStart..];
+        Assert.Contains("sampler.SampleCore();", samplingBody);
+        Assert.Contains("% BatterySampleEveryNCoreTicks == 0", samplingBody);
+        Assert.Contains("sampler.SampleBattery();", samplingBody);
+        Assert.DoesNotContain("_publishIntervalMs", samplingBody);
+
+        // Startup priming: immediate Core + Battery, then a warmed second Core sample.
+        var primingBody = source[publishSessionStart..publishWhileStart];
+        Assert.Contains("sampler.SampleCore();", primingBody);
+        Assert.Contains("sampler.SampleBattery();", primingBody);
+        Assert.Contains("Task.Delay(CoreSampleInterval", primingBody);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(primingBody, @"sampler\.SampleCore\(\);").Count);
+    }
+
+    [Fact]
     public void RepresentativeNativeLineFitsExternalOverlayProtocol()
     {
         var snapshot = new ClawTelemetrySnapshot(

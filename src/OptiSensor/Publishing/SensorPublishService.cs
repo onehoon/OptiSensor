@@ -20,6 +20,11 @@ internal sealed class SensorPublishService : IDisposable
     private bool _disposed;
     private int _publishIntervalMs = 500;
 
+    // Native read cadence is independent of the shared-memory publish cadence: Core sources
+    // every CoreSampleInterval, Battery every fifth Core tick (~5 s).
+    private static readonly TimeSpan CoreSampleInterval = TimeSpan.FromSeconds(1);
+    private const int BatterySampleEveryNCoreTicks = 5;
+
     public SensorPublishService()
     {
     }
@@ -140,27 +145,63 @@ internal sealed class SensorPublishService : IDisposable
         sampler.Initialize();
         publisher.Open();
 
+        // Immediate startup reads, then a second Core read after one interval so the Windows /
+        // IGCL rate counters are primed before normal publishing begins. Unavailable metrics do
+        // not gate this - whatever is present after priming is published.
+        sampler.SampleCore();
+        sampler.SampleBattery();
+        await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
+        sampler.SampleCore();
+
+        var samplingTask = RunSamplingLoopAsync(sampler, cancellationToken);
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                // Publish-only tick: read the retained latest snapshot, never re-sample here.
+                var line = ClawTelemetryFormatter.Format(sampler.Latest);
+
+                if (line.Length > 0)
+                {
+                    publisher.Publish(line);
+                    LastOverlayLine = line;
+                }
+                else
+                {
+                    // Every native metric unavailable: clear the external line, do not publish an
+                    // empty string, and do not keep the previous text as a stale-value cache.
+                    publisher.Clear();
+                    LastOverlayLine = null;
+                }
+
+                LastError = null;
+                OnStatusChanged();
+
+                await Task.Delay(Volatile.Read(ref _publishIntervalMs), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            try
+            {
+                await samplingTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+    }
+
+    private static async Task RunSamplingLoopAsync(ClawTelemetrySampler sampler, CancellationToken cancellationToken)
+    {
+        var coreTicks = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
-            var line = ClawTelemetryFormatter.Format(sampler.Sample());
+            await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
+            sampler.SampleCore();
 
-            if (line.Length > 0)
-            {
-                publisher.Publish(line);
-                LastOverlayLine = line;
-            }
-            else
-            {
-                // Every native metric unavailable: clear the external line, do not publish an
-                // empty string, and do not keep the previous text as a stale-value cache.
-                publisher.Clear();
-                LastOverlayLine = null;
-            }
-
-            LastError = null;
-            OnStatusChanged();
-
-            await Task.Delay(Volatile.Read(ref _publishIntervalMs), cancellationToken).ConfigureAwait(false);
+            if (++coreTicks % BatterySampleEveryNCoreTicks == 0)
+                sampler.SampleBattery();
         }
     }
 
