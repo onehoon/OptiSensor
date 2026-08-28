@@ -65,7 +65,7 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
 
         draft = new GeneralSettingsDraft(
             StartWithWindowsCheckBox.IsChecked == true,
-            Math.Clamp(publishIntervalMs, 100, 2000));
+            Math.Clamp(publishIntervalMs, 100, 1000));
         return true;
     }
 

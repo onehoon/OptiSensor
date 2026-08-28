@@ -84,6 +84,16 @@ public class NativePublisherWiringTests
     }
 
     [Fact]
+    public void PublishIntervalIsCappedAtTheExternalOverlayFreshnessMargin()
+    {
+        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
+
+        Assert.Contains("MaxPublishIntervalMs = 1000", source);
+        Assert.Contains("Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs)", source);
+        Assert.DoesNotContain("Math.Clamp(publishIntervalMs, 100, 2000)", source);
+    }
+
+    [Fact]
     public void RepresentativeNativeLineFitsExternalOverlayProtocol()
     {
         var line = ClawTelemetryFormatter.Format(new ClawTelemetrySnapshot(

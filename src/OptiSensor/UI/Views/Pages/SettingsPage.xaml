@@ -47,8 +47,6 @@
                               SelectedValuePath="Tag">
                         <ComboBoxItem Content="500ms" Tag="500"/>
                         <ComboBoxItem Content="1000ms" Tag="1000"/>
-                        <ComboBoxItem Content="1500ms" Tag="1500"/>
-                        <ComboBoxItem Content="2000ms" Tag="2000"/>
                     </ComboBox>
                 </Grid>
             </Border>

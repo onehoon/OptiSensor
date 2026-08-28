@@ -25,6 +25,11 @@ internal sealed class SensorPublishService : IDisposable
     private const long CoreSampleIntervalMs = 1000;
     private const long BatterySampleIntervalMs = 5000;
 
+    // Shared-memory publish cadence: capped at 1000 ms so a slow iteration cannot cross
+    // OptiScaler's 2 s external-overlay freshness window (protocol writer range is 100-1000 ms).
+    private const int MinPublishIntervalMs = 100;
+    private const int MaxPublishIntervalMs = 1000;
+
     public SensorPublishService()
     {
     }
@@ -44,7 +49,7 @@ internal sealed class SensorPublishService : IDisposable
 
     public void Start(int publishIntervalMs)
     {
-        Volatile.Write(ref _publishIntervalMs, Math.Clamp(publishIntervalMs, 100, 2000));
+        Volatile.Write(ref _publishIntervalMs, Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs));
 
         if (IsRunning)
             return;
@@ -64,7 +69,7 @@ internal sealed class SensorPublishService : IDisposable
     /// </summary>
     public void UpdatePublishInterval(int publishIntervalMs)
     {
-        var clamped = Math.Clamp(publishIntervalMs, 100, 2000);
+        var clamped = Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs);
         Volatile.Write(ref _publishIntervalMs, clamped);
         SimpleLog.TryWrite($"Publish interval updated to {clamped} ms.");
     }
