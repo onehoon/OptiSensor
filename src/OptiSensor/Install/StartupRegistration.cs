@@ -12,6 +12,7 @@ internal static class StartupRegistration
 {
     private const string TaskName = "OptiSensor";
     private const string StartupArgument = "--startup";
+    internal const string RequiredRunLevel = "HighestAvailable";
     private const int RestartCount = 3;
     private const int SchTasksTimeoutMs = 15000;
     private const string LegacyRunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -100,7 +101,7 @@ internal static class StartupRegistration
                    string.Equals(arguments?.Trim(), StartupArgument, StringComparison.OrdinalIgnoreCase) &&
                    PathsEqual(workingDirectory, expectedWorkingDirectory) &&
                    string.Equals(delay?.Trim(), "PT1M", StringComparison.OrdinalIgnoreCase) &&
-                   string.Equals(runLevel?.Trim(), "LeastPrivilege", StringComparison.OrdinalIgnoreCase);
+                   string.Equals(runLevel?.Trim(), RequiredRunLevel, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is XmlException or InvalidOperationException)
         {
@@ -157,7 +158,7 @@ internal static class StartupRegistration
                         new XAttribute("id", "Author"),
                         new XElement(ns + "UserId", currentUser),
                         new XElement(ns + "LogonType", "InteractiveToken"),
-                        new XElement(ns + "RunLevel", "LeastPrivilege"))),
+                        new XElement(ns + "RunLevel", RequiredRunLevel))),
                 new XElement(ns + "Settings",
                     new XElement(ns + "MultipleInstancesPolicy", "IgnoreNew"),
                     new XElement(ns + "DisallowStartIfOnBatteries", "false"),

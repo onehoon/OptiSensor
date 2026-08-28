@@ -12,6 +12,12 @@ public partial class App : System.Windows.Application
     {
         VelopackApp.Build().Run();
 
+        if (!ElevationGate.IsRunningAsAdministrator())
+        {
+            ElevationGate.TryRestartElevated(args);
+            return;
+        }
+
         var app = new App();
         app.InitializeComponent();
         app.Run();
