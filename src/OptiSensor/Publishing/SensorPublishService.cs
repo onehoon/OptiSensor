@@ -142,6 +142,11 @@ internal sealed class SensorPublishService : IDisposable
         using var sampler = new ClawTelemetrySampler();
         using var publisher = new ExternalOverlayPublisher();
 
+        // The sampling and publish loops are one publishing session: a fault or stop in either
+        // must end the other. sessionCts is cancelled when this session ends for any reason.
+        using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var sessionToken = sessionCts.Token;
+
         sampler.Initialize();
         publisher.Open();
 
@@ -150,14 +155,19 @@ internal sealed class SensorPublishService : IDisposable
         // not gate this - whatever is present after priming is published.
         sampler.SampleCore();
         sampler.SampleBattery();
-        await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
+        await Task.Delay(CoreSampleInterval, sessionToken).ConfigureAwait(false);
         sampler.SampleCore();
 
-        var samplingTask = RunSamplingLoopAsync(sampler, cancellationToken);
+        var samplingTask = RunSamplingLoopAsync(sampler, sessionToken);
         try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (!sessionToken.IsCancellationRequested)
             {
+                // Surface a sampling-loop fault into the session so RunLoop's 5-second recreate
+                // policy runs instead of publishing a frozen snapshot forever.
+                if (samplingTask.IsCompleted)
+                    await samplingTask.ConfigureAwait(false);
+
                 // Publish-only tick: read the retained latest snapshot, never re-sample here.
                 var line = ClawTelemetryFormatter.Format(sampler.Latest);
 
@@ -177,17 +187,24 @@ internal sealed class SensorPublishService : IDisposable
                 LastError = null;
                 OnStatusChanged();
 
-                await Task.Delay(Volatile.Read(ref _publishIntervalMs), cancellationToken).ConfigureAwait(false);
+                await Task.Delay(Volatile.Read(ref _publishIntervalMs), sessionToken).ConfigureAwait(false);
             }
         }
         finally
         {
+            // End the sibling loop so a publish-side fault can't leave the sampling loop running.
+            sessionCts.Cancel();
             try
             {
                 await samplingTask.ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (sessionCts.IsCancellationRequested)
             {
+            }
+            catch when (samplingTask.IsFaulted)
+            {
+                // A sampling fault already observed by the publish loop is the propagating
+                // exception; re-observing it here must not mask the original.
             }
         }
     }
@@ -195,13 +212,20 @@ internal sealed class SensorPublishService : IDisposable
     private static async Task RunSamplingLoopAsync(ClawTelemetrySampler sampler, CancellationToken cancellationToken)
     {
         var coreTicks = 0;
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
-            sampler.SampleCore();
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
+                sampler.SampleCore();
 
-            if (++coreTicks % BatterySampleEveryNCoreTicks == 0)
-                sampler.SampleBattery();
+                if (++coreTicks % BatterySampleEveryNCoreTicks == 0)
+                    sampler.SampleBattery();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal session end - the publish loop owns fault reporting.
         }
     }
 

@@ -70,7 +70,7 @@ public class NativePublisherWiringTests
         var samplingLoopStart = source.IndexOf("private static async Task RunSamplingLoopAsync", StringComparison.Ordinal);
         Assert.True(publishSessionStart >= 0 && samplingLoopStart > publishSessionStart);
 
-        var publishWhileStart = source.IndexOf("while (!cancellationToken.IsCancellationRequested)", publishSessionStart, StringComparison.Ordinal);
+        var publishWhileStart = source.IndexOf("while (!sessionToken.IsCancellationRequested)", publishSessionStart, StringComparison.Ordinal);
         var publishBody = source[publishWhileStart..samplingLoopStart];
         Assert.Contains("ClawTelemetryFormatter.Format(sampler.Latest)", publishBody);
         Assert.DoesNotContain("sampler.SampleCore()", publishBody);
@@ -90,6 +90,61 @@ public class NativePublisherWiringTests
         Assert.Contains("sampler.SampleBattery();", primingBody);
         Assert.Contains("Task.Delay(CoreSampleInterval", primingBody);
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(primingBody, @"sampler\.SampleCore\(\);").Count);
+    }
+
+    [Fact]
+    public void SensorPublishService_BothLoopsShareOneSessionLifecycle()
+    {
+        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
+
+        var sessionStart = source.IndexOf("private async Task RunPublishSessionAsync", StringComparison.Ordinal);
+        var sessionEnd = source.IndexOf("private static async Task RunSamplingLoopAsync", StringComparison.Ordinal);
+        var session = source[sessionStart..sessionEnd];
+
+        // One linked session token drives both loops.
+        Assert.Contains("CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)", session);
+        Assert.Contains("RunSamplingLoopAsync(sampler, sessionToken)", session);
+        Assert.Contains("Task.Delay(Volatile.Read(ref _publishIntervalMs), sessionToken)", session);
+        Assert.DoesNotContain("RunSamplingLoopAsync(sampler, cancellationToken)", session);
+
+        // A sampling-loop fault is observed by the publish loop (so RunLoop's retry runs)...
+        Assert.Contains("if (samplingTask.IsCompleted)", session);
+        Assert.Contains("await samplingTask", session);
+
+        // ...and a publish-side fault cancels the sampling loop instead of awaiting it forever.
+        var finallyIndex = session.LastIndexOf("finally", StringComparison.Ordinal);
+        var finallyBody = session[finallyIndex..];
+        Assert.Contains("sessionCts.Cancel();", finallyBody);
+        Assert.True(
+            finallyBody.IndexOf("sessionCts.Cancel();", StringComparison.Ordinal) <
+            finallyBody.IndexOf("await samplingTask", StringComparison.Ordinal),
+            "finally must cancel the session before awaiting the sampling task.");
+
+        // RunLoop still records LastError + waits 5 s + recreates on any session exception.
+        var runLoop = source[source.IndexOf("private async Task RunLoop", StringComparison.Ordinal)..sessionStart];
+        Assert.Contains("LastError = ex.Message;", runLoop);
+        Assert.Contains("Task.Delay(TimeSpan.FromSeconds(5)", runLoop);
+    }
+
+    [Fact]
+    public async Task SensorPublishService_StartsPublishesAndStopsCleanly()
+    {
+        // Real end-to-end lifecycle on Windows: PDH CPU + GlobalMemoryStatusEx RAM are available
+        // on any runner even without MSI EC / Intel GPU, and ExternalOverlayPublisher just writes
+        // a local memory-mapped file. Exercises the dual-loop coordination and teardown, no fakes.
+        using var service = new OptiSensor.Publishing.SensorPublishService();
+        service.Start(100);
+        Assert.True(service.IsRunning);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
+        while (DateTime.UtcNow < deadline && service.LastOverlayLine is null && service.LastError is null)
+            await Task.Delay(100);
+
+        Assert.Null(service.LastError);
+        Assert.False(string.IsNullOrEmpty(service.LastOverlayLine));
+
+        await service.StopAsync();
+        Assert.False(service.IsRunning);
     }
 
     [Fact]
