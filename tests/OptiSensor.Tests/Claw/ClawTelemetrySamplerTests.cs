@@ -67,42 +67,30 @@ public class ClawTelemetrySamplerTests
             first);
     }
 
-    // ---- per-field last-known-value merge (a valid value survives a later unavailable read) --
-
     [Fact]
-    public void MergeUsage_KeepsRetainedFieldWhenNewReadingIsUnavailable()
+    public void Compose_ScheduledUnavailableReadClearsThatSource()
     {
-        var retained = new WindowsUsageSnapshot(CpuUsagePercent: 40, SystemMemoryUsedBytes: 100, IntelGpuMemoryUsedBytes: 200);
+        // A scheduled read is authoritative: when IGCL / Windows power report unavailable, the
+        // composed snapshot drops those fields rather than showing the previous value forever.
+        var withGpuAndBattery = ClawTelemetrySampler.Compose(
+            usage: new WindowsUsageSnapshot(50, 100, 200),
+            power: new WindowsPowerSnapshot(72, 150, true),
+            ec: new MsiEcTelemetrySnapshot(67, null, null, 3540, 18),
+            gpu: new IgclGpuTelemetrySnapshot(98, 2300));
+        Assert.Equal(98, withGpuAndBattery.GpuUsagePercent);
+        Assert.Equal(72, withGpuAndBattery.BatteryPercent);
 
-        // New Core read: CPU present, RAM present-but-different, VRAM unavailable this cycle.
-        var merged = ClawTelemetrySampler.MergeUsage(
-            new WindowsUsageSnapshot(CpuUsagePercent: 55, SystemMemoryUsedBytes: 150, IntelGpuMemoryUsedBytes: null),
-            retained);
-
-        Assert.Equal(55, merged!.CpuUsagePercent);
-        Assert.Equal(150ul, merged.SystemMemoryUsedBytes);
-        Assert.Equal(200ul, merged.IntelGpuMemoryUsedBytes); // retained
-    }
-
-    [Fact]
-    public void MergeUsage_NullReadingKeepsWholeRetainedSnapshot()
-    {
-        var retained = new WindowsUsageSnapshot(CpuUsagePercent: 40, SystemMemoryUsedBytes: 100, IntelGpuMemoryUsedBytes: 200);
-        Assert.Same(retained, ClawTelemetrySampler.MergeUsage(null, retained));
-    }
-
-    [Fact]
-    public void MergeEc_KeepsRetainedFieldsForUnavailableReadings()
-    {
-        var retained = new MsiEcTelemetrySnapshot(CpuTempC: 67, Fan1Rpm: 3000, Fan2Rpm: 3100, HudFanRpm: 3050, CpuPackagePowerW: 18);
-
-        var merged = ClawTelemetrySampler.MergeEc(
-            new MsiEcTelemetrySnapshot(CpuTempC: 70, Fan1Rpm: null, Fan2Rpm: null, HudFanRpm: null, CpuPackagePowerW: 0),
-            retained);
-
-        Assert.Equal(70, merged.CpuTempC);
-        Assert.Equal(3050, merged.HudFanRpm);   // retained
-        Assert.Equal(0, merged.CpuPackagePowerW); // genuine 0 W is a valid reading, not "missing"
+        var afterLoss = ClawTelemetrySampler.Compose(
+            usage: new WindowsUsageSnapshot(50, 100, 200),
+            power: null,   // GetSystemPowerStatus failed this cycle
+            ec: new MsiEcTelemetrySnapshot(67, null, null, 3540, 18),
+            gpu: null);    // ctlPowerTelemetryGetV2 failed this cycle
+        Assert.Null(afterLoss.GpuUsagePercent);
+        Assert.Null(afterLoss.GpuClockMHz);
+        Assert.Null(afterLoss.BatteryPercent);
+        // Sources that still read fine are unaffected.
+        Assert.Equal(50, afterLoss.CpuUsagePercent);
+        Assert.Equal(67, afterLoss.CpuTemperatureC);
     }
 
     [Fact]
@@ -135,18 +123,4 @@ public class ClawTelemetrySamplerTests
 
     private static string RepoRoot([System.Runtime.CompilerServices.CallerFilePath] string thisFilePath = "")
         => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFilePath)!, "..", "..", ".."));
-
-    [Fact]
-    public void MergeGpu_KeepsRetainedUsageWhenNewSampleIsWarmingUp()
-    {
-        var retained = new IgclGpuTelemetrySnapshot(GpuUsagePercent: 90, GpuClockMHz: 2200);
-
-        // IGCL re-primed: clock present, usage null while it rebuilds its delta baseline.
-        var merged = ClawTelemetrySampler.MergeGpu(
-            new IgclGpuTelemetrySnapshot(GpuUsagePercent: null, GpuClockMHz: 2400),
-            retained);
-
-        Assert.Equal(90, merged!.GpuUsagePercent); // retained
-        Assert.Equal(2400, merged.GpuClockMHz);
-    }
 }
