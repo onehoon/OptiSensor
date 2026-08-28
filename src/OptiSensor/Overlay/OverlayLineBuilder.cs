@@ -69,7 +69,7 @@ internal sealed class OverlayLineBuilder
     private static IEnumerable<SelectedOverlaySensor> CreateDefaultGpuSelections(LibreSensorSnapshot snapshot)
     {
         var gpuSensors = snapshot.Sensors
-            .Where(sensor => SensorClassifier.IsGpuHardware(sensor.HardwareType))
+            .Where(sensor => sensor.HardwareType.Contains("Gpu", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         var temperature = PickSensor(gpuSensors, "Temperature", "GPU Core", "GPU Temperature", "Core");

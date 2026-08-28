@@ -2,7 +2,6 @@ using System.Windows;
 using OptiSensor.Install;
 using OptiSensor.HWiNFO;
 using OptiSensor.Models;
-using OptiSensor.Libre;
 using OptiSensor.Overlay;
 using OptiSensor.Publishing;
 using OptiSensor.Settings;
@@ -136,9 +135,7 @@ internal sealed class ApplicationHost : IDisposable
     {
         settings ??= AppSettings.LoadOrCreate();
 
-        ISensorReader sensorReader = settings.SensorSource == SensorSourceKind.HwInfo
-            ? new HwInfoSensorReader()
-            : new LibreSensorReader();
+        ISensorReader sensorReader = new HwInfoSensorReader();
         var outputComposer = new OverlayOutputComposer(new OverlayLineBuilder());
         return new SensorPublishRunner(
             sensorReader,
@@ -473,13 +470,6 @@ internal sealed class ApplicationHost : IDisposable
 
     private void StartSensorServices()
     {
-        if (_settings.SensorSource != SensorSourceKind.HwInfo)
-        {
-            StartPublishService();
-            _sensorStartupTask = Task.CompletedTask;
-            return;
-        }
-
         SimpleLog.TryWrite("HWiNFO startup and shared-memory readiness monitoring started.");
         _sensorStartupTask = StartHwInfoAndPublishWhenReadyAsync(_startupCancellationTokenSource.Token);
     }

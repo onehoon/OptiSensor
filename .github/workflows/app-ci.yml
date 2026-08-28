@@ -35,28 +35,6 @@ jobs:
             --force-evaluate `
             --no-http-cache
 
-      - name: Show resolved LibreHardwareMonitor version
-        id: libre
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $assetsPath = ".\src\OptiSensor\obj\project.assets.json"
-          if (-not (Test-Path $assetsPath)) {
-            throw "OptiSensor project.assets.json was not produced by restore."
-          }
-
-          $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json
-          $resolved = $assets.libraries.PSObject.Properties.Name |
-            Where-Object { $_ -like "LibreHardwareMonitorLib/*" } |
-            Select-Object -First 1
-          if (-not $resolved) {
-            throw "LibreHardwareMonitorLib was not found in project.assets.json."
-          }
-
-          $version = $resolved.Substring("LibreHardwareMonitorLib/".Length)
-          "version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Resolved $resolved"
-
       - name: Build tests (Release)
         run: dotnet build .\tests\OptiSensor.Tests\OptiSensor.Tests.csproj -c Release --no-restore
 
@@ -86,21 +64,3 @@ jobs:
           if (-not (Test-Path ".\.artifacts\publish-smoke\OptiSensor.exe")) {
             throw "OptiSensor.exe was not produced by publish smoke."
           }
-
-      - name: Write successful Libre build marker
-        if: github.event_name != 'pull_request'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path ".ci-state" | Out-Null
-          Set-Content `
-            -Path ".ci-state/libre-built.txt" `
-            -Value "${{ steps.libre.outputs.version }}" `
-            -NoNewline
-
-      - name: Record successful Libre build
-        if: github.event_name != 'pull_request'
-        uses: actions/cache/save@v6
-        with:
-          path: .ci-state/libre-built.txt
-          key: optisensor-libre-built-${{ steps.libre.outputs.version }}
-          enableCrossOsArchive: true

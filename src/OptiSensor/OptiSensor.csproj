@@ -38,7 +38,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.*-*" />
+    <!-- Claw does not use LibreHardwareMonitor. These sources are dead on this branch and are
+         excluded from compilation here; physical removal is a follow-up cleanup PR. -->
+    <Compile Remove="Libre\LibreSensorReader.cs" />
+    <Compile Remove="Libre\SensorClassifier.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Hwinfo.SharedMemory.Net" Version="4.0.0" />
     <PackageReference Include="System.Management" Version="10.0.11" />
     <PackageReference Include="Velopack" Version="1.2.0" />

@@ -2,7 +2,7 @@
 
 OptiSensor is a lightweight Windows hardware sensor helper for OptiScaler's external overlay.
 
-It reads local hardware sensor values with LibreHardwareMonitor and publishes a compact overlay line through the `Local\OptiScalerExternalOverlay` shared-memory mapping. A patched OptiScaler build appends the first UTF-8 line to its FPS overlay. The shared-memory payload format is fixed; only the text content is updated.
+It reads local hardware sensor values from HWiNFO shared memory and publishes a compact overlay line through the `Local\OptiScalerExternalOverlay` shared-memory mapping. A patched OptiScaler build appends the first UTF-8 line to its FPS overlay. The shared-memory payload format is fixed; only the text content is updated.
 
 Example overlay:
 
@@ -14,7 +14,7 @@ FPS: 111.0 | GPU 44C | 115W | 62%
 
 This branch (`main`) carries only the OptiSensor application source and its own CI:
 
-- `OptiSensor.exe`: a WPF tray helper with LibreHardwareMonitor sensor discovery, selected overlay sensor editing, and shared memory publishing.
+- `OptiSensor.exe`: a WPF tray helper with HWiNFO sensor discovery, selected overlay sensor editing, and shared memory publishing.
 - Velopack packaging: each manual OptiSensor CI build creates a current-user installer and automatically assigns the next `0.1.x` version and matching `v0.1.x` tag.
 
 The OptiScaler patch stack that reads this app's shared-memory feed, and the combined-package build that pairs a patched `OptiScaler.dll` with this app's installer, live on the version-specific `release/0.9`/`release/0.10` branches instead — see [Branch Layout](#branch-layout).
@@ -27,7 +27,7 @@ The helper source is organized under `src/OptiSensor` by role:
 App/         WPF startup coordination and single-instance lifetime
 Cli/         --once and --watch diagnostic commands
 Install/     LocalAppData data paths and Task Scheduler startup registration
-Libre/       LibreHardwareMonitor reading and sensor classification
+Libre/       Shared sensor snapshot/matcher models (HWiNFO-backed on this branch)
 Models/      Detected and selected sensor models
 Overlay/     Overlay line formatting and shared memory publishing
 Publishing/  Shared publish runner and background service
