@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - claw
   workflow_dispatch:
 
 permissions:
