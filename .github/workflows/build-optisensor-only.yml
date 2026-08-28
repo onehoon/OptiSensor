@@ -82,14 +82,17 @@ jobs:
             if (-not (Test-Path $assetsPath)) {
               throw "OptiSensor project.assets.json was not produced by restore for $($edition.Title)."
             }
-            $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json
-            $resolved = $assets.libraries.PSObject.Properties.Name |
-              Where-Object { $_ -like "LibreHardwareMonitorLib/*" } |
-              Select-Object -First 1
-            if (-not $resolved) {
-              throw "LibreHardwareMonitorLib was not found in project.assets.json for $($edition.Title)."
+            # Desktop (win channel) still ships LibreHardwareMonitor; Claw deliberately removed it.
+            if ($edition.Channel -eq "win") {
+              $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json
+              $resolved = $assets.libraries.PSObject.Properties.Name |
+                Where-Object { $_ -like "LibreHardwareMonitorLib/*" } |
+                Select-Object -First 1
+              if (-not $resolved) {
+                throw "LibreHardwareMonitorLib was not found in project.assets.json for $($edition.Title)."
+              }
+              Write-Host "Resolved $resolved"
             }
-            Write-Host "Resolved $resolved"
 
             dotnet build $proj -c Release --no-restore `
               -p:Version=$version `
