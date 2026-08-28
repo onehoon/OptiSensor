@@ -502,11 +502,9 @@ public partial class MainWindow : Window
 
             SimpleLog.TryWrite($"RefreshDetectedSensorsAsync failed: {ex.Message}");
             SimpleLog.TryWriteException(ex);
-            if (_settings.SensorSource == Models.SensorSourceKind.HwInfo)
-                _hwInfoSharedMemoryFailureCount++;
+            _hwInfoSharedMemoryFailureCount++;
 
-            var isHwInfoSharedMemoryFailure = _settings.SensorSource == Models.SensorSourceKind.HwInfo &&
-                _hwInfoSharedMemoryFailureCount >= 5 &&
+            var isHwInfoSharedMemoryFailure = _hwInfoSharedMemoryFailureCount >= 5 &&
                 !_hwInfoSharedMemoryWarningShown;
             if (isHwInfoSharedMemoryFailure)
             {
@@ -518,10 +516,6 @@ public partial class MainWindow : Window
                     "HWiNFO Shared Memory",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
-            }
-            else if (_settings.SensorSource != Models.SensorSourceKind.HwInfo)
-            {
-                System.Windows.MessageBox.Show(ex.Message, "OptiSensor", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }
@@ -590,9 +584,9 @@ public partial class MainWindow : Window
         UpdateStatus();
     }
 
-    private sealed record SaveSettingsResult(bool Success, bool SensorSourceChanged)
+    private sealed record SaveSettingsResult(bool Success)
     {
-        public static readonly SaveSettingsResult Failed = new(false, false);
+        public static readonly SaveSettingsResult Failed = new(false);
     }
 
     private bool IsDirty() => _viewModel.HasUnsavedChanges || (_settingsPage?.HasUnsavedChanges ?? false);
@@ -622,19 +616,7 @@ public partial class MainWindow : Window
 
     private void SaveSettings()
     {
-        var result = TrySaveSettings();
-        if (!result.Success)
-            return;
-
-        if (result.SensorSourceChanged)
-        {
-            System.Windows.MessageBox.Show(
-                "Sensor source was saved. OptiSensor will now close; start it again to apply the new source.",
-                "OptiSensor",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            _host.RequestExit();
-        }
+        _ = TrySaveSettings();
     }
 
     private bool TryGetGeneralSettingsDraft(out GeneralSettingsDraft? draft, out string? errorMessage)
@@ -644,7 +626,6 @@ public partial class MainWindow : Window
 
         draft = new GeneralSettingsDraft(
             _settings.StartWithWindows,
-            _settings.SensorSource,
             _settings.ClampedPublishIntervalMs);
         errorMessage = null;
         return true;
@@ -677,11 +658,8 @@ public partial class MainWindow : Window
             return SaveSettingsResult.Failed;
         }
 
-        var sensorSourceChanged = generalDraft!.SensorSource != _settings.SensorSource;
-
-        candidate.StartWithWindows = generalDraft.StartWithWindows;
+        candidate.StartWithWindows = generalDraft!.StartWithWindows;
         candidate.PublishIntervalMs = generalDraft.PublishIntervalMs;
-        candidate.SensorSource = generalDraft.SensorSource;
 
         try
         {
@@ -697,7 +675,7 @@ public partial class MainWindow : Window
             return SaveSettingsResult.Failed;
         }
 
-        _settings.ApplyFrom(candidate, preserveCurrentSensorSource: sensorSourceChanged);
+        _settings.ApplyFrom(candidate);
         _publishService.UpdatePublishInterval(_settings.ClampedPublishIntervalMs);
 
         var startupResult = _settings.StartWithWindows
@@ -717,7 +695,7 @@ public partial class MainWindow : Window
                 MessageBoxImage.Warning);
         }
 
-        return new SaveSettingsResult(true, sensorSourceChanged);
+        return new SaveSettingsResult(true);
     }
 
     private static void OpenSettingsFolder()

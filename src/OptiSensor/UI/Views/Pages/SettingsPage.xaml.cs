@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Windows;
 using OptiSensor.Settings;
-using OptiSensor.Models;
 
 namespace OptiSensor.UI.Views.Pages;
 
@@ -14,9 +13,7 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
     public SettingsPage()
     {
         InitializeComponent();
-        SensorSourceComboBox.ItemsSource = Enum.GetValues<SensorSourceKind>();
 
-        SensorSourceComboBox.SelectionChanged += OnSensorSourceSelectionChanged;
         StartWithWindowsCheckBox.Checked += OnStartWithWindowsChanged;
         StartWithWindowsCheckBox.Unchecked += OnStartWithWindowsChanged;
         PublishIntervalComboBox.SelectionChanged += OnPublishIntervalSelectionChanged;
@@ -45,17 +42,13 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
 
     internal void LoadSettings(AppSettings settings)
     {
-        LoadControls(settings.StartWithWindows, settings.SensorSource, settings.ClampedPublishIntervalMs);
+        LoadControls(settings.StartWithWindows, settings.ClampedPublishIntervalMs);
     }
 
-    /// <summary>
-    /// Re-baselines the controls to a draft that was just saved. Uses the draft
-    /// (not the live AppSettings) because the sensor source in the draft may not
-    /// yet match the live source when a source change requires an app restart.
-    /// </summary>
+    /// <summary>Re-baselines the controls to a draft that was just saved.</summary>
     internal void AcceptSavedDraft(GeneralSettingsDraft draft)
     {
-        LoadControls(draft.StartWithWindows, draft.SensorSource, draft.PublishIntervalMs);
+        LoadControls(draft.StartWithWindows, draft.PublishIntervalMs);
     }
 
     internal bool TryCreateDraft(out GeneralSettingsDraft? draft, out string? errorMessage)
@@ -70,26 +63,18 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
             return false;
         }
 
-        if (SensorSourceComboBox.SelectedItem is not SensorSourceKind sensorSource)
-        {
-            errorMessage = "Select a sensor source.";
-            return false;
-        }
-
         draft = new GeneralSettingsDraft(
             StartWithWindowsCheckBox.IsChecked == true,
-            sensorSource,
             Math.Clamp(publishIntervalMs, 100, 2000));
         return true;
     }
 
-    private void LoadControls(bool startWithWindows, SensorSourceKind sensorSource, int publishIntervalMs)
+    private void LoadControls(bool startWithWindows, int publishIntervalMs)
     {
         _isLoadingSettings = true;
         try
         {
             StartWithWindowsCheckBox.IsChecked = startWithWindows;
-            SensorSourceComboBox.SelectedItem = sensorSource;
             PublishIntervalComboBox.SelectedValue = publishIntervalMs.ToString(CultureInfo.InvariantCulture);
         }
         finally
@@ -97,11 +82,9 @@ public partial class SettingsPage : System.Windows.Controls.UserControl
             _isLoadingSettings = false;
         }
 
-        _baseline = new GeneralSettingsDraft(startWithWindows, sensorSource, publishIntervalMs);
+        _baseline = new GeneralSettingsDraft(startWithWindows, publishIntervalMs);
         HasUnsavedChanges = false;
     }
-
-    private void OnSensorSourceSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => RecalculateDirty();
 
     private void OnStartWithWindowsChanged(object sender, RoutedEventArgs e) => RecalculateDirty();
 

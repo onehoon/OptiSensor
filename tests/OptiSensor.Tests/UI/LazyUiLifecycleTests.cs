@@ -106,8 +106,7 @@ public sealed class LazyUiLifecycleTests
     {
         var settings = new AppSettings
         {
-            SensorSource = SensorSourceKind.Libre,
-            LibreProfile = new SensorSourceProfile
+            HwInfoProfile = new SensorSourceProfile
             {
                 OverlayGroups =
                 [
@@ -161,8 +160,7 @@ public sealed class LazyUiLifecycleTests
     {
         var settings = new AppSettings
         {
-            SensorSource = SensorSourceKind.Libre,
-            LibreProfile = new SensorSourceProfile
+            HwInfoProfile = new SensorSourceProfile
             {
                 OverlayGroups =
                 [

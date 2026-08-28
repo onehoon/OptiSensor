@@ -29,12 +29,6 @@ internal sealed class AppSettings
     [JsonPropertyName("publishIntervalMs")]
     public int PublishIntervalMs { get; set; } = 500;
 
-    [JsonPropertyName("sensorSource")]
-    public SensorSourceKind SensorSource { get; set; } = SensorSourceKind.HwInfo;
-
-    [JsonPropertyName("libreProfile")]
-    public SensorSourceProfile LibreProfile { get; set; } = new();
-
     [JsonPropertyName("hwInfoProfile")]
     public SensorSourceProfile HwInfoProfile { get; set; } = new();
 
@@ -60,7 +54,7 @@ internal sealed class AppSettings
         GetEnabledSelectedSensorsSnapshot();
 
     [JsonIgnore]
-    public SensorSourceProfile ActiveProfile => SensorSource == SensorSourceKind.HwInfo ? HwInfoProfile : LibreProfile;
+    public SensorSourceProfile ActiveProfile => HwInfoProfile;
 
     public static AppSettings LoadOrCreate()
     {
@@ -129,8 +123,6 @@ internal sealed class AppSettings
             normalized[filter.Key] = filter.Value;
 
         ActiveProfile.SensorCategoryFilters = normalized;
-        if (SensorSource == SensorSourceKind.Libre)
-            SensorCategoryFilters = normalized;
     }
 
     public IReadOnlyList<OverlayGroup> GetOverlayGroupsSnapshot()
@@ -168,14 +160,6 @@ internal sealed class AppSettings
                 .ToList();
             ActiveProfile.OverlayGroups = normalizedGroups;
             ActiveProfile.SelectedSensors = normalizedGroups.SelectMany(group => group.Sensors).Select(sensor => sensor.Copy()).ToList();
-            if (SensorSource == SensorSourceKind.Libre)
-                OverlayGroups = normalizedGroups;
-
-            lock (_selectedSensorsLock)
-            {
-                if (SensorSource == SensorSourceKind.Libre)
-                    SelectedSensors = ActiveProfile.SelectedSensors.Select(sensor => sensor.Copy()).ToList();
-            }
         }
     }
 
@@ -184,24 +168,19 @@ internal sealed class AppSettings
         return Deserialize(Serialize(this));
     }
 
-    public void ApplyFrom(AppSettings source, bool preserveCurrentSensorSource = false)
+    public void ApplyFrom(AppSettings source)
     {
         lock (_overlayGroupsLock)
         {
             lock (_selectedSensorsLock)
             {
-                var sensorSourceToKeep = SensorSource;
-
                 StartWithWindows = source.StartWithWindows;
                 StartMinimized = source.StartMinimized;
                 PublishIntervalMs = source.PublishIntervalMs;
-                LibreProfile = CopyProfile(source.LibreProfile);
                 HwInfoProfile = CopyProfile(source.HwInfoProfile);
                 SelectedSensors = source.SelectedSensors.Select(sensor => sensor.Copy()).ToList();
                 OverlayGroups = source.OverlayGroups.Select(group => group.Copy()).ToList();
                 SensorCategoryFilters = new Dictionary<OptiSensorCategory, bool>(source.SensorCategoryFilters);
-
-                SensorSource = preserveCurrentSensorSource ? sensorSourceToKeep : source.SensorSource;
             }
         }
     }
@@ -222,9 +201,7 @@ internal sealed class AppSettings
         settings.SelectedSensors ??= [];
         settings.OverlayGroups ??= [];
         settings.SensorCategoryFilters ??= [];
-        settings.LibreProfile ??= new();
         settings.HwInfoProfile ??= new();
-        NormalizeProfile(settings.LibreProfile);
         NormalizeProfile(settings.HwInfoProfile);
         if (settings.OverlayGroups.Count == 0 && settings.SelectedSensors.Count > 0)
         {
@@ -240,13 +217,6 @@ internal sealed class AppSettings
                 }
             ];
         }
-
-        if (settings.LibreProfile.OverlayGroups.Count == 0 && settings.OverlayGroups.Count > 0)
-            settings.LibreProfile.OverlayGroups = settings.OverlayGroups;
-        if (settings.LibreProfile.SelectedSensors.Count == 0 && settings.SelectedSensors.Count > 0)
-            settings.LibreProfile.SelectedSensors = settings.SelectedSensors;
-        if (settings.LibreProfile.SensorCategoryFilters.Count == 0 && settings.SensorCategoryFilters.Count > 0)
-            settings.LibreProfile.SensorCategoryFilters = settings.SensorCategoryFilters;
 
         return settings;
     }

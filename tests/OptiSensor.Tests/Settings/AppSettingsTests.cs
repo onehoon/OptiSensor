@@ -13,34 +13,27 @@ public class AppSettingsTests
         var original = new AppSettings
         {
             StartWithWindows = true,
-            PublishIntervalMs = 500,
-            SensorSource = SensorSourceKind.Libre
+            PublishIntervalMs = 500
         };
-        original.LibreProfile.OverlayGroups =
+        original.HwInfoProfile.OverlayGroups =
         [
             SensorFixture.CreateGroup("g1", "GPU", 0, true, SensorFixture.CreateSelectedSensor("gpu-temp", "GPU", "{0:0}°C", 0))
         ];
-        original.LibreProfile.SensorCategoryFilters[OptiSensorCategory.Gpu] = true;
-        original.HwInfoProfile.OverlayGroups =
-        [
-            SensorFixture.CreateGroup("g2", "CPU", 0, true, SensorFixture.CreateSelectedSensor("cpu-temp", "CPU", "{0:0}°C", 0))
-        ];
+        original.HwInfoProfile.SensorCategoryFilters[OptiSensorCategory.Gpu] = true;
 
         var copy = original.CreateCopy();
 
         // Mutate the copy's nested collections.
-        copy.LibreProfile.OverlayGroups[0].Name = "Mutated";
-        copy.LibreProfile.OverlayGroups[0].Sensors[0].DisplayName = "Mutated Sensor";
-        copy.LibreProfile.OverlayGroups.Add(SensorFixture.CreateGroup("new", "New", 1, true));
-        copy.LibreProfile.SensorCategoryFilters[OptiSensorCategory.Gpu] = false;
-        copy.HwInfoProfile.OverlayGroups.Clear();
+        copy.HwInfoProfile.OverlayGroups[0].Name = "Mutated";
+        copy.HwInfoProfile.OverlayGroups[0].Sensors[0].DisplayName = "Mutated Sensor";
+        copy.HwInfoProfile.OverlayGroups.Add(SensorFixture.CreateGroup("new", "New", 1, true));
+        copy.HwInfoProfile.SensorCategoryFilters[OptiSensorCategory.Gpu] = false;
         copy.PublishIntervalMs = 2000;
 
-        Assert.Equal("GPU", original.LibreProfile.OverlayGroups[0].Name);
-        Assert.Equal("GPU", original.LibreProfile.OverlayGroups[0].Sensors[0].DisplayName);
-        Assert.Single(original.LibreProfile.OverlayGroups);
-        Assert.True(original.LibreProfile.SensorCategoryFilters[OptiSensorCategory.Gpu]);
+        Assert.Equal("GPU", original.HwInfoProfile.OverlayGroups[0].Name);
+        Assert.Equal("GPU", original.HwInfoProfile.OverlayGroups[0].Sensors[0].DisplayName);
         Assert.Single(original.HwInfoProfile.OverlayGroups);
+        Assert.True(original.HwInfoProfile.SensorCategoryFilters[OptiSensorCategory.Gpu]);
         Assert.Equal(500, original.PublishIntervalMs);
     }
 
@@ -51,8 +44,7 @@ public class AppSettingsTests
         {
             StartWithWindows = false,
             StartMinimized = false,
-            PublishIntervalMs = 1500,
-            SensorSource = SensorSourceKind.HwInfo
+            PublishIntervalMs = 1500
         };
 
         var copy = original.CreateCopy();
@@ -60,50 +52,26 @@ public class AppSettingsTests
         Assert.False(copy.StartWithWindows);
         Assert.False(copy.StartMinimized);
         Assert.Equal(1500, copy.PublishIntervalMs);
-        Assert.Equal(SensorSourceKind.HwInfo, copy.SensorSource);
     }
 
     [Fact]
-    public void ApplyFrom_WithoutPreservingSensorSource_AppliesEverythingFromSource()
+    public void ApplyFrom_AppliesEverythingFromSource()
     {
-        var target = new AppSettings { SensorSource = SensorSourceKind.Libre, StartWithWindows = false, PublishIntervalMs = 500 };
-        var source = new AppSettings { SensorSource = SensorSourceKind.HwInfo, StartWithWindows = true, PublishIntervalMs = 1000 };
+        var target = new AppSettings { StartWithWindows = false, PublishIntervalMs = 500 };
+        var source = new AppSettings { StartWithWindows = true, PublishIntervalMs = 1000 };
         source.HwInfoProfile.OverlayGroups =
         [
             SensorFixture.CreateGroup("g1", "GPU", 0, true, SensorFixture.CreateSelectedSensor("gpu-temp", "GPU", "{0:0}°C", 0))
         ];
-        source.LibreProfile.OverlayGroups =
-        [
-            SensorFixture.CreateGroup("g2", "CPU", 0, true, SensorFixture.CreateSelectedSensor("cpu-temp", "CPU", "{0:0}°C", 0))
-        ];
 
-        target.ApplyFrom(source, preserveCurrentSensorSource: false);
+        target.ApplyFrom(source);
 
-        Assert.Equal(SensorSourceKind.HwInfo, target.SensorSource);
         Assert.True(target.StartWithWindows);
         Assert.Equal(1000, target.PublishIntervalMs);
         Assert.Equal("GPU", target.HwInfoProfile.OverlayGroups[0].Name);
-        Assert.Equal("CPU", target.LibreProfile.OverlayGroups[0].Name);
 
         // Deep copy: mutating source afterward must not affect target.
         source.HwInfoProfile.OverlayGroups[0].Name = "Mutated";
-        Assert.Equal("GPU", target.HwInfoProfile.OverlayGroups[0].Name);
-    }
-
-    [Fact]
-    public void ApplyFrom_PreservingSensorSource_KeepsLiveSourceButAppliesRestFromSource()
-    {
-        var target = new AppSettings { SensorSource = SensorSourceKind.Libre, PublishIntervalMs = 500 };
-        var source = new AppSettings { SensorSource = SensorSourceKind.HwInfo, PublishIntervalMs = 1000 };
-        source.HwInfoProfile.OverlayGroups =
-        [
-            SensorFixture.CreateGroup("g1", "GPU", 0, true, SensorFixture.CreateSelectedSensor("gpu-temp", "GPU", "{0:0}°C", 0))
-        ];
-
-        target.ApplyFrom(source, preserveCurrentSensorSource: true);
-
-        Assert.Equal(SensorSourceKind.Libre, target.SensorSource);
-        Assert.Equal(1000, target.PublishIntervalMs);
         Assert.Equal("GPU", target.HwInfoProfile.OverlayGroups[0].Name);
     }
 
@@ -123,7 +91,7 @@ public class AppSettingsTests
         source.SensorCategoryFilters[OptiSensorCategory.Cpu] = false;
         source.SensorCategoryFilters[OptiSensorCategory.Fan] = true;
 
-        target.ApplyFrom(source, preserveCurrentSensorSource: false);
+        target.ApplyFrom(source);
 
         Assert.False(target.StartMinimized);
         Assert.Equal("legacy-sensor", target.SelectedSensors[0].SensorId);
@@ -143,31 +111,9 @@ public class AppSettingsTests
     }
 
     [Fact]
-    public void ApplyFrom_PreserveSource_UsesCopiedProfileForPreservedActiveSource()
-    {
-        var target = new AppSettings { SensorSource = SensorSourceKind.Libre };
-        var source = new AppSettings { SensorSource = SensorSourceKind.HwInfo };
-        source.LibreProfile.OverlayGroups =
-        [
-            SensorFixture.CreateGroup("libre-group", "SourceLibre", 0, true)
-        ];
-        source.HwInfoProfile.OverlayGroups =
-        [
-            SensorFixture.CreateGroup("hwinfo-group", "SourceHwInfo", 0, true)
-        ];
-
-        target.ApplyFrom(source, preserveCurrentSensorSource: true);
-
-        // target.SensorSource stayed Libre, so its ActiveProfile snapshot must reflect
-        // source's *Libre* profile - not source's HwInfo (source's own active) profile.
-        Assert.Equal(SensorSourceKind.Libre, target.SensorSource);
-        Assert.Equal("SourceLibre", target.GetOverlayGroupsSnapshot()[0].Name);
-    }
-
-    [Fact]
     public void ReplaceOverlayGroups_UpdatesActiveProfileSelectedSensors()
     {
-        var settings = new AppSettings { SensorSource = SensorSourceKind.HwInfo };
+        var settings = new AppSettings();
         var sensorA = SensorFixture.CreateSelectedSensor("a", "A", "{0:0}", order: 5);
         var sensorB = SensorFixture.CreateSelectedSensor("b", "B", "{0:0}", order: 1);
         var group = SensorFixture.CreateGroup("g1", "Group", 0, true, sensorA, sensorB);
@@ -183,23 +129,9 @@ public class AppSettingsTests
     }
 
     [Fact]
-    public void ReplaceOverlayGroups_LibreSourceAlsoUpdatesLegacyTopLevelFields()
+    public void ReplaceOverlayGroups_DoesNotTouchLegacyTopLevelFields()
     {
-        var settings = new AppSettings { SensorSource = SensorSourceKind.Libre };
-        var sensor = SensorFixture.CreateSelectedSensor("libre-sensor", "Libre", "{0:0}", 0);
-        var group = SensorFixture.CreateGroup("libre-group", "LibreGroup", 0, true, sensor);
-
-        settings.ReplaceOverlayGroups([group]);
-
-        Assert.Equal("LibreGroup", settings.OverlayGroups[0].Name);
-        Assert.Single(settings.SelectedSensors);
-        Assert.Equal("libre-sensor", settings.SelectedSensors[0].SensorId);
-    }
-
-    [Fact]
-    public void ReplaceOverlayGroups_HwInfoSourceDoesNotTouchLegacyTopLevelFields()
-    {
-        var settings = new AppSettings { SensorSource = SensorSourceKind.HwInfo };
+        var settings = new AppSettings();
         var sensor = SensorFixture.CreateSelectedSensor("hwinfo-sensor", "HwInfo", "{0:0}", 0);
         var group = SensorFixture.CreateGroup("hwinfo-group", "HwInfoGroup", 0, true, sensor);
 
@@ -212,7 +144,7 @@ public class AppSettingsTests
     [Fact]
     public void ReplaceOverlayGroups_NormalizesOrderFromZeroSequentially()
     {
-        var settings = new AppSettings { SensorSource = SensorSourceKind.HwInfo };
+        var settings = new AppSettings();
         var sensorA = SensorFixture.CreateSelectedSensor("a", "A", "{0:0}", order: 7);
         var sensorB = SensorFixture.CreateSelectedSensor("b", "B", "{0:0}", order: 3);
         var groupHigh = SensorFixture.CreateGroup("g-high", "High", order: 9, enabled: true, sensorA, sensorB);
@@ -234,7 +166,7 @@ public class AppSettingsTests
     [Fact]
     public void ReplaceOverlayGroups_MutatingInputAfterCallDoesNotAffectStoredSnapshot()
     {
-        var settings = new AppSettings { SensorSource = SensorSourceKind.HwInfo };
+        var settings = new AppSettings();
         var group = SensorFixture.CreateGroup("g1", "Original", 0, true);
 
         settings.ReplaceOverlayGroups([group]);
@@ -245,19 +177,19 @@ public class AppSettingsTests
     }
 
     [Fact]
-    public void LibreAndHwInfoProfiles_RemainIsolatedFromEachOther()
+    public void Deserialize_ToleratesObsoleteLibreProfileProperty()
     {
-        var settings = new AppSettings { SensorSource = SensorSourceKind.Libre };
-        settings.ReplaceOverlayGroups([SensorFixture.CreateGroup("libre-group", "LibreGroup", 0, true)]);
+        const string json = """
+        {
+          "sensorSource": "Libre",
+          "libreProfile": { "overlayGroups": [], "selectedSensors": [], "sensorCategoryFilters": {} },
+          "hwInfoProfile": { "overlayGroups": [], "selectedSensors": [], "sensorCategoryFilters": {} }
+        }
+        """;
 
-        settings.SensorSource = SensorSourceKind.HwInfo;
-        settings.ReplaceOverlayGroups([SensorFixture.CreateGroup("hwinfo-group", "HwInfoGroup", 0, true)]);
+        var settings = AppSettings.Deserialize(json);
 
-        Assert.Equal("HwInfoGroup", settings.GetOverlayGroupsSnapshot()[0].Name);
-        Assert.Equal("LibreGroup", settings.LibreProfile.OverlayGroups[0].Name);
-        Assert.Equal("HwInfoGroup", settings.HwInfoProfile.OverlayGroups[0].Name);
-
-        settings.SensorSource = SensorSourceKind.Libre;
-        Assert.Equal("LibreGroup", settings.GetOverlayGroupsSnapshot()[0].Name);
+        Assert.NotNull(settings);
+        Assert.NotNull(settings.HwInfoProfile);
     }
 }

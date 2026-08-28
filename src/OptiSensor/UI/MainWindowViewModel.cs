@@ -74,9 +74,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public int TotalSelectedSensorCount => OverlayGroups.Sum(group => group.Sensors.Count);
     public int OverlayGroupCount => VisibleOverlayGroups.Count;
     public string SettingsStateText => HasUnsavedChanges ? "Unsaved changes" : "Saved";
-    public string SensorsTitle => _settings.SensorSource == SensorSourceKind.HwInfo
-        ? "Sensors (HWiNFO)"
-        : "Sensors (Libre)";
+    public string SensorsTitle => "Sensors (HWiNFO)";
 
     public OverlayGroupViewModel? SelectedOverlayGroup
     {
@@ -142,7 +140,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             }
 
             var useFastStart = !_initialSensorRefreshCompleted;
-            var discoveryService = _sensorDiscoveryService ??= new SensorDiscoveryService(_settings.SensorSource);
+            var discoveryService = _sensorDiscoveryService ??= new SensorDiscoveryService();
             var snapshot = await Task.Run(
                 () => discoveryService.Discover(includedCategories.ToArray(), fastStart: useFastStart),
                 cancellationToken).ConfigureAwait(true);

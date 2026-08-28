@@ -1,6 +1,5 @@
 using System.Text.Json;
 using OptiSensor.Install;
-using OptiSensor.Models;
 
 namespace OptiSensor.Settings;
 
@@ -19,21 +18,20 @@ internal static class SettingsStore
             var settings = AppSettings.Deserialize(json);
             settings.PublishIntervalMs = Math.Clamp(settings.PublishIntervalMs, 100, 2000);
 
-            var selectedSource = settings.SensorSource;
-            settings.SensorSource = SensorSourceKind.Libre;
-
-            if (settings.OverlayGroups.Count > 0)
+            // Legacy migration: older files kept overlay config in top-level properties
+            // (or, before Claw became single-source, in a separate Libre profile). Only
+            // seed the HWiNFO profile from them when it has no data of its own.
+            if (settings.HwInfoProfile.OverlayGroups.Count == 0 &&
+                settings.HwInfoProfile.SelectedSensors.Count == 0)
             {
-                settings.ReplaceOverlayGroups(settings.OverlayGroups);
-            }
-            else
-            {
-                // Legacy migration path: older files may only contain selectedSensors.
-                settings.ReplaceSelectedSensors(settings.SelectedSensors ?? []);
+                if (settings.OverlayGroups.Count > 0)
+                    settings.ReplaceOverlayGroups(settings.OverlayGroups);
+                else
+                    settings.ReplaceSelectedSensors(settings.SelectedSensors ?? []);
+
+                settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
             }
 
-            settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
-            settings.SensorSource = selectedSource;
             return settings;
         }
         catch (JsonException)
