@@ -39,21 +39,60 @@ internal sealed class ClawTelemetrySampler : IDisposable
     /// <summary>
     /// Core read: MSI EC (CPU temp / TDP / fan) + Windows CPU usage / RAM / Intel GPU memory +
     /// IGCL GPU usage / clock. Intended cadence ~1000 ms. Windows/IGCL rate counters need a
-    /// second Core sample after the first to warm up.
+    /// second Core sample after the first to warm up. A field is only replaced when this read
+    /// produced a new valid value - an unavailable field keeps its last-known value.
     /// </summary>
     public void SampleCore()
     {
-        _usage = _windowsUsage.Sample();
-        _ec = _msiEc.ReadSnapshot();
-        _gpu = _igclGpu.Sample();
+        _usage = MergeUsage(_windowsUsage.Sample(), _usage);
+        _ec = MergeEc(_msiEc.ReadSnapshot(), _ec);
+        _gpu = MergeGpu(_igclGpu.Sample(), _gpu);
         Recompose();
     }
 
     /// <summary>Battery read (percent / on-battery / remaining time). Intended cadence ~5000 ms.</summary>
     public void SampleBattery()
     {
-        _power = WindowsPowerTelemetry.Read();
+        // WindowsPowerSnapshot fields move together, so a successful read replaces it wholesale;
+        // a failed GetSystemPowerStatus (null) keeps the last-known battery state.
+        if (WindowsPowerTelemetry.Read() is { } power)
+            _power = power;
+
         Recompose();
+    }
+
+    // Merge = per-field last-known-value: a new valid reading wins, otherwise the retained value
+    // is kept. A genuine numeric 0 is a valid reading and is not treated as "missing".
+
+    internal static WindowsUsageSnapshot? MergeUsage(WindowsUsageSnapshot? incoming, WindowsUsageSnapshot? retained)
+    {
+        if (incoming is null)
+            return retained;
+
+        return new WindowsUsageSnapshot(
+            CpuUsagePercent: incoming.CpuUsagePercent ?? retained?.CpuUsagePercent,
+            SystemMemoryUsedBytes: incoming.SystemMemoryUsedBytes ?? retained?.SystemMemoryUsedBytes,
+            IntelGpuMemoryUsedBytes: incoming.IntelGpuMemoryUsedBytes ?? retained?.IntelGpuMemoryUsedBytes);
+    }
+
+    internal static MsiEcTelemetrySnapshot MergeEc(MsiEcTelemetrySnapshot incoming, MsiEcTelemetrySnapshot retained)
+    {
+        return new MsiEcTelemetrySnapshot(
+            CpuTempC: incoming.CpuTempC ?? retained.CpuTempC,
+            Fan1Rpm: incoming.Fan1Rpm ?? retained.Fan1Rpm,
+            Fan2Rpm: incoming.Fan2Rpm ?? retained.Fan2Rpm,
+            HudFanRpm: incoming.HudFanRpm ?? retained.HudFanRpm,
+            CpuPackagePowerW: incoming.CpuPackagePowerW ?? retained.CpuPackagePowerW);
+    }
+
+    internal static IgclGpuTelemetrySnapshot? MergeGpu(IgclGpuTelemetrySnapshot? incoming, IgclGpuTelemetrySnapshot? retained)
+    {
+        if (incoming is null)
+            return retained;
+
+        return new IgclGpuTelemetrySnapshot(
+            GpuUsagePercent: incoming.GpuUsagePercent ?? retained?.GpuUsagePercent,
+            GpuClockMHz: incoming.GpuClockMHz ?? retained?.GpuClockMHz);
     }
 
     private void Recompose() =>

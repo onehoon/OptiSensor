@@ -20,10 +20,15 @@ internal sealed class SensorPublishService : IDisposable
     private bool _disposed;
     private int _publishIntervalMs = 500;
 
-    // Native read cadence is independent of the shared-memory publish cadence: Core sources
-    // every CoreSampleInterval, Battery every fifth Core tick (~5 s).
-    private static readonly TimeSpan CoreSampleInterval = TimeSpan.FromSeconds(1);
-    private const int BatterySampleEveryNCoreTicks = 5;
+    // Native read cadence is scheduled independently of the shared-memory publish cadence, and
+    // Core and Battery are scheduled independently of each other by monotonic due-times.
+    private const long CoreSampleIntervalMs = 1000;
+    private const long BatterySampleIntervalMs = 5000;
+
+    // OptiScaler drops an external line older than 2 s, so the effective Claw publish cadence is
+    // capped below that with margin for scheduler/read jitter (the protocol asks for 100-1000 ms).
+    private const int MinPublishIntervalMs = 100;
+    private const int MaxPublishIntervalMs = 1000;
 
     public SensorPublishService()
     {
@@ -44,7 +49,7 @@ internal sealed class SensorPublishService : IDisposable
 
     public void Start(int publishIntervalMs)
     {
-        Volatile.Write(ref _publishIntervalMs, Math.Clamp(publishIntervalMs, 100, 2000));
+        Volatile.Write(ref _publishIntervalMs, Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs));
 
         if (IsRunning)
             return;
@@ -64,7 +69,7 @@ internal sealed class SensorPublishService : IDisposable
     /// </summary>
     public void UpdatePublishInterval(int publishIntervalMs)
     {
-        var clamped = Math.Clamp(publishIntervalMs, 100, 2000);
+        var clamped = Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs);
         Volatile.Write(ref _publishIntervalMs, clamped);
         SimpleLog.TryWrite($"Publish interval updated to {clamped} ms.");
     }
@@ -155,12 +160,19 @@ internal sealed class SensorPublishService : IDisposable
         // Immediate startup reads, then a second Core read after one interval so the Windows /
         // IGCL rate counters are primed before normal publishing begins. Unavailable metrics do
         // not gate this - whatever is present after priming is published.
+        var startedAtMs = Environment.TickCount64;
         sampler.SampleCore();
         sampler.SampleBattery();
-        await Task.Delay(CoreSampleInterval, sessionToken).ConfigureAwait(false);
+        await DelayUntilAsync(startedAtMs + CoreSampleIntervalMs, sessionToken).ConfigureAwait(false);
         sampler.SampleCore();
 
-        var samplingTask = RunSamplingLoopAsync(sampler, sessionToken);
+        // Core resumes one interval after the warm-up sample; Battery is due one full interval
+        // after its startup sample - each on its own monotonic schedule, not chained to the other.
+        var samplingTask = RunSamplingLoopAsync(
+            sampler,
+            nextCoreDueMs: startedAtMs + (2 * CoreSampleIntervalMs),
+            nextBatteryDueMs: startedAtMs + BatterySampleIntervalMs,
+            sessionToken);
         try
         {
             while (!sessionToken.IsCancellationRequested)
@@ -215,20 +227,45 @@ internal sealed class SensorPublishService : IDisposable
         }
     }
 
-    private static async Task RunSamplingLoopAsync(ClawTelemetrySampler sampler, CancellationToken cancellationToken)
+    /// <summary>
+    /// One sampling loop, two independent monotonic schedules. Runs until the session token is
+    /// cancelled (task ends Canceled) or a native read throws (task ends Faulted); either way the
+    /// publish loop observes completion and ends the session, then separates cancellation from
+    /// fault during cleanup. Due-times advance by whole intervals and skip past any that already
+    /// elapsed, so a slow read shifts the next read but does not accumulate drift.
+    /// </summary>
+    private static async Task RunSamplingLoopAsync(
+        ClawTelemetrySampler sampler,
+        long nextCoreDueMs,
+        long nextBatteryDueMs,
+        CancellationToken cancellationToken)
     {
-        // Runs until the session token is cancelled (task ends Canceled) or a native read throws
-        // (task ends Faulted). Either way the publish loop observes completion and ends the
-        // session; RunPublishSessionAsync's finally sorts the cancellation case from the fault.
-        var coreTicks = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
-            await Task.Delay(CoreSampleInterval, cancellationToken).ConfigureAwait(false);
-            sampler.SampleCore();
+            var now = Environment.TickCount64;
+            if (now >= nextCoreDueMs)
+            {
+                sampler.SampleCore();
+                do { nextCoreDueMs += CoreSampleIntervalMs; }
+                while (nextCoreDueMs <= now);
+            }
 
-            if (++coreTicks % BatterySampleEveryNCoreTicks == 0)
+            now = Environment.TickCount64;
+            if (now >= nextBatteryDueMs)
+            {
                 sampler.SampleBattery();
+                do { nextBatteryDueMs += BatterySampleIntervalMs; }
+                while (nextBatteryDueMs <= now);
+            }
+
+            await DelayUntilAsync(Math.Min(nextCoreDueMs, nextBatteryDueMs), cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static Task DelayUntilAsync(long dueMs, CancellationToken cancellationToken)
+    {
+        var delayMs = Math.Max(1L, dueMs - Environment.TickCount64);
+        return Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
     }
 
     private void OnStatusChanged()

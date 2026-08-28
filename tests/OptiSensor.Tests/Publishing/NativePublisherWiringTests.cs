@@ -76,11 +76,15 @@ public class NativePublisherWiringTests
         Assert.DoesNotContain("sampler.SampleCore()", publishBody);
         Assert.DoesNotContain("sampler.SampleBattery()", publishBody);
 
-        // The sampling loop is the only place Core/Battery are read after startup priming, and
-        // Battery runs at a multiple of the Core cadence - not at the publish cadence.
-        var samplingBody = source[samplingLoopStart..];
+        // The sampling loop is the only place Core/Battery are read after startup priming. Core
+        // and Battery are on independent monotonic schedules, and neither is tied to the publish
+        // cadence (the loop never reads _publishIntervalMs).
+        var samplingBody = source[samplingLoopStart..source.IndexOf("private static Task DelayUntilAsync", StringComparison.Ordinal)];
+        Assert.Contains("now >= nextCoreDueMs", samplingBody);
+        Assert.Contains("nextCoreDueMs += CoreSampleIntervalMs", samplingBody);
+        Assert.Contains("now >= nextBatteryDueMs", samplingBody);
+        Assert.Contains("nextBatteryDueMs += BatterySampleIntervalMs", samplingBody);
         Assert.Contains("sampler.SampleCore();", samplingBody);
-        Assert.Contains("% BatterySampleEveryNCoreTicks == 0", samplingBody);
         Assert.Contains("sampler.SampleBattery();", samplingBody);
         Assert.DoesNotContain("_publishIntervalMs", samplingBody);
 
@@ -88,7 +92,7 @@ public class NativePublisherWiringTests
         var primingBody = source[publishSessionStart..publishWhileStart];
         Assert.Contains("sampler.SampleCore();", primingBody);
         Assert.Contains("sampler.SampleBattery();", primingBody);
-        Assert.Contains("Task.Delay(CoreSampleInterval", primingBody);
+        Assert.Contains("DelayUntilAsync(startedAtMs + CoreSampleIntervalMs", primingBody);
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(primingBody, @"sampler\.SampleCore\(\);").Count);
     }
 
@@ -103,9 +107,14 @@ public class NativePublisherWiringTests
 
         // One linked session token drives both loops.
         Assert.Contains("CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)", session);
-        Assert.Contains("RunSamplingLoopAsync(sampler, sessionToken)", session);
+        var samplingStartCall = session[session.IndexOf("var samplingTask = RunSamplingLoopAsync(", StringComparison.Ordinal)..];
+        samplingStartCall = samplingStartCall[..samplingStartCall.IndexOf(';')];
+        Assert.Contains("sampler,", samplingStartCall);
+        Assert.Contains("nextCoreDueMs:", samplingStartCall);
+        Assert.Contains("nextBatteryDueMs:", samplingStartCall);
+        Assert.Contains("sessionToken", samplingStartCall);
+        Assert.DoesNotContain("cancellationToken", samplingStartCall);
         Assert.Contains("Task.Delay(Volatile.Read(ref _publishIntervalMs), sessionToken)", session);
-        Assert.DoesNotContain("RunSamplingLoopAsync(sampler, cancellationToken)", session);
 
         // Any sampling-loop stop (fault OR unexpected clean exit) ends the publish session so
         // RunLoop's retry runs - a completed sampling task is never silently ignored.
@@ -134,6 +143,16 @@ public class NativePublisherWiringTests
         Assert.Contains("catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)", runLoop);
         Assert.Contains("LastError = ex.Message;", runLoop);
         Assert.Contains("Task.Delay(TimeSpan.FromSeconds(5)", runLoop);
+    }
+
+    [Fact]
+    public void SensorPublishService_CapsPublishIntervalBelowOptiScalerFreshnessWindow()
+    {
+        var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
+
+        Assert.Contains("MaxPublishIntervalMs = 1000", source);
+        Assert.Contains("Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs)", source);
+        Assert.DoesNotContain("Math.Clamp(publishIntervalMs, 100, 2000)", source);
     }
 
     [Fact]

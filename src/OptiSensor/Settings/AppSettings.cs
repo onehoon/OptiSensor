@@ -47,7 +47,9 @@ internal sealed class AppSettings
     public bool IntelVrrRangeFixEnabled { get; set; }
 
     [JsonIgnore]
-    public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 2000);
+    // Capped at 1000 ms: OptiScaler expires an external-overlay line after 2 s, and the runtime
+    // publisher (SensorPublishService) enforces the same ceiling.
+    public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 1000);
 
     [JsonIgnore]
     public IReadOnlyList<SelectedOverlaySensor> EnabledSelectedSensors =>

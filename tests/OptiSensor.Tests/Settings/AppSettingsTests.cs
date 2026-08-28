@@ -7,6 +7,17 @@ namespace OptiSensor.Tests.Settings;
 
 public class AppSettingsTests
 {
+    [Theory]
+    [InlineData(50, 100)]
+    [InlineData(500, 500)]
+    [InlineData(1000, 1000)]
+    [InlineData(1500, 1000)]
+    [InlineData(2000, 1000)]
+    public void ClampedPublishIntervalMs_CapsBetween100And1000(int raw, int expected)
+    {
+        Assert.Equal(expected, new AppSettings { PublishIntervalMs = raw }.ClampedPublishIntervalMs);
+    }
+
     [Fact]
     public void CreateCopy_MutatingCopyDoesNotAffectOriginal()
     {
