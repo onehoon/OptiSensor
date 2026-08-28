@@ -223,16 +223,28 @@ public sealed class LazyUiLifecycleTests
     }
 
     [Fact]
-    public void PendingCredentialInputPreservesUiSessionWithoutJoiningSettingsSaveDraft()
+    public void PublicUpdatesDoNotRequireTokenStateOrCredentialInput()
     {
         var mainWindow = ReadSource(Path.Combine("UI", "MainWindow.xaml.cs"));
         var settingsPage = ReadSource(Path.Combine("UI", "Views", "Pages", "SettingsPage.xaml.cs"));
+        var settingsPageMarkup = ReadSource(Path.Combine("UI", "Views", "Pages", "SettingsPage.xaml"));
+        var updateService = ReadSource(Path.Combine("Updates", "GitHubUpdateService.cs"));
         var host = ReadSource(Path.Combine("App", "ApplicationHost.cs"));
 
-        Assert.Contains("internal bool HasPendingCredentialInput", settingsPage);
-        Assert.Contains("GitHubTokenPasswordBox.Password", settingsPage);
+        Assert.DoesNotContain("HasPendingCredentialInput", settingsPage);
+        Assert.DoesNotContain("GitHubToken", settingsPage);
+        Assert.DoesNotContain("GitHubToken", settingsPageMarkup);
+        Assert.DoesNotContain("Credential Manager", settingsPageMarkup);
+        Assert.Contains("Text=\"Updates\"", settingsPageMarkup);
+        Assert.Contains("Content=\"Check for updates\"", settingsPageMarkup);
+        Assert.Contains("new GithubSource(RepositoryUrl, null, prerelease: false)", updateService);
+        Assert.DoesNotContain("GitHubTokenStore", updateService);
+        Assert.DoesNotContain("NoToken", updateService);
         Assert.Contains("internal bool ShouldPreserveSessionOnHide", mainWindow);
-        Assert.Contains("_settingsPage?.HasPendingCredentialInput ?? false", mainWindow);
+        Assert.Contains("internal bool ShouldPreserveSessionOnHide => IsDirty();", mainWindow);
+        Assert.DoesNotContain("HasPendingCredentialInput", mainWindow);
+        Assert.DoesNotContain("SaveGitHubToken", mainWindow);
+        Assert.DoesNotContain("RemoveGitHubToken", mainWindow);
         Assert.Contains("window.ShouldPreserveSessionOnHide", host);
 
         var isDirtyStart = mainWindow.IndexOf("private bool IsDirty()", StringComparison.Ordinal);

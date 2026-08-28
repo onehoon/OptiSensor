@@ -220,13 +220,10 @@ public partial class MainWindow : Window
 
         var page = new SettingsPage { DataContext = _viewModel };
         page.LoadSettings(_settings);
-        page.UpdateGitHubTokenState(GitHubTokenStore.HasToken());
         page.SaveRequested += (_, _) => SaveSettings();
         page.OpenSettingsFolderRequested += (_, _) => OpenSettingsFolder();
         page.HideRequested += (_, _) => _host.RequestHideMainWindow();
         page.ExitRequested += (_, _) => _host.RequestExit();
-        page.SaveGitHubTokenRequested += (_, token) => SaveGitHubToken(token);
-        page.RemoveGitHubTokenRequested += (_, _) => RemoveGitHubToken();
         page.CheckForUpdatesRequested += SettingsPage_CheckForUpdatesRequested;
         page.EditsChanged += SettingsPage_EditsChanged;
         return _settingsPage = page;
@@ -234,8 +231,7 @@ public partial class MainWindow : Window
 
     internal bool HasUnsavedChanges => IsDirty();
 
-    internal bool ShouldPreserveSessionOnHide =>
-        IsDirty() || (_settingsPage?.HasPendingCredentialInput ?? false);
+    internal bool ShouldPreserveSessionOnHide => IsDirty();
 
     internal void HidePreservingSession()
     {
@@ -734,28 +730,6 @@ public partial class MainWindow : Window
         });
     }
 
-    private void SaveGitHubToken(string token)
-    {
-        if (!GitHubTokenStore.Save(token, out var errorMessage))
-        {
-            _settingsPage?.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
-            return;
-        }
-
-        _settingsPage?.UpdateGitHubTokenState(true, "Token saved in Windows Credential Manager. The update feed is not configured yet.");
-    }
-
-    private void RemoveGitHubToken()
-    {
-        if (!GitHubTokenStore.Delete(out var errorMessage))
-        {
-            _settingsPage?.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), errorMessage);
-            return;
-        }
-
-        _settingsPage?.UpdateGitHubTokenState(false, "Token removed from Windows Credential Manager.");
-    }
-
     private async void SettingsPage_CheckForUpdatesRequested(object? sender, EventArgs e)
     {
         if (_isShuttingDown || !_activeUpdateCheckTask.IsCompleted || sender is not SettingsPage settingsPage)
@@ -800,7 +774,7 @@ public partial class MainWindow : Window
                         return;
                     }
 
-                    settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), message);
+                    settingsPage.SetUpdateStatus(message);
                 });
             }, cancellationToken);
 
@@ -813,7 +787,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            settingsPage.UpdateGitHubTokenState(GitHubTokenStore.HasToken(), result.Message);
+            settingsPage.SetUpdateStatus(result.Message);
             if (!result.IsReady)
                 return;
 
@@ -835,9 +809,7 @@ public partial class MainWindow : Window
 
             if (ReferenceEquals(_settingsPage, settingsPage))
             {
-                settingsPage.UpdateGitHubTokenState(
-                    GitHubTokenStore.HasToken(),
-                    "Could not check GitHub Releases. Verify the token has read access to this repository.");
+                settingsPage.SetUpdateStatus("Could not check GitHub Releases. Try again later.");
             }
         }
         finally

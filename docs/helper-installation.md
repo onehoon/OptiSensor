@@ -51,8 +51,6 @@ OptiSensor.exe --watch
 
 `--startup` is reserved for the Task Scheduler action. Normal app launches show the window; closing the window hides it to the tray, and only the tray/menu **Exit** action closes the helper.
 
-## Private GitHub update token
+## GitHub updates
 
-The Settings page includes an optional **Private updates** token field for a future private GitHub Releases update feed. Saving it writes a generic credential named `OptiSensor/GitHubUpdateToken` to Windows Credential Manager. It is never written to `settings.json` or the application logs.
-
-The **Check for updates** button uses the token to read stable GitHub Releases from `onehoon/OptiSensor`, downloads the newest Velopack package, and asks before restarting to apply it. Use a repository-scoped fine-grained GitHub token with only the read permissions required to download release assets.
+The Settings page includes a **Check for updates** button that reads public stable GitHub Releases from `onehoon/OptiSensor`, downloads the newest Velopack package, and asks before restarting to apply it.
