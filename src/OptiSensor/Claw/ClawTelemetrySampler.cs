@@ -1,15 +1,19 @@
 namespace OptiSensor.Claw;
 
 /// <summary>
-/// The single concrete owner of the merged native Claw telemetry readers. Sampling and
-/// publishing are independent: the sampling loop refreshes a source group on its own cadence
-/// (Core ~1000 ms, Battery ~5000 ms) and recomposes <see cref="Latest"/>; the publish loop only
-/// reads <see cref="Latest"/>. The retention boundary is the <b>sampling cadence</b>: when a
-/// source is not due it is simply not read and <see cref="Latest"/> stays unchanged; when it is
-/// due it is read and its snapshot replaced with that read's result, <b>including null /
-/// unavailable fields</b> - a metric a due read reports unavailable becomes unavailable rather
-/// than immortal stale data. A fresh publishing session starts empty. Not started by the
-/// application from this type; <see cref="Publishing"/> drives it.
+/// The single concrete owner of the native Claw telemetry readers. Sampling and publishing are
+/// independent: the sampling loop refreshes a source group on its own cadence (Core ~1000 ms,
+/// Battery ~5000 ms) and recomposes <see cref="Latest"/>; the publish loop only reads
+/// <see cref="Latest"/>. Retention rules:
+/// <list type="bullet">
+///   <item>not due -> retained values unchanged (the read simply does not run);</item>
+///   <item>due, metric read produced a value -> that metric is replaced;</item>
+///   <item>due, metric transiently unavailable -> the last successful value for that metric is kept;</item>
+///   <item>a successful battery read replaces the whole battery snapshot, because a null
+///   <c>RemainingMinutes</c> is meaningful after an AC/DC change and must clear an old estimate;</item>
+///   <item>a fresh publishing session starts empty.</item>
+/// </list>
+/// Not started by the application from this type; <see cref="Publishing"/> drives it.
 /// </summary>
 internal sealed class ClawTelemetrySampler : IDisposable
 {
@@ -46,9 +50,8 @@ internal sealed class ClawTelemetrySampler : IDisposable
     /// <summary>
     /// Core read: MSI EC (CPU temp / TDP / fan) + Windows CPU usage / RAM / Intel GPU memory +
     /// IGCL GPU usage / clock. Intended cadence ~1000 ms. Windows/IGCL rate counters need a
-    /// second Core sample after the first to warm up. The read replaces each source snapshot
-    /// wholesale, including null fields - a metric this read reports unavailable becomes
-    /// unavailable, not indefinitely stale.
+    /// second Core sample after the first to warm up. A metric is replaced only when this read
+    /// produced a value for it; a transient miss keeps the last successful value.
     /// </summary>
     public void SampleCore()
     {
@@ -59,17 +62,57 @@ internal sealed class ClawTelemetrySampler : IDisposable
         if (!_igclGpu.Initialized)
             _igclGpu.Initialize();
 
-        _usage = _windowsUsage.Sample();
-        _ec = _msiEc.ReadSnapshot();
-        _gpu = _igclGpu.Sample();
+        _usage = MergeUsage(_windowsUsage.Sample(), _usage);
+        _ec = MergeEc(_msiEc.ReadSnapshot(), _ec);
+        _gpu = MergeGpu(_igclGpu.Sample(), _gpu);
         Recompose();
     }
 
     /// <summary>Battery read (percent / on-battery / remaining time). Intended cadence ~5000 ms.</summary>
     public void SampleBattery()
     {
-        _power = WindowsPowerTelemetry.Read();
+        // A successful read replaces the whole battery snapshot - a null RemainingMinutes is
+        // semantic (fresh state after an AC/DC change) and must clear an old estimate. A failed
+        // read (null) keeps the last-known battery state.
+        if (WindowsPowerTelemetry.Read() is { } power)
+            _power = power;
+
         Recompose();
+    }
+
+    // Core merge = last-successful-value per metric: a value from this read wins; a null field
+    // (whole read failed, or that metric transiently unavailable) keeps the retained value. A
+    // genuine numeric 0 is a value - nullable presence, not non-zero, is the validity signal.
+
+    internal static WindowsUsageSnapshot? MergeUsage(WindowsUsageSnapshot? incoming, WindowsUsageSnapshot? retained)
+    {
+        if (incoming is null)
+            return retained;
+
+        return new WindowsUsageSnapshot(
+            CpuUsagePercent: incoming.CpuUsagePercent ?? retained?.CpuUsagePercent,
+            SystemMemoryUsedBytes: incoming.SystemMemoryUsedBytes ?? retained?.SystemMemoryUsedBytes,
+            IntelGpuMemoryUsedBytes: incoming.IntelGpuMemoryUsedBytes ?? retained?.IntelGpuMemoryUsedBytes);
+    }
+
+    internal static MsiEcTelemetrySnapshot MergeEc(MsiEcTelemetrySnapshot incoming, MsiEcTelemetrySnapshot retained)
+    {
+        return new MsiEcTelemetrySnapshot(
+            CpuTempC: incoming.CpuTempC ?? retained.CpuTempC,
+            Fan1Rpm: incoming.Fan1Rpm ?? retained.Fan1Rpm,
+            Fan2Rpm: incoming.Fan2Rpm ?? retained.Fan2Rpm,
+            HudFanRpm: incoming.HudFanRpm ?? retained.HudFanRpm,
+            CpuPackagePowerW: incoming.CpuPackagePowerW ?? retained.CpuPackagePowerW);
+    }
+
+    internal static IgclGpuTelemetrySnapshot? MergeGpu(IgclGpuTelemetrySnapshot? incoming, IgclGpuTelemetrySnapshot? retained)
+    {
+        if (incoming is null)
+            return retained;
+
+        return new IgclGpuTelemetrySnapshot(
+            GpuUsagePercent: incoming.GpuUsagePercent ?? retained?.GpuUsagePercent,
+            GpuClockMHz: incoming.GpuClockMHz ?? retained?.GpuClockMHz);
     }
 
     private void Recompose() =>

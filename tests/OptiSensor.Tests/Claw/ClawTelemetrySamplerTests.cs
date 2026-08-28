@@ -51,17 +51,14 @@ public class ClawTelemetrySamplerTests
         Assert.Equal(3540, snapshot.FanRpm);
     }
 
-    // ---- retention boundary = sampling cadence --------------------------
-    // not due  -> Latest unchanged (SampleCore/SampleBattery simply not called)
-    // due read -> replace that source snapshot wholesale, including null/unavailable fields
+    // ---- retention: not due = keep; due + transient miss = keep; due + value = replace ----
 
     [Fact]
     public void Latest_PublishOnlyReadsKeepLastSample()
     {
         using var sampler = new ClawTelemetrySampler();
 
-        // Repeated reads with no sampling in between return the same retained snapshot; a
-        // publish tick never re-samples or gaps a value.
+        // Repeated reads with no sampling in between return the same retained snapshot.
         var before = sampler.Latest;
         Assert.Same(before, sampler.Latest);
         Assert.Equal(
@@ -70,34 +67,44 @@ public class ClawTelemetrySamplerTests
     }
 
     [Fact]
-    public void Compose_DueReadUnavailableClearsThatSourceFields()
+    public void CoreTransientUnavailable_KeepsLastSuccessfulMetrics()
     {
-        var previous = ClawTelemetrySampler.Compose(
-            usage: null, power: null, ec: MsiEcTelemetrySnapshot.Empty,
-            gpu: new IgclGpuTelemetrySnapshot(98, 2300));
-        Assert.Equal(98, previous.GpuUsagePercent);
-        Assert.Equal(2300, previous.GpuClockMHz);
+        var usage = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(50, 100, 200), null);
+        var ec = ClawTelemetrySampler.MergeEc(new MsiEcTelemetrySnapshot(67, 3000, 3100, 3050, 18), MsiEcTelemetrySnapshot.Empty);
+        var gpu = ClawTelemetrySampler.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300), null);
 
-        // Next scheduled Core read: IGCL failed -> gpu snapshot is null -> GPU segment is gone,
-        // not the old 98% / 2300 MHz.
-        var afterFailedDueRead = ClawTelemetrySampler.Compose(
-            usage: null, power: null, ec: MsiEcTelemetrySnapshot.Empty, gpu: null);
-        Assert.Null(afterFailedDueRead.GpuUsagePercent);
-        Assert.Null(afterFailedDueRead.GpuClockMHz);
+        // A due Core read where every reader missed / returned null this cycle.
+        usage = ClawTelemetrySampler.MergeUsage(null, usage);
+        ec = ClawTelemetrySampler.MergeEc(MsiEcTelemetrySnapshot.Empty, ec);
+        gpu = ClawTelemetrySampler.MergeGpu(null, gpu);
+
+        var snapshot = ClawTelemetrySampler.Compose(usage, power: null, ec: ec, gpu: gpu);
+        Assert.Equal(50, snapshot.CpuUsagePercent);
+        Assert.Equal(100ul, snapshot.SystemMemoryUsedBytes);
+        Assert.Equal(67, snapshot.CpuTemperatureC);
+        Assert.Equal(18, snapshot.CpuPackagePowerW);
+        Assert.Equal(3050, snapshot.FanRpm);
+        Assert.Equal(98, snapshot.GpuUsagePercent);
+        Assert.Equal(2300, snapshot.GpuClockMHz);
+
+        // A later valid read updates each metric; a genuine 0 W replaces.
+        ec = ClawTelemetrySampler.MergeEc(new MsiEcTelemetrySnapshot(70, null, null, null, 0), ec);
+        Assert.Equal(70, ec.CpuTempC);
+        Assert.Equal(3050, ec.HudFanRpm);        // still kept (this read had no fan value)
+        Assert.Equal(0, ec.CpuPackagePowerW);    // genuine 0 W replaces
     }
 
     [Fact]
-    public void Compose_BatteryDcEstimateDoesNotSurviveIntoANewBatterySessionWithoutAFreshEstimate()
+    public void BatterySuccessfulRead_CanClearOldRemainingEstimate()
     {
-        // An earlier discharge had RemainingMinutes = 150. After AC then unplugging again, Windows
-        // reports OnBattery = true but no new estimate yet: the read snapshot itself carries the
-        // null, so the formatter can never show the previous "2.5h".
-        var fresh = new WindowsPowerSnapshot(BatteryPercent: 70, RemainingMinutes: null, OnBattery: true);
-        Assert.Null(fresh.RemainingMinutes);
+        // A successful battery read replaces the whole snapshot, so a fresh OnBattery sample with
+        // no remaining-time estimate yet cannot show the previous discharge's "2.5h".
+        var afterAcDcTransition = new WindowsPowerSnapshot(BatteryPercent: 71, RemainingMinutes: null, OnBattery: true);
 
         var composed = ClawTelemetrySampler.Compose(
-            usage: null, power: fresh, ec: MsiEcTelemetrySnapshot.Empty, gpu: null);
-        Assert.Equal(70, composed.BatteryPercent);
+            usage: null, power: afterAcDcTransition, ec: MsiEcTelemetrySnapshot.Empty, gpu: null);
+
+        Assert.Equal(71, composed.BatteryPercent);
         Assert.Equal(true, composed.OnBattery);
         Assert.Null(composed.RemainingMinutes);
     }
