@@ -42,14 +42,19 @@ internal sealed class ApplicationHost : IDisposable
     public bool IsExitRequested { get; private set; }
     public bool IsSensorSourceReady { get; private set; }
 
+    // Obsolete HWiNFO readiness contract - no longer raised now that Claw publishes native
+    // telemetry directly (see StartPublishService). Kept, with its UI wiring, until PR #57
+    // removes it together with the sensor-selection UI.
+#pragma warning disable CS0067
     public event EventHandler? SensorSourceReady;
+#pragma warning restore CS0067
     public event EventHandler<string>? SensorSourceStartupFailed;
 
     public static ApplicationHost Start(SingleInstanceGuard singleInstance, bool showMainWindow)
     {
         var settings = AppSettings.LoadOrCreate();
         EnsureStartupTaskForInstalledApp(settings);
-        var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
+        var publishService = new SensorPublishService();
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
         // Tweaks (e.g. Intel VRR Range Fix) are started first and fully independently of sensor
@@ -470,8 +475,10 @@ internal sealed class ApplicationHost : IDisposable
 
     private void StartSensorServices()
     {
-        SimpleLog.TryWrite("HWiNFO startup and shared-memory readiness monitoring started.");
-        _sensorStartupTask = StartHwInfoAndPublishWhenReadyAsync(_startupCancellationTokenSource.Token);
+        // Claw publishes native telemetry (MSI EC / Windows / IGCL) directly - no HWiNFO
+        // process launch, shared-memory wait, startup timeout, or recovery loop.
+        SimpleLog.TryWrite("Native Claw telemetry publishing started.");
+        StartPublishService();
     }
 
     private async Task StartHwInfoAndPublishWhenReadyAsync(CancellationToken cancellationToken)
@@ -513,10 +520,10 @@ internal sealed class ApplicationHost : IDisposable
             return;
 
         _publishService.Start(_settings.ClampedPublishIntervalMs);
-        IsSensorSourceReady = true;
 
-        if (!IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
-            SensorSourceReady?.Invoke(this, EventArgs.Empty);
+        // Intentionally does not raise SensorSourceReady / set IsSensorSourceReady: that legacy
+        // signal drives the HWiNFO sensor-discovery UI path, which native publishing must not
+        // reactivate. The obsolete readiness contract is removed with the sensor UI in PR #57.
     }
 
     /// <summary>Guards against starting the publisher or raising ready/failed events once exit has begun.</summary>

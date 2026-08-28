@@ -1,29 +1,39 @@
 using OptiSensor.App;
+using OptiSensor.Claw;
 using OptiSensor.Models;
+using OptiSensor.Overlay;
 
 namespace OptiSensor.Publishing;
 
+/// <summary>
+/// Process-lifetime Claw publishing owner. Each session samples native telemetry
+/// (<see cref="ClawTelemetrySampler"/>), formats one plain-text line
+/// (<see cref="ClawTelemetryFormatter"/>), and writes it to the OptiScaler external overlay
+/// (<see cref="ExternalOverlayPublisher"/>). One sampler instance lives for the whole session so
+/// CPU / IGCL sample-to-sample counter state is preserved. On an unexpected fault the session is
+/// disposed and recreated after 5 seconds (fresh baselines) - no per-source retry/health layer.
+/// </summary>
 internal sealed class SensorPublishService : IDisposable
 {
-    private readonly Func<SensorPublishRunner> _createRunner;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _workerTask;
     private bool _disposed;
     private int _publishIntervalMs = 500;
 
-    public SensorPublishService(Func<SensorPublishRunner> createRunner)
+    public SensorPublishService()
     {
-        _createRunner = createRunner;
     }
 
     public bool IsRunning { get; private set; }
     public string? LastOverlayLine { get; private set; }
-    // null means no successful publish snapshot has been observed yet; an empty
-    // collection is a real successful snapshot with zero detected sensors.
+
+    // Legacy HWiNFO sensor-list surface. Kept for UI/compilation compatibility during the native
+    // migration; native publishing leaves these neutral. PR #57 removes them with the sensor UI.
     public IReadOnlyList<DetectedSensorInfo>? LastSensors { get; private set; }
     public int LastDetectedSensorCount { get; private set; }
     public int EnabledSelectedSensorCount { get; private set; }
     public int TotalSelectedSensorCount { get; private set; }
+
     public string? LastError { get; private set; }
     public event EventHandler? StatusChanged;
 
@@ -37,15 +47,15 @@ internal sealed class SensorPublishService : IDisposable
         _cancellationTokenSource = new CancellationTokenSource();
         IsRunning = true;
         LastError = null;
-        SimpleLog.TryWrite("Sensor publish service started.");
+        SimpleLog.TryWrite("Native Claw telemetry publish service started.");
         OnStatusChanged();
 
         _workerTask = Task.Run(() => RunLoop(_cancellationTokenSource.Token));
     }
 
     /// <summary>
-    /// Applies a new publish interval to the currently running (or not-yet-started)
-    /// worker without restarting it. Takes effect on the next publish iteration.
+    /// Applies a new publish interval to the running (or not-yet-started) worker without
+    /// restarting it. Takes effect on the next publish iteration.
     /// </summary>
     public void UpdatePublishInterval(int publishIntervalMs)
     {
@@ -74,7 +84,7 @@ internal sealed class SensorPublishService : IDisposable
 
         IsRunning = false;
         LastSensors = null;
-        SimpleLog.TryWrite("Sensor publish service stopped.");
+        SimpleLog.TryWrite("Native Claw telemetry publish service stopped.");
         OnStatusChanged();
     }
 
@@ -94,9 +104,7 @@ internal sealed class SensorPublishService : IDisposable
         {
             try
             {
-                using var runner = _createRunner();
-                runner.Open();
-                await runner.RunLoopAsync(() => Volatile.Read(ref _publishIntervalMs), OnPublished, cancellationToken).ConfigureAwait(false);
+                await RunPublishSessionAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -105,7 +113,7 @@ internal sealed class SensorPublishService : IDisposable
             catch (Exception ex)
             {
                 LastError = ex.Message;
-                LastSensors = null;
+                LastOverlayLine = null;
                 SimpleLog.TryWriteException(ex);
                 OnStatusChanged();
 
@@ -124,15 +132,36 @@ internal sealed class SensorPublishService : IDisposable
         OnStatusChanged();
     }
 
-    private void OnPublished(SensorPublishResult result)
+    private async Task RunPublishSessionAsync(CancellationToken cancellationToken)
     {
-        LastOverlayLine = result.OverlayLine;
-        LastSensors = result.Sensors;
-        LastDetectedSensorCount = result.DetectedSensorCount;
-        EnabledSelectedSensorCount = result.EnabledSelectedSensorCount;
-        TotalSelectedSensorCount = result.TotalSelectedSensorCount;
-        LastError = null;
-        OnStatusChanged();
+        using var sampler = new ClawTelemetrySampler();
+        using var publisher = new ExternalOverlayPublisher();
+
+        sampler.Initialize();
+        publisher.Open();
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = ClawTelemetryFormatter.Format(sampler.Sample());
+
+            if (line.Length > 0)
+            {
+                publisher.Publish(line);
+                LastOverlayLine = line;
+            }
+            else
+            {
+                // Every native metric unavailable: clear the external line, do not publish an
+                // empty string, and do not keep the previous text as a stale-value cache.
+                publisher.Clear();
+                LastOverlayLine = null;
+            }
+
+            LastError = null;
+            OnStatusChanged();
+
+            await Task.Delay(Volatile.Read(ref _publishIntervalMs), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private void OnStatusChanged()
