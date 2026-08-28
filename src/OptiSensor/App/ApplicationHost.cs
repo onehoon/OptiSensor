@@ -519,7 +519,7 @@ internal sealed class ApplicationHost : IDisposable
         if (IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
             return;
 
-        _publishService.Start(_settings.ClampedPublishIntervalMs);
+        _publishService.Start();
 
         // Intentionally does not raise SensorSourceReady / set IsSensorSourceReady: that legacy
         // signal drives the HWiNFO sensor-discovery UI path, which native publishing must not

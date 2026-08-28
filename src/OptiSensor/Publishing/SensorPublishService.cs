@@ -18,21 +18,16 @@ internal sealed class SensorPublishService : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _workerTask;
     private bool _disposed;
-    private int _publishIntervalMs = 500;
 
-    // Native read cadence is scheduled independently of the shared-memory publish cadence, and
-    // Core and Battery are scheduled independently of each other by monotonic due-times.
+    // Fixed 1 s shared-memory heartbeat (the retained snapshot only advances on the ~1 s Core /
+    // ~5 s Battery read schedule, so a faster publish would just rewrite the same line). This
+    // still leaves ~4 s of margin before OptiScaler's 5 s external-overlay stale timeout.
+    private const int PublishIntervalMs = 1000;
+
+    // Native read cadence, scheduled independently of the publish heartbeat: Core and Battery
+    // each advance on their own monotonic due-time.
     private const long CoreSampleIntervalMs = 1000;
     private const long BatterySampleIntervalMs = 5000;
-
-    // Shared-memory publish cadence: capped at 1000 ms so a slow iteration cannot cross
-    // OptiScaler's 2 s external-overlay freshness window (protocol writer range is 100-1000 ms).
-    private const int MinPublishIntervalMs = 100;
-    private const int MaxPublishIntervalMs = 1000;
-
-    public SensorPublishService()
-    {
-    }
 
     public bool IsRunning { get; private set; }
     public string? LastOverlayLine { get; private set; }
@@ -47,9 +42,9 @@ internal sealed class SensorPublishService : IDisposable
     public string? LastError { get; private set; }
     public event EventHandler? StatusChanged;
 
-    public void Start(int publishIntervalMs)
+    public void Start()
     {
-        Volatile.Write(ref _publishIntervalMs, Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs));
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         if (IsRunning)
             return;
@@ -61,17 +56,6 @@ internal sealed class SensorPublishService : IDisposable
         OnStatusChanged();
 
         _workerTask = Task.Run(() => RunLoop(_cancellationTokenSource.Token));
-    }
-
-    /// <summary>
-    /// Applies a new publish interval to the running (or not-yet-started) worker without
-    /// restarting it. Takes effect on the next publish iteration.
-    /// </summary>
-    public void UpdatePublishInterval(int publishIntervalMs)
-    {
-        var clamped = Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs);
-        Volatile.Write(ref _publishIntervalMs, clamped);
-        SimpleLog.TryWrite($"Publish interval updated to {clamped} ms.");
     }
 
     public async Task StopAsync()
@@ -205,7 +189,7 @@ internal sealed class SensorPublishService : IDisposable
                 LastError = null;
                 OnStatusChanged();
 
-                await Task.Delay(Volatile.Read(ref _publishIntervalMs), sessionToken).ConfigureAwait(false);
+                await Task.Delay(PublishIntervalMs, sessionToken).ConfigureAwait(false);
             }
         }
         finally

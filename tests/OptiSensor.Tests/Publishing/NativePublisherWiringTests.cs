@@ -53,7 +53,7 @@ public class NativePublisherWiringTests
         // any runner without MSI EC / Intel GPU, and ExternalOverlayPublisher writes a local
         // memory-mapped file. Exercises priming, the dual-loop coordination, and teardown - no fakes.
         using var service = new OptiSensor.Publishing.SensorPublishService();
-        service.Start(100);
+        service.Start();
         Assert.True(service.IsRunning);
 
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
@@ -73,7 +73,7 @@ public class NativePublisherWiringTests
         // Cancelling while the session is still in the priming delay must not hang on the
         // 5-second retry backoff or leave the service running.
         using var service = new OptiSensor.Publishing.SensorPublishService();
-        service.Start(500);
+        service.Start();
         await Task.Delay(200); // still inside the ~1 s priming window
 
         var stop = service.StopAsync();
@@ -84,13 +84,15 @@ public class NativePublisherWiringTests
     }
 
     [Fact]
-    public void PublishIntervalIsCappedAtTheExternalOverlayFreshnessMargin()
+    public void PublisherUsesFixedOneSecondHeartbeatWithNoConfigurableInterval()
     {
         var source = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
 
-        Assert.Contains("MaxPublishIntervalMs = 1000", source);
-        Assert.Contains("Math.Clamp(publishIntervalMs, MinPublishIntervalMs, MaxPublishIntervalMs)", source);
-        Assert.DoesNotContain("Math.Clamp(publishIntervalMs, 100, 2000)", source);
+        Assert.Contains("private const int PublishIntervalMs = 1000", source);
+        Assert.Contains("Task.Delay(PublishIntervalMs, sessionToken)", source);
+        Assert.DoesNotContain("UpdatePublishInterval", source);
+        Assert.DoesNotContain("_publishIntervalMs", source);
+        Assert.DoesNotContain("MinPublishIntervalMs", source);
     }
 
     [Fact]

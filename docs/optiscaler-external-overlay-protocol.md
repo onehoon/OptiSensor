@@ -22,7 +22,7 @@ Overlay types `0` through `6` retain their upstream OptiScaler behavior and do n
 | Text encoding | UTF-8, null-terminated |
 | Displayed line | `lines[0]` only |
 | Maximum text length | 127 bytes plus the null terminator |
-| Freshness window | 2 seconds from the last update |
+| Freshness window | 5 seconds from the last update (`StaleAfterMs = 5000` in the `release/0.10` consumer) |
 | Mapping open retry | At most once per second |
 
 The canonical C++ definition lives in `optiscaler/protocol/OptiExternalOverlayProtocol.h` on the `release/0.9`/`release/0.10` patch branches (this branch carries only the app source, not the OptiScaler-side header):
@@ -58,7 +58,7 @@ The external overlay is an optional addon.
 - If the payload is invalid, stale, or being written, OptiScaler ignores the external line.
 - If an exception occurs while reading the mapping, OptiScaler ignores it.
 - No popup, fail state, or game-flow change is produced by an external overlay failure.
-- If the helper stops updating for more than two seconds, the external text disappears automatically.
+- If the helper stops updating for more than five seconds, the external text disappears automatically.
 
 ## Session Constraint
 

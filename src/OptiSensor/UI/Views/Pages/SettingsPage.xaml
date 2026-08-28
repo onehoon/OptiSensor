@@ -15,7 +15,6 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="48"/>
-                        <RowDefinition Height="48"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="220"/>
@@ -32,22 +31,6 @@
                               Grid.Column="1"
                               Content="Register startup task"
                               VerticalAlignment="Center"/>
-
-                    <TextBlock Grid.Row="1"
-                               Text="Publish interval"
-                               VerticalAlignment="Center"
-                               FontWeight="SemiBold"
-                               Foreground="#0F172A"/>
-                    <ComboBox x:Name="PublishIntervalComboBox"
-                              Grid.Row="1"
-                              Grid.Column="1"
-                              Width="128"
-                              HorizontalAlignment="Left"
-                              VerticalAlignment="Center"
-                              SelectedValuePath="Tag">
-                        <ComboBoxItem Content="500ms" Tag="500"/>
-                        <ComboBoxItem Content="1000ms" Tag="1000"/>
-                    </ComboBox>
                 </Grid>
             </Border>
 

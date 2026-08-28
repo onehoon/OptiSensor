@@ -432,7 +432,7 @@ public partial class MainWindow : Window
             lastOverlay = _viewModel.GetOverlayPreviewText();
         }
         var publishDetail =
-            $"Interval {_settings.ClampedPublishIntervalMs} ms · Detected {_viewModel.DetectedSensorCount} · Selected {_viewModel.EnabledSelectedSensorCount}/{_viewModel.TotalSelectedSensorCount}";
+            $"Detected {_viewModel.DetectedSensorCount} · Selected {_viewModel.EnabledSelectedSensorCount}/{_viewModel.TotalSelectedSensorCount}";
         var settingsState = $"Settings: {(IsDirty() ? "Unsaved changes" : "Saved")}";
         var optiScalerStatus = _publishService.LastOverlayLine is null
             ? "Waiting for publishable sensor values"
@@ -624,9 +624,7 @@ public partial class MainWindow : Window
         if (_settingsPage is not null)
             return _settingsPage.TryCreateDraft(out draft, out errorMessage);
 
-        draft = new GeneralSettingsDraft(
-            _settings.StartWithWindows,
-            _settings.ClampedPublishIntervalMs);
+        draft = new GeneralSettingsDraft(_settings.StartWithWindows);
         errorMessage = null;
         return true;
     }
@@ -637,8 +635,8 @@ public partial class MainWindow : Window
     /// builds a candidate copy of AppSettings, and only applies anything to the
     /// live AppSettings / disk / startup registration after every validation
     /// (including the candidate.Save() disk write) has succeeded. On any failure,
-    /// live AppSettings, settings.json, publish interval, and startup registration
-    /// are left exactly as they were, and the UI Draft is preserved.
+    /// live AppSettings, settings.json, and startup registration are left exactly as they were,
+    /// and the UI Draft is preserved.
     /// </summary>
     private SaveSettingsResult TrySaveSettings()
     {
@@ -659,7 +657,6 @@ public partial class MainWindow : Window
         }
 
         candidate.StartWithWindows = generalDraft!.StartWithWindows;
-        candidate.PublishIntervalMs = generalDraft.PublishIntervalMs;
 
         try
         {
@@ -676,7 +673,6 @@ public partial class MainWindow : Window
         }
 
         _settings.ApplyFrom(candidate);
-        _publishService.UpdatePublishInterval(_settings.ClampedPublishIntervalMs);
 
         var startupResult = _settings.StartWithWindows
             ? StartupRegistration.Register()

@@ -26,9 +26,6 @@ internal sealed class AppSettings
     [JsonPropertyName("startMinimized")]
     public bool StartMinimized { get; set; } = true;
 
-    [JsonPropertyName("publishIntervalMs")]
-    public int PublishIntervalMs { get; set; } = 500;
-
     [JsonPropertyName("hwInfoProfile")]
     public SensorSourceProfile HwInfoProfile { get; set; } = new();
 
@@ -45,12 +42,6 @@ internal sealed class AppSettings
     /// only persists the flag - it never triggers the tweak itself.</summary>
     [JsonPropertyName("intelVrrRangeFixEnabled")]
     public bool IntelVrrRangeFixEnabled { get; set; }
-
-    [JsonIgnore]
-    // Capped at 1000 ms: OptiScaler drops an external-overlay line older than 2 s, so a slow
-    // publish iteration at a higher interval could cross that freshness window. The runtime
-    // publisher (SensorPublishService) enforces the same ceiling.
-    public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 1000);
 
     [JsonIgnore]
     public IReadOnlyList<SelectedOverlaySensor> EnabledSelectedSensors =>
@@ -179,7 +170,6 @@ internal sealed class AppSettings
             {
                 StartWithWindows = source.StartWithWindows;
                 StartMinimized = source.StartMinimized;
-                PublishIntervalMs = source.PublishIntervalMs;
                 HwInfoProfile = CopyProfile(source.HwInfoProfile);
                 SelectedSensors = source.SelectedSensors.Select(sensor => sensor.Copy()).ToList();
                 OverlayGroups = source.OverlayGroups.Select(group => group.Copy()).ToList();
