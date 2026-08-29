@@ -23,12 +23,17 @@ internal sealed record OptiScalerFileVersion(
     public bool HasReadableNumericVersion =>
         !string.IsNullOrWhiteSpace(FileVersionText) && Version.TryParse(FileVersionText, out _);
 
-    /// <summary>True when any identity field carries the "OptiScaler" marker, matching how the
-    /// OptiScaler build stamps its proxy DLL (ProductName / InternalName / OriginalFilename /
-    /// FileDescription are all "OptiScaler" on a real 0.9 build).</summary>
-    public bool LooksLikeOptiScaler =>
-        new[] { ProductName, InternalName, OriginalFilename, FileDescription }
-            .Any(identity => identity?.Contains("OptiScaler", StringComparison.OrdinalIgnoreCase) == true);
+    /// <summary>
+    /// The single OptiScaler identity rule shared by folder discovery and update/replacement
+    /// validation: the Win32 <c>ProductName</c> or <c>FileDescription</c> is <em>exactly</em>
+    /// "OptiScaler" (case-insensitive, trimmed). A real OptiScaler build stamps both. Filename,
+    /// <c>CompanyName</c>, <c>InternalName</c> and <c>OriginalFilename</c> are deliberately not
+    /// identity - and substring matches ("MyOptiScaler", "OptiScaler Helper") are rejected.
+    /// </summary>
+    public bool IsOptiScaler => IsExactlyOptiScaler(ProductName) || IsExactlyOptiScaler(FileDescription);
+
+    private static bool IsExactlyOptiScaler(string? value) =>
+        string.Equals(value?.Trim(), "OptiScaler", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The OptiSensor Claw updater supports exactly one OptiScaler family: 0.9.x.</summary>
     public bool IsSupportedNineFamily => Major == 0 && Minor == 9;

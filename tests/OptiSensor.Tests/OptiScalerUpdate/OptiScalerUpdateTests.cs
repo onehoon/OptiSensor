@@ -59,32 +59,45 @@ public sealed class OptiScalerUpdateTests : IDisposable
     // ---- source / binary validation ---------------------------------------
 
     [Theory]
-    [InlineData("ProductName")]
-    [InlineData("InternalName")]
-    [InlineData("OriginalFilename")]
-    [InlineData("FileDescription")]
-    public void Validation_accepts_OptiScaler_identity_in_any_version_field(string field)
+    [InlineData("ProductName", "OptiScaler")]
+    [InlineData("ProductName", "optiscaler")]
+    [InlineData("ProductName", "  OptiScaler  ")]
+    [InlineData("FileDescription", "OPTISCALER")]
+    public void Validation_accepts_exact_OptiScaler_identity_in_ProductName_or_FileDescription(string field, string value)
     {
         var path = WriteFile("candidate.bin", [1]);
         var version = new OptiScalerFileVersion(0, 9, 0, 0,
-            field == "ProductName" ? "my OptiScaler build" : null,
-            field == "InternalName" ? "OPTISCALER" : null,
-            field == "OriginalFilename" ? "custom-OptiScaler.bin" : null,
-            field == "FileDescription" ? "OptiScaler proxy" : null,
-            "0.9.0.0");
+            ProductName: field == "ProductName" ? value : "Some Game",
+            InternalName: "OPTISCALER", OriginalFilename: "custom-OptiScaler.bin",
+            FileDescription: field == "FileDescription" ? value : "Some Game",
+            FileVersionText: "0.9.0.0");
 
+        Assert.True(new OptiScalerBinaryValidator(new FakeVersionReader(version)).Validate(path).IsValid);
+    }
+
+    [Theory]
+    [InlineData("OptiScaler Helper")]
+    [InlineData("MyOptiScaler")]
+    [InlineData("Custom OptiScaler Build")]
+    public void Validation_rejects_substring_identity_false_positives(string productName)
+    {
+        var path = WriteFile("candidate.bin", [1]);
+        var version = OptiScaler09 with { ProductName = productName, FileDescription = productName };
         var result = new OptiScalerBinaryValidator(new FakeVersionReader(version)).Validate(path);
-
-        Assert.True(result.IsValid);
+        Assert.False(result.IsValid);
+        Assert.Equal(OptiScalerBinaryProblem.NotOptiScaler, result.Problem);
     }
 
     [Fact]
-    public void Validation_ignores_the_filename()
+    public void Validation_does_not_use_InternalName_OriginalFilename_or_filename()
     {
         var path = WriteFile("OptiScaler.dll", [1]);
-        var result = new OptiScalerBinaryValidator(new FakeVersionReader(NotOptiScaler)).Validate(path);
-        Assert.False(result.IsValid);
-        Assert.Equal(OptiScalerBinaryProblem.NotOptiScaler, result.Problem);
+        var version = OptiScaler09 with
+        {
+            ProductName = "Game", FileDescription = "Game",
+            InternalName = "OptiScaler", OriginalFilename = "OptiScaler.dll",
+        };
+        Assert.False(new OptiScalerBinaryValidator(new FakeVersionReader(version)).Validate(path).IsValid);
     }
 
     [Theory]
