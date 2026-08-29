@@ -19,7 +19,6 @@ public partial class MainWindow : Window
     private readonly MainWindowViewModel _viewModel;
     private SensorsPage? _sensorsPage;
     private readonly OverlayPage _overlayPage;
-    private TweaksPage? _tweaksPage;
     private SettingsPage? _settingsPage;
     private bool _hwInfoSharedMemoryWarningShown;
     private int _hwInfoSharedMemoryFailureCount;
@@ -209,9 +208,6 @@ public partial class MainWindow : Window
 
     private SensorsPage GetOrCreateSensorsPage() =>
         _sensorsPage ??= new SensorsPage { DataContext = _viewModel };
-
-    private TweaksPage GetOrCreateTweaksPage() =>
-        _tweaksPage ??= new TweaksPage(_settings);
 
     private SettingsPage GetOrCreateSettingsPage()
     {
@@ -457,7 +453,6 @@ public partial class MainWindow : Window
         PageContentControl.Content = page;
         ResetNavButton(SensorsNavButton);
         ResetNavButton(OverlayNavButton);
-        ResetNavButton(TweaksNavButton);
         ResetNavButton(SettingsNavButton);
         selectedButton.Tag = "Selected";
     }
@@ -834,14 +829,6 @@ public partial class MainWindow : Window
     {
         NavigateTo(_overlayPage, OverlayNavButton);
         StopSensorRefresh();
-    }
-
-    private void TweaksNavButton_Click(object sender, RoutedEventArgs e)
-    {
-        var page = GetOrCreateTweaksPage();
-        NavigateTo(page, TweaksNavButton);
-        StopSensorRefresh();
-        page.RefreshFromDisk();
     }
 
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)

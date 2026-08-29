@@ -47,11 +47,6 @@ internal sealed class AppSettings
     [JsonPropertyName("sensorCategoryFilters")]
     public Dictionary<OptiSensorCategory, bool> SensorCategoryFilters { get; set; } = [];
 
-    /// <summary>Whether the Intel VRR Range Fix tweak should run at next startup. Toggling this
-    /// only persists the flag - it never triggers the tweak itself.</summary>
-    [JsonPropertyName("intelVrrRangeFixEnabled")]
-    public bool IntelVrrRangeFixEnabled { get; set; }
-
     [JsonIgnore]
     public int ClampedPublishIntervalMs => Math.Clamp(PublishIntervalMs, 100, 2000);
 

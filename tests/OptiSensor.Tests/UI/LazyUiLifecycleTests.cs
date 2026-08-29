@@ -28,7 +28,6 @@ public sealed class LazyUiLifecycleTests
         Assert.Contains("new MainWindowViewModel", constructor);
         Assert.Contains("new OverlayPage", constructor);
         Assert.DoesNotContain("new SensorsPage", constructor);
-        Assert.DoesNotContain("new TweaksPage", constructor);
         Assert.DoesNotContain("new SettingsPage", constructor);
         Assert.DoesNotContain("StartSensorRefreshWhenReady();", constructor);
     }
@@ -39,7 +38,6 @@ public sealed class LazyUiLifecycleTests
         var source = ReadSource(Path.Combine("UI", "MainWindow.xaml.cs"));
 
         Assert.Contains("NavigateTo(GetOrCreateSensorsPage(), SensorsNavButton)", source);
-        Assert.Contains("var page = GetOrCreateTweaksPage()", source);
         Assert.Contains("NavigateTo(GetOrCreateSettingsPage(), SettingsNavButton)", source);
         Assert.Contains("!IsSensorsPageActive", source);
         Assert.Contains("_sensorRefreshTimer?", source);

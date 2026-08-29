@@ -21,7 +21,7 @@ public class ApplicationHostStartupOrderTests
     }
 
     [Fact]
-    public void Start_InvokesStartTweaksInBackground_BeforeStartSensorServices()
+    public void Start_InvokesStartSensorServices()
     {
         var source = ReadApplicationHostSource();
 
@@ -30,17 +30,12 @@ public class ApplicationHostStartupOrderTests
 
         // The method body is short; grab a generous slice and locate the closing brace of Start()
         // by finding the next top-level method declaration that follows it.
-        var nextMemberStart = source.IndexOf("private void StartTweaksInBackground", startMethodStart, StringComparison.Ordinal);
+        var nextMemberStart = source.IndexOf("private void StartSensorServices", startMethodStart, StringComparison.Ordinal);
         Assert.True(nextMemberStart > startMethodStart, "Could not bound the Start method body.");
         var body = source[startMethodStart..nextMemberStart];
 
-        var tweaksCallIndex = body.IndexOf("host.StartTweaksInBackground();", StringComparison.Ordinal);
         var sensorsCallIndex = body.IndexOf("host.StartSensorServices();", StringComparison.Ordinal);
 
-        Assert.True(tweaksCallIndex >= 0, "Start() must call host.StartTweaksInBackground().");
         Assert.True(sensorsCallIndex >= 0, "Start() must call host.StartSensorServices().");
-        Assert.True(tweaksCallIndex < sensorsCallIndex,
-            "Tweaks startup must be kicked off before sensor services, so Tweaks (e.g. Intel VRR " +
-            "Range Fix) isn't gated on HWiNFO/sensor readiness at Windows boot.");
     }
 }
