@@ -46,7 +46,8 @@ internal sealed record OptiScalerDiscoveryResult(
 
     public static OptiScalerDiscoveryResult MultipleFound(IReadOnlyList<string> paths) =>
         new(OptiScalerDiscoveryStatus.MultipleFound, null, null, paths,
-            $"Multiple OptiScaler DLLs were detected: {string.Join(", ", paths.Select(Path.GetFileName))}. Remove the extra ones and try again.");
+            "More than one OptiScaler installation was found under the selected folder. Select the "
+            + $"specific game folder instead:{Environment.NewLine}{string.Join(Environment.NewLine, paths)}");
 
     public static OptiScalerDiscoveryResult InvalidFolder() =>
         new(OptiScalerDiscoveryStatus.InvalidFolder, null, null, [],
@@ -57,17 +58,19 @@ internal sealed record OptiScalerDiscoveryResult(
 /// Resolves the existing OptiScaler proxy DLL inside a user-selected game folder so the future UI
 /// can take a folder, not a specific DLL. Some games install OptiScaler in a subfolder
 /// (<c>Binaries\Win64</c>, <c>bin</c>, <c>x64</c>), so this walks the selected tree
-/// <b>breadth-first</b> - the selected folder, then its immediate children, then their children -
-/// and returns the <b>first supported OptiScaler 0.9 target it reaches</b>, stopping immediately
-/// (a target closer to the game root wins over a deeper one).
+/// <b>breadth-first</b> - the selected folder, then its immediate children, then their children.
+///
+/// It does <b>not</b> stop at the first valid target: the user may have selected a parent library
+/// folder (<c>D:\Games</c>), so exactly one valid 0.9 target in the whole tree -> <c>Found</c>, but
+/// a second valid 0.9 target anywhere -> <see cref="OptiScalerDiscoveryStatus.MultipleFound"/> with
+/// the first two paths, stopping there.
 ///
 /// A candidate must be both a supported load/proxy filename (<see cref="SupportedTargetFileNames"/>,
 /// case-insensitive) <b>and</b> carry OptiScaler identity via the shared
 /// <see cref="OptiScalerFileVersion.IsOptiScaler"/> rule - the filename is checked first, so backup
 /// copies that keep the metadata (<c>dxgi_backup.dll</c>, <c>OptiScaler-old.dll</c>) are ignored
-/// without even reading their version resource. Per directory: one candidate that is 0.9.x ->
-/// <see cref="OptiScalerDiscoveryStatus.Found"/>; more than one candidate ->
-/// <see cref="OptiScalerDiscoveryStatus.MultipleFound"/>. An unsupported
+/// without even reading their version resource. More than one candidate in a single directory is
+/// also <see cref="OptiScalerDiscoveryStatus.MultipleFound"/>. An unsupported
 /// (e.g. 0.10) OptiScaler seen along the way is only reported
 /// (<see cref="OptiScalerDiscoveryStatus.UnsupportedVersion"/>) if the whole walk finds no 0.9
 /// target. Unreadable DLLs and inaccessible subdirectories are skipped; reparse points (junctions /
@@ -97,6 +100,13 @@ internal sealed class OptiScalerTargetDiscovery(IFileVersionReader versionReader
         queue.Enqueue(root);
         (string Path, Version? Version)? firstUnsupported = null;
 
+        // The walk does NOT stop at the first valid 0.9 target: if the user selected a parent
+        // library folder (D:\Games) rather than one game, picking the first game we happen to reach
+        // would silently update the wrong game. So keep going until either the whole tree is
+        // searched (exactly one target -> Found) or a second valid target turns up anywhere
+        // (-> MultipleFound with the first two, stop).
+        var validTargets = new List<(string Path, Version Version)>();
+
         while (queue.Count > 0)
         {
             var directory = queue.Dequeue();
@@ -115,20 +125,31 @@ internal sealed class OptiScalerTargetDiscovery(IFileVersionReader versionReader
                 continue;
             }
 
+            // More than one OptiScaler proxy DLL in a single install directory is ambiguous on its
+            // own - report it (with the first two paths) without needing a second install.
             if (matches.Count > 1)
-                return OptiScalerDiscoveryResult.MultipleFound(matches.Select(m => m.Path).ToList());
+                return OptiScalerDiscoveryResult.MultipleFound(matches.Take(2).Select(m => m.Path).ToList());
 
             if (matches.Count == 1)
             {
                 var (path, version) = matches[0];
                 if (version.HasReadableNumericVersion && version.IsSupportedNineFamily)
-                    return OptiScalerDiscoveryResult.Found(path, version.NumericVersion);
-
-                firstUnsupported ??= (path, version.HasReadableNumericVersion ? version.NumericVersion : null);
+                {
+                    validTargets.Add((path, version.NumericVersion));
+                    if (validTargets.Count == 2)
+                        return OptiScalerDiscoveryResult.MultipleFound(validTargets.Select(t => t.Path).ToList());
+                }
+                else
+                {
+                    firstUnsupported ??= (path, version.HasReadableNumericVersion ? version.NumericVersion : null);
+                }
             }
 
             EnqueueChildDirectories(directory, queue);
         }
+
+        if (validTargets.Count == 1)
+            return OptiScalerDiscoveryResult.Found(validTargets[0].Path, validTargets[0].Version);
 
         return firstUnsupported is { } unsupported
             ? OptiScalerDiscoveryResult.UnsupportedVersion(unsupported.Path, unsupported.Version)
@@ -138,39 +159,48 @@ internal sealed class OptiScalerTargetDiscovery(IFileVersionReader versionReader
     // The only filenames a game will actually load OptiScaler as. A backup copy
     // (dxgi_backup.dll, OptiScaler-old.dll, ...) keeps the OptiScaler PE metadata but is never
     // loaded, so it must not be a replacement target, must not create a false MultipleFound, and
-    // must not affect version-family detection. Filename is checked *before* reading any metadata.
-    private static readonly HashSet<string> SupportedTargetFileNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "dxgi.dll",
-        "winmm.dll",
+    // must not affect version-family detection. Ordered so "the first two" of a MultipleFound is
+    // deterministic; probed by name (see below) so an unrelated file is never even stat-read twice.
+    private static readonly string[] SupportedTargetFileNames =
+    [
         "d3d12.dll",
         "dbghelp.dll",
-        "version.dll",
-        "wininet.dll",
-        "winhttp.dll",
-        "OptiScaler.dll",
+        "dxgi.dll",
         "OptiScaler.asi",
-    };
+        "OptiScaler.dll",
+        "version.dll",
+        "winhttp.dll",
+        "wininet.dll",
+        "winmm.dll",
+    ];
 
+    /// <summary>
+    /// Probes only the 9 supported load names in <paramref name="directory"/> - it never enumerates
+    /// the directory. This matters because the multi-install guard walks the whole selected tree
+    /// on the UI thread; a parent <c>D:\Games</c> library would otherwise stat every unrelated file
+    /// under it. Filename is checked (via <see cref="File.Exists"/>, case-insensitive on Windows)
+    /// before any version metadata is read, so backup copies cost nothing.
+    /// </summary>
     private List<(string Path, OptiScalerFileVersion Version)> FindOptiScalerDlls(string directory)
     {
         var matches = new List<(string, OptiScalerFileVersion)>();
-        foreach (var file in Directory
-                     .EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
-                     .Where(path => SupportedTargetFileNames.Contains(Path.GetFileName(path)))
-                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        foreach (var fileName in SupportedTargetFileNames)
         {
+            var path = Path.Combine(directory, fileName);
+            if (!File.Exists(path))
+                continue;
+
             OptiScalerFileVersion version;
-            try { version = versionReader.Read(file); }
+            try { version = versionReader.Read(path); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FileNotFoundException)
             {
-                continue; // supported name but unreadable - keep scanning this directory
+                continue; // supported name but unreadable - try the next name
             }
 
             if (version.IsOptiScaler)
-                matches.Add((Path.GetFullPath(file), version));
+                matches.Add((Path.GetFullPath(path), version));
         }
-        return matches;
+        return matches.OrderBy(m => m.Item1, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static void EnqueueChildDirectories(string directory, Queue<string> queue)

@@ -111,13 +111,22 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [InlineData("winhttp.dll")]
     [InlineData("OptiScaler.dll")]
     [InlineData("OptiScaler.asi")]
-    [InlineData("DXGI.DLL")]
     public void A_supported_load_filename_with_OptiScaler_0_9_metadata_is_found(string fileName)
     {
         var dll = Dll(fileName);
         var result = Discover(new() { [dll] = V() });
         Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
         Assert.Equal(dll, result.TargetDllPath);
+    }
+
+    [Fact]
+    public void A_supported_load_name_on_disk_in_a_different_case_is_still_found()
+    {
+        var dll = Dll("DXGI.DLL");
+        var result = Discover(new() { [dll] = V() });
+        Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
+        // The probe is case-insensitive; the returned path uses the canonical casing.
+        Assert.Equal(dll, result.TargetDllPath, StringComparer.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -191,27 +200,41 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void A_shallower_target_wins_over_a_deeper_one()
+    public void A_single_valid_target_anywhere_in_a_multi_game_tree_is_Found()
     {
-        var deep = Dll("A/Deep/dxgi.dll");
-        var shallow = Dll("B/winmm.dll");
-        var result = Discover(new() { [deep] = V(), [shallow] = V() });
+        Directory.CreateDirectory(Path.Combine(_folder, "GameA"));
+        Directory.CreateDirectory(Path.Combine(_folder, "GameB"));
+        var only = Dll("GameC/winmm.dll");
+        var result = Discover(new() { [only] = V() });
         Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
-        Assert.Equal(shallow, result.TargetDllPath);
+        Assert.Equal(only, result.TargetDllPath);
     }
 
     [Fact]
-    public void Traversal_stops_at_the_first_supported_target_and_does_not_read_deeper_dlls()
+    public void Two_valid_targets_in_different_game_folders_return_MultipleFound_with_both_paths()
     {
-        var target = Dll("aaa/dxgi.dll");            // depth 1, alphabetically first
-        var deeper = Dll("zzz/Deep/Deeper/winmm.dll"); // depth 3, must never be inspected
-        var recorder = new RecordingVersionReader(new PathVersionReader(new() { [target] = V(), [deeper] = V() }));
+        var a = Dll("GameA/Binaries/Win64/dxgi.dll");
+        var c = Dll("GameC/winmm.dll");
+        var result = Discover(new() { [a] = V(), [c] = V() });
+
+        Assert.Equal(OptiScalerDiscoveryStatus.MultipleFound, result.Status);
+        Assert.Null(result.TargetDllPath);
+        Assert.Equal(new[] { a, c }.OrderBy(p => p), result.DetectedPaths.OrderBy(p => p));
+    }
+
+    [Fact]
+    public void Traversal_stops_at_the_second_valid_target_and_does_not_read_the_third()
+    {
+        var first = Dll("GameA/dxgi.dll");                // depth 1
+        var second = Dll("GameB/winmm.dll");              // depth 1
+        var third = Dll("GameZ/Deep/Deeper/version.dll"); // deeper, must never be inspected
+        var recorder = new RecordingVersionReader(new PathVersionReader(new() { [first] = V(), [second] = V(), [third] = V() }));
 
         var result = DiscoverWith(recorder);
 
-        Assert.Equal(target, result.TargetDllPath);
-        Assert.Contains(Path.GetFullPath(target), recorder.ReadPaths);
-        Assert.DoesNotContain(Path.GetFullPath(deeper), recorder.ReadPaths);
+        Assert.Equal(OptiScalerDiscoveryStatus.MultipleFound, result.Status);
+        Assert.Equal(new[] { first, second }, result.DetectedPaths);
+        Assert.DoesNotContain(Path.GetFullPath(third), recorder.ReadPaths);
     }
 
     [Fact]
@@ -231,10 +254,10 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [Fact]
     public void An_unsupported_only_tree_reports_UnsupportedVersion_with_the_detected_path()
     {
-        var ten = Dll("Tools/optiscaler.dll");
+        var ten = Dll("Tools/optiscaler.dll"); // lower-case on disk; probed case-insensitively
         var result = Discover(new() { [ten] = V(fileVersion: "0.10.2.0") });
         Assert.Equal(OptiScalerDiscoveryStatus.UnsupportedVersion, result.Status);
-        Assert.Equal(ten, result.TargetDllPath);
+        Assert.Equal(ten, result.TargetDllPath, StringComparer.OrdinalIgnoreCase);
         Assert.Equal(new Version(0, 10, 2, 0), result.Version);
     }
 
