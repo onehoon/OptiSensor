@@ -1,117 +1,228 @@
 # OptiSensor
 
-OptiSensor is a lightweight Windows hardware sensor helper for OptiScaler's external overlay.
+OptiSensor extends OptiScaler's FPS overlay with additional hardware telemetry. It publishes one
+plain-text line to a shared-memory feed that a patched OptiScaler build appends to its on-screen FPS
+counter.
 
-It reads local hardware sensor values with LibreHardwareMonitor and publishes a compact overlay line through the `Local\OptiScalerExternalOverlay` shared-memory mapping. A patched OptiScaler build appends the first UTF-8 line to its FPS overlay. The shared-memory payload format is fixed; only the text content is updated.
+Two editions are available:
 
-Example overlay:
+- **Desktop Edition** — for general supported Windows PCs, using either HWiNFO or LibreHardwareMonitor
+  as its sensor source.
+- **Claw Edition** — for supported MSI Claw handhelds, using a fully native Windows / MSI EC / Intel
+  IGCL telemetry stack. **The Claw edition does not use HWiNFO or LibreHardwareMonitor.**
 
-```text
-FPS: 111.0 | GPU 44C | 115W | 62%
-```
+Both editions require the OptiSensor-compatible patched `OptiScaler.dll` —
+see [Install the OptiSensor-Compatible OptiScaler Build](#install-the-optisensor-compatible-optiscaler-build).
 
-## Current Scope
+## Editions
 
-This branch (`main`) carries only the OptiSensor application source and its own CI:
+|  | Desktop Edition | Claw Edition |
+| --- | --- | --- |
+| Source branch | `main` | `claw` |
+| Target | General supported Windows PCs | Supported MSI Claw models only |
+| Sensor backend | HWiNFO **or** LibreHardwareMonitor | Windows + MSI EC + Intel IGCL |
+| HWiNFO | Optional; required only when the HWiNFO source is selected | **Not used** |
+| LibreHardwareMonitor | Built-in alternative sensor source | **Not used** |
+| Windows native telemetry | Not the Desktop telemetry path | Used |
+| MSI EC | Not a Desktop telemetry path | Used |
+| Intel IGCL | Not a Desktop telemetry path | Used |
+| Velopack update channel | `win` | `claw` |
+| Installer | `OptiSensor-win-Setup.exe` | `OptiSensor-claw-Setup.exe` |
 
-- `OptiSensor.exe`: a WPF tray helper with LibreHardwareMonitor sensor discovery, selected overlay sensor editing, and shared memory publishing.
-- Velopack packaging: each manual OptiSensor CI build creates a current-user installer and automatically assigns the next `0.1.x` version and matching `v0.1.x` tag.
-
-The OptiScaler patch stack that reads this app's shared-memory feed, and the combined-package build that pairs a patched `OptiScaler.dll` with this app's installer, live on the version-specific `release/0.9`/`release/0.10` branches instead — see [Branch Layout](#branch-layout).
-
-Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, release-channel support, and game or OptiScaler activity based publishing.
-
-The helper source is organized under `src/OptiSensor` by role:
-
-```text
-App/         WPF startup coordination and single-instance lifetime
-Cli/         --once and --watch diagnostic commands
-Install/     LocalAppData data paths and Task Scheduler startup registration
-Libre/       LibreHardwareMonitor reading and sensor classification
-Models/      Detected and selected sensor models
-Overlay/     Overlay line formatting and shared memory publishing
-Publishing/  Shared publish runner and background service
-Settings/    settings.json model and store
-UI/          Main window and tray icon lifecycle
-```
-
-## Requirements
-
-- Windows 11
-- .NET 10 SDK for local development
-- Visual Studio/MSBuild for local OptiScaler builds
-
-The helper targets:
+The two editions share the OptiSensor external-overlay contract and the same patched OptiScaler
+consumer, but their telemetry backends are entirely different and are described separately below.
 
 ```text
-net10.0-windows
-win-x64
+Desktop Edition                         Claw Edition
+HWiNFO or LibreHardwareMonitor           Windows + MSI EC + Intel IGCL
+            │                                        │
+            ▼                                        ▼
+        OptiSensor                               OptiSensor
+            │                                        │
+            ▼                                        ▼
+       Shared memory                            Shared memory
+ Local\OptiScalerExternalOverlay         Local\OptiScalerExternalOverlay
+            │                                        │
+            ▼                                        ▼
+     patched OptiScaler.dll                   patched OptiScaler.dll
 ```
 
-Windows 10 and older Windows versions are not supported by this project.
+## Desktop Edition
 
-## HWiNFO Integration
+The Desktop edition targets general supported Windows PCs and reads hardware sensors from one
+selectable sensor source.
 
-HWiNFO integration requires a separately installed copy of HWiNFO. HWiNFO is not bundled with or licensed by OptiSensor. Users are responsible for complying with the applicable HWiNFO license terms.
+### Requirements
 
-## Local Helper Usage
+- Windows 11 (Windows 10 and older are not supported)
+- If **HWiNFO** is selected as the Desktop sensor source, a separately installed copy of HWiNFO is
+  required. HWiNFO is not bundled with or licensed by OptiSensor; users are responsible for complying
+  with the applicable HWiNFO license terms.
+- **LibreHardwareMonitor** is the alternative built-in sensor source and does not require HWiNFO to be
+  installed.
 
-Run once:
+### Telemetry
 
-```powershell
-dotnet run --project .\src\OptiSensor\OptiSensor.csproj -- --once
-```
+The Desktop edition lets you choose either **HWiNFO** or **LibreHardwareMonitor** as the active sensor
+source. OptiSensor discovers sensors from the selected source, lets you choose which values appear in
+the overlay line, and publishes the formatted line to shared memory.
 
-Watch sensor output in the console:
+### Installation
 
-```powershell
-dotnet run --project .\src\OptiSensor\OptiSensor.csproj -- --watch
-```
+Install `OptiSensor-win-Setup.exe` (Velopack `win` channel). It installs per-user under LocalAppData
+and updates in place.
 
-Publish a framework-dependent Windows x64 executable:
+## Claw Edition
 
-```powershell
-dotnet publish .\src\OptiSensor\OptiSensor.csproj `
-  -c Release `
-  -r win-x64 `
-  --self-contained false `
-  -p:PublishSingleFile=true `
-  -p:PublishReadyToRun=false `
-  -p:IncludeNativeLibrariesForSelfExtract=true `
-  -o .\publish\win-x64
-```
+The Claw edition is a distinct implementation of OptiSensor for MSI Claw handhelds. It samples
+telemetry natively from Windows, the MSI embedded controller, and the Intel graphics control library —
+**it does not use HWiNFO or LibreHardwareMonitor**, and it does not require any third-party sensor
+tool to be installed.
 
-The local publish output expects the .NET 10 Desktop Runtime to be installed separately. Native helper libraries are still bundled into `OptiSensor.exe` so the output can keep a single helper executable. CI then turns this publish output into a Velopack installer.
+### Supported devices
 
-## Startup
+The OptiSensor Claw edition supports only:
 
-OptiSensor registers a current-user Windows Task Scheduler task named `OptiSensor` when `startWithWindows` is enabled.
-The task launches the Velopack `current` helper with `--startup` at user logon after a 5-minute delay using the current user's normal permissions, and is configured to restart on failure up to 3 times at 1-minute intervals.
-Tray `Exit` and the main window `Exit` button perform a normal exit with code `0`, so Task Scheduler does not restart the helper after an intentional user exit.
-Legacy HKCU Run startup entries are removed during task registration/unregistration to avoid duplicate launches.
-
-## Shared-Memory Protocol
-
-[docs/optiscaler-external-overlay-protocol.md](docs/optiscaler-external-overlay-protocol.md) documents the shared-memory payload contract
-that `ExternalOverlayPublisher` implements. External overlay lines are UTF-8, null-terminated byte
-strings; the maximum line length is 128 bytes including the trailing null byte, and the protocol payload
-size is 544 bytes. The canonical C++ struct definition and the OptiScaler-side patch stack that reads
-this feed live on the `release/0.9`/`release/0.10` branches instead — see [Branch Layout](#branch-layout).
-
-## Branch Layout
-
-The OptiSensor app source and the OptiScaler patch stacks that consume it are split across branches:
-
-| Branch | Contents |
+| Device | Board ID |
 | --- | --- |
-| `main` | This branch. `src/OptiSensor` app source and its own CI (`build-optisensor-only.yml`) only — no OptiScaler patches. |
-| `release/0.9` | OptiScaler `release/0.9` patch stack and its packaging/build workflows only — no app source. |
-| `release/0.10` | OptiScaler `master` patch stack and its packaging/build workflows only — no app source. |
-| `backup/pre-split` | Frozen backup of the pre-split combined history. Not actively developed. |
+| **MSI Claw 8 AI+ A2VM** | `MS-1T52` |
+| **MSI Claw 8 EX AI+ CG3EM** | `MS-1T91` |
 
-App source changes belong on `main`. OptiScaler patch changes belong on the relevant
-`release/0.x` branch. A combined OptiSensor+OptiScaler package build reads the app from
-`main` and patches from the target `release/0.x` branch.
+Other MSI Claw models — including the **MSI Claw 7 AI+ A2VM** (`MS-1T42`) and the original MSI Claw
+A1M — are **not** currently supported by the OptiSensor Claw edition. Device names follow the
+Steam Addon for Claw project's naming.
+
+### Telemetry backend
+
+| Metric | Source |
+| --- | --- |
+| CPU Usage | Windows |
+| CPU Temperature | MSI EC |
+| GPU Usage | Intel IGCL |
+| GPU Clock | Intel IGCL |
+| TDP | MSI EC (CPU package power) |
+| RAM | Windows |
+| VRAM | Windows (Intel GPU memory) |
+| FAN | MSI EC |
+| Battery | Windows |
+
+FPS is provided by OptiScaler itself. OptiSensor does not sample FPS. GPU power and GPU temperature
+are not published by the Claw edition.
+
+### Overlay example
+
+```text
+CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 20.0GB | VRAM 9.4GB | FAN 3540RPM | BAT 72% 2.5h
+```
+
+OptiScaler prepends its own FPS reading; OptiSensor supplies everything after it. Segments are omitted
+when their source is unavailable.
+
+### Installation
+
+Install `OptiSensor-claw-Setup.exe` (Velopack `claw` channel). It installs per-user under LocalAppData
+and updates in place.
+
+The Claw edition runs **elevated** — reading the MSI embedded controller requires administrator
+privileges, so OptiSensor requests UAC on launch (or is started elevated by its startup task). Do not
+install HWiNFO or LibreHardwareMonitor for the Claw edition; they are not used.
+
+See [docs/helper-installation.md](docs/helper-installation.md) for installer, startup-task, and
+lifecycle details.
+
+### Tray and UI behavior
+
+```text
+Normal launch          → MainWindow shown
+Start with Windows / --startup
+                       → tray-only startup; telemetry publishing active, no window
+Minimize               → UI retires to the tray; telemetry continues
+X / Close              → UI retires to the tray; telemetry continues
+Tray → Show            → a new UI session opens
+Tray → Exit            → application exits
+MainWindow Exit        → application exits
+```
+
+Telemetry publishing is owned by the application host and continues whenever the window is hidden or
+closed; only **Tray Exit** or the **MainWindow Exit** button ends the process.
+
+The single-page window contains:
+
+- **Current Overlay Feed** — the live line currently in shared memory
+- **Intel VRR Range Fix** — restores the native VRR range on the affected MSI Claw 8 internal panel
+- **Start with Windows** — registers/removes the per-user startup task
+
+## Install the OptiSensor-Compatible OptiScaler Build
+
+**OptiSensor telemetry does not appear with a standard OptiScaler build.** Upstream OptiScaler does
+not contain the external-overlay patch that reads `Local\OptiScalerExternalOverlay`. You must replace
+your `OptiScaler.dll` with the patched build produced by this repository's GitHub Actions.
+
+### Download the patched artifact
+
+1. Open this repository's **Actions** tab on GitHub.
+2. Select the workflow matching the OptiScaler version you run:
+   - **Build OptiScaler 0.9** — for OptiScaler `release/0.9`
+   - **Build OptiScaler 0.10** — for current OptiScaler `master`
+3. Open a successful run of that workflow.
+4. Download its artifact from the run's **Artifacts** section:
+   - `OptiScaler-0.9.dll` or `OptiScaler-0.10.dll`
+5. Extract `OptiScaler.dll` from the downloaded archive.
+6. Back up your existing `OptiScaler.dll` if you want to keep it.
+7. Replace your existing `OptiScaler.dll` with the patched one.
+8. Run OptiSensor alongside OptiScaler, and set the OptiScaler FPS overlay type to
+   `Just FPS (+External)`.
+
+### Match the OptiScaler version
+
+The patched DLL is built against a specific OptiScaler branch and only works with that version:
+
+```text
+OptiScaler 0.9   → use the 0.9 patched artifact (OptiScaler-0.9.dll)
+OptiScaler 0.10  → use the 0.10 patched artifact (OptiScaler-0.10.dll)
+```
+
+> Always use the patched artifact built for the OptiScaler version you are running. Do not mix DLLs
+> built against different OptiScaler branches.
+
+## Updates
+
+Both editions check for updates automatically at startup and have no manual update button.
+
+```text
+Desktop Edition → Velopack `win` channel
+Claw Edition    → Velopack `claw` channel
+```
+
+The repository-wide release workflow on `main` builds both editions from their own source branches and
+publishes them to their respective channels in one GitHub Release.
+
+## Technical Integration
+
+OptiSensor writes a single UTF-8 line to the `Local\OptiScalerExternalOverlay` shared-memory mapping,
+and the patched OptiScaler reads `lines[0]` and appends it to the FPS overlay. The payload layout,
+sequence-lock algorithm, freshness window, and canonical C++ struct are documented in
+[docs/optiscaler-external-overlay-protocol.md](docs/optiscaler-external-overlay-protocol.md), which is
+the technical authority for the contract.
+
+## Development
+
+```powershell
+dotnet build -c Release
+dotnet test tests/OptiSensor.Tests -c Release
+```
+
+The app targets `net10.0-windows` / `win-x64` and needs the .NET 10 SDK. CI (`app-ci.yml`) runs the
+build, the tests, and a single-file publish smoke on every pull request.
+
+## Branches
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | Desktop OptiSensor edition; repository-wide release authority (builds and publishes both editions) |
+| `claw` | MSI Claw OptiSensor edition |
+| `release/0.9` | OptiScaler 0.9 patch stack and its build workflow |
+| `release/0.10` | OptiScaler 0.10 patch stack and its build workflow |
 
 ## License
 
