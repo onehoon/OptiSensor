@@ -1,38 +1,40 @@
 # OptiSensor
 
-OptiSensor is a lightweight Windows hardware sensor helper for OptiScaler's external overlay.
+OptiSensor is a Windows tray utility that publishes native MSI Claw telemetry to OptiScaler's `Local\OptiScalerExternalOverlay` shared-memory feed.
 
-It reads local hardware sensor values from HWiNFO shared memory and publishes a compact overlay line through the `Local\OptiScalerExternalOverlay` shared-memory mapping. A patched OptiScaler build appends the first UTF-8 line to its FPS overlay. The shared-memory payload format is fixed; only the text content is updated.
+The Claw edition reads telemetry directly from Windows, MSI EC, and Intel IGCL. HWiNFO is not required. It publishes a compact overlay line through the `Local\OptiScalerExternalOverlay` shared-memory mapping; a patched OptiScaler build appends the first UTF-8 line to its FPS overlay. The shared-memory payload format is fixed; only the text content is updated.
 
 Example overlay:
 
 ```text
-FPS: 111.0 | GPU 44C | 115W | 62%
+CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 20.0GB | VRAM 9.4GB | FAN 3540RPM | BAT 72% 2.5h
 ```
+
+## UI
+
+The single-page window shows the current shared-memory overlay feed and provides Intel VRR Range Fix and Start with Windows controls. Closing or hiding the window leaves background telemetry publishing active.
 
 ## Current Scope
 
-This branch (`main`) carries only the OptiSensor application source and its own CI:
+This branch (`claw`) carries only the OptiSensor application source and its own CI:
 
-- `OptiSensor.exe`: a WPF tray helper with HWiNFO sensor discovery, selected overlay sensor editing, and shared memory publishing.
+- `OptiSensor.exe`: a WPF tray helper that samples native Windows/MSI EC/Intel IGCL telemetry and publishes the overlay line.
 - Velopack packaging: each manual OptiSensor CI build creates a current-user installer and automatically assigns the next `0.1.x` version and matching `v0.1.x` tag.
 
 The OptiScaler patch stack that reads this app's shared-memory feed, and the combined-package build that pairs a patched `OptiScaler.dll` with this app's installer, live on the version-specific `release/0.9`/`release/0.10` branches instead — see [Branch Layout](#branch-layout).
-
-Follow-up work includes richer Fluent UI styling, automatic sensor recommendation, presets, release-channel support, and game or OptiScaler activity based publishing.
 
 The helper source is organized under `src/OptiSensor` by role:
 
 ```text
 App/         WPF startup coordination and single-instance lifetime
-Cli/         --once and --watch diagnostic commands
+Claw/        Native telemetry sampler and overlay line formatter
 Install/     LocalAppData data paths and Task Scheduler startup registration
-Libre/       Shared sensor snapshot/matcher models (HWiNFO-backed on this branch)
-Models/      Detected and selected sensor models
-Overlay/     Overlay line formatting and shared memory publishing
-Publishing/  Shared publish runner and background service
+Overlay/     Shared-memory overlay publisher, reader, and protocol
+Publishing/  Background publish service
 Settings/    settings.json model and store
-UI/          Main window and tray icon lifecycle
+Tweaks/      Intel VRR Range Fix coordinator
+Updates/     Velopack background update check
+UI/          Single-page main window and tray icon lifecycle
 ```
 
 ## Requirements
@@ -50,23 +52,7 @@ win-x64
 
 Windows 10 and older Windows versions are not supported by this project.
 
-## HWiNFO Integration
-
-HWiNFO integration requires a separately installed copy of HWiNFO. HWiNFO is not bundled with or licensed by OptiSensor. Users are responsible for complying with the applicable HWiNFO license terms.
-
 ## Local Helper Usage
-
-Run once:
-
-```powershell
-dotnet run --project .\src\OptiSensor\OptiSensor.csproj -- --once
-```
-
-Watch sensor output in the console:
-
-```powershell
-dotnet run --project .\src\OptiSensor\OptiSensor.csproj -- --watch
-```
 
 Publish a framework-dependent Windows x64 executable:
 
@@ -85,10 +71,20 @@ The local publish output expects the .NET 10 Desktop Runtime to be installed sep
 
 ## Startup
 
-OptiSensor registers a current-user Windows Task Scheduler task named `OptiSensor` when `startWithWindows` is enabled.
-The task launches the Velopack `current` helper with `--startup` at user logon after a 5-minute delay using the current user's normal permissions, and is configured to restart on failure up to 3 times at 1-minute intervals.
-Tray `Exit` and the main window `Exit` button perform a normal exit with code `0`, so Task Scheduler does not restart the helper after an intentional user exit.
-Legacy HKCU Run startup entries are removed during task registration/unregistration to avoid duplicate launches.
+When **Start with Windows** is enabled, OptiSensor registers the current-user `OptiSensor` Task Scheduler task whose action targets the Velopack `current` helper:
+
+```text
+Trigger: At user logon, delayed by 1 minute
+Run level: HighestAvailable
+Restart on failure: every 1 minute, up to 3 attempts
+Argument: --startup
+```
+
+`--startup` is the only supported runtime command-line mode. Tray `Exit` and the main window `Exit` button perform a normal exit with code `0`, so Task Scheduler does not restart the helper after an intentional user exit. Legacy HKCU Run startup entries are removed during task registration/unregistration to avoid duplicate launches.
+
+## Updates
+
+OptiSensor checks for updates automatically when the application starts. There is no manual update button.
 
 ## Shared-Memory Protocol
 
