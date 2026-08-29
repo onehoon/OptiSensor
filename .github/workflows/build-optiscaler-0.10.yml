@@ -141,26 +141,26 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Prune older OptiScaler-0.10.dll artifacts
+      - name: Delete previous runs of this workflow (keeps only this run + its artifact)
         if: success()
         uses: actions/github-script@v7
         with:
           script: |
-            const name = "OptiScaler-0.10.dll";
-            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner: context.repo.owner,
               repo: context.repo.repo,
+              workflow_id: "build-optiscaler-0.10.yml",
               per_page: 100,
             });
-            const mine = all
-              .filter(a => a.name === name && !a.expired)
-              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            core.info(`Found ${mine.length} '${name}' artifact(s); keeping the newest.`);
-            for (const a of mine.slice(1)) {
-              await github.rest.actions.deleteArtifact({
+            // Deleting a run also removes its logs and artifacts. Skip the current run and any
+            // run that is not finished yet (the API rejects deleting in-progress runs).
+            const stale = runs.filter(r => r.id !== context.runId && r.status === "completed");
+            core.info(`Keeping run ${context.runId}; deleting ${stale.length} previous run(s).`);
+            for (const r of stale) {
+              await github.rest.actions.deleteWorkflowRun({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                artifact_id: a.id,
+                run_id: r.id,
               });
-              core.info(`Deleted artifact ${a.id} (created ${a.created_at}).`);
+              core.info(`Deleted run ${r.id} (${r.created_at}, ${r.event}/${r.conclusion}).`);
             }
