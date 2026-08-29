@@ -2,10 +2,10 @@
 
 OptiSensor is installed with its Velopack `*-Setup.exe` installer. It no longer copies a running executable over itself. Velopack installs the app for the current user under LocalAppData and keeps the launch path stable across updates through its `current` directory.
 
-Run the installer once:
+The Claw edition is packaged separately in the `claw` Velopack channel. Run its installer once:
 
 ```powershell
-.\OptiSensor-win-Setup.exe
+.\OptiSensor-claw-Setup.exe
 ```
 
 The installer uses the framework-dependent `net10-x64-desktop` package configuration, so it can install the required .NET 10 Desktop Runtime when needed. Settings and logs remain outside the install directory:
@@ -19,7 +19,7 @@ Uninstall OptiSensor through Windows Installed apps. The installer-managed app f
 
 ## Startup registration
 
-When **Register startup task** is enabled, OptiSensor creates the current-user `OptiSensor` Task Scheduler task. Its action targets the executable under Velopack's stable `current` directory and passes `--startup`.
+When **Start with Windows** is enabled, OptiSensor creates the current-user `OptiSensor` Task Scheduler task. Its action targets the executable under Velopack's stable `current` directory and passes `--startup`.
 
 Policy:
 
@@ -40,10 +40,22 @@ schtasks /Query /TN "OptiSensor"
 schtasks /Query /TN "OptiSensor" /XML
 ```
 
-## Command-line modes
+## Window and tray lifecycle
 
-`--startup` is the only supported runtime mode; it is reserved for the Task Scheduler action and suppresses the startup window. Normal app launches show the window; closing the window hides it to the tray, and only the tray/menu **Exit** action closes the helper.
+`--startup` is the only supported runtime command-line mode; it is reserved for the Task Scheduler action and starts OptiSensor without a window.
+
+```text
+Normal launch      -> MainWindow shown
+--startup          -> no MainWindow; tray icon + native publisher remain active
+Minimize           -> window retires to the tray
+X / Close          -> window retires to the tray
+Tray -> Show       -> creates/shows a new UI session
+Tray -> Exit       -> application exits
+MainWindow Exit    -> application exits
+```
+
+Minimize and X do not stop telemetry. Native telemetry publishing is owned by `ApplicationHost` and continues whether or not a MainWindow exists; only **Tray Exit** or the **MainWindow Exit** button ends the process.
 
 ## Updates
 
-OptiSensor checks for updates automatically at startup using Velopack. There is no manual update button.
+The installed Claw edition checks for updates automatically at startup using its Velopack `claw` channel. There is no manual update button.
