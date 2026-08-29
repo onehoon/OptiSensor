@@ -6,8 +6,8 @@ counter.
 
 Two editions are available:
 
-- **Desktop Edition** — for general supported Windows PCs, using the HWiNFO / LibreHardwareMonitor
-  sensor stack.
+- **Desktop Edition** — for general supported Windows PCs, using either HWiNFO or LibreHardwareMonitor
+  as its sensor source.
 - **Claw Edition** — for supported MSI Claw handhelds, using a fully native Windows / MSI EC / Intel
   IGCL telemetry stack. **The Claw edition does not use HWiNFO or LibreHardwareMonitor.**
 
@@ -20,9 +20,10 @@ see [Install the OptiSensor-Compatible OptiScaler Build](#install-the-optisensor
 | --- | --- | --- |
 | Source branch | `main` | `claw` |
 | Target | General supported Windows PCs | Supported MSI Claw models only |
-| HWiNFO | Used | **Not used** |
-| LibreHardwareMonitor | Used | **Not used** |
-| Windows native telemetry | As implemented by the Desktop edition | Used |
+| Sensor backend | HWiNFO **or** LibreHardwareMonitor | Windows + MSI EC + Intel IGCL |
+| HWiNFO | Optional; required only when the HWiNFO source is selected | **Not used** |
+| LibreHardwareMonitor | Built-in alternative sensor source | **Not used** |
+| Windows native telemetry | Not the Desktop telemetry path | Used |
 | MSI EC | Not a Desktop telemetry path | Used |
 | Intel IGCL | Not a Desktop telemetry path | Used |
 | Velopack update channel | `win` | `claw` |
@@ -33,7 +34,7 @@ consumer, but their telemetry backends are entirely different and are described 
 
 ```text
 Desktop Edition                         Claw Edition
-HWiNFO + LibreHardwareMonitor            Windows + MSI EC + Intel IGCL
+HWiNFO or LibreHardwareMonitor           Windows + MSI EC + Intel IGCL
             │                                        │
             ▼                                        ▼
         OptiSensor                               OptiSensor
@@ -48,20 +49,23 @@ HWiNFO + LibreHardwareMonitor            Windows + MSI EC + Intel IGCL
 
 ## Desktop Edition
 
-The Desktop edition targets general supported Windows PCs and reads hardware sensors through the
-established Desktop sensor stack.
+The Desktop edition targets general supported Windows PCs and reads hardware sensors from one
+selectable sensor source.
 
 ### Requirements
 
 - Windows 11 (Windows 10 and older are not supported)
-- A separately installed copy of **HWiNFO**. HWiNFO is not bundled with or licensed by OptiSensor;
-  users are responsible for complying with the applicable HWiNFO license terms.
+- If **HWiNFO** is selected as the Desktop sensor source, a separately installed copy of HWiNFO is
+  required. HWiNFO is not bundled with or licensed by OptiSensor; users are responsible for complying
+  with the applicable HWiNFO license terms.
+- **LibreHardwareMonitor** is the alternative built-in sensor source and does not require HWiNFO to be
+  installed.
 
 ### Telemetry
 
-The Desktop edition obtains sensor values with **LibreHardwareMonitor** and **HWiNFO**, discovers the
-available sensors, and lets you choose which ones appear in the overlay line. The selected values are
-formatted and written to the shared-memory feed.
+The Desktop edition lets you choose either **HWiNFO** or **LibreHardwareMonitor** as the active sensor
+source. OptiSensor discovers sensors from the selected source, lets you choose which values appear in
+the overlay line, and publishes the formatted line to shared memory.
 
 ### Installation
 
