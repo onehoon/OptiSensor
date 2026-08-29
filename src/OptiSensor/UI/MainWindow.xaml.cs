@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls.Primitives;
@@ -166,22 +165,12 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---- window buttons -------------------------------------------------
-
-    private void OpenSettingsFolderButton_Click(object sender, RoutedEventArgs e)
-    {
-        AppPaths.EnsureDataDirectories();
-        Process.Start(new ProcessStartInfo { FileName = AppPaths.DataDirectory, UseShellExecute = true });
-    }
+    // ---- card actions --------------------------------------------------
 
     private void ManageOptiScalerButton_Click(object sender, RoutedEventArgs e)
     {
         new OptiScalerReplaceWindow { Owner = this }.ShowDialog();
     }
-
-    private void HideButton_Click(object sender, RoutedEventArgs e) => _host.RequestHideMainWindow();
-
-    private void ExitButton_Click(object sender, RoutedEventArgs e) => _host.RequestExit();
 
     // ---- tray / host lifecycle ----------------------------------------
 
