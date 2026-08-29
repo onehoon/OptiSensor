@@ -93,6 +93,23 @@ public sealed class SinglePageUiTests
     }
 
     [Fact]
+    public void ObsoleteDirtySessionContractIsRemovedFromMainWindow()
+    {
+        var code = Src(Path.Combine("UI", "MainWindow.xaml.cs"));
+
+        // All settings apply immediately, so the unsaved-draft lifecycle hooks are gone.
+        Assert.DoesNotContain("TryPrepareForExit", code);
+        Assert.DoesNotContain("ShouldPreserveSessionOnHide", code);
+        Assert.DoesNotContain("HidePreservingSession", code);
+
+        // The real deferred-teardown hooks remain.
+        Assert.Contains("HideForSessionTeardown", code);
+        Assert.Contains("CloseAfterSessionTeardown", code);
+        Assert.Contains("PrepareForSessionTeardownAsync", code);
+        Assert.Contains("_overlayReader.Dispose()", code);
+    }
+
+    [Fact]
     public void ImmediateApplyToggles_RevertOnPersistenceFailure()
     {
         var code = Src(Path.Combine("UI", "MainWindow.xaml.cs"));

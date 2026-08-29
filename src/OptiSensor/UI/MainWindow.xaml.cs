@@ -211,18 +211,6 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
-    /// <summary>Immediate-apply toggles mean there is never an unsaved draft to confirm on exit.</summary>
-    internal bool TryPrepareForExit() => true;
-
-    /// <summary>No unsaved edits, so hiding always retires this UI session (recreated on next show).</summary>
-    internal bool ShouldPreserveSessionOnHide => false;
-
-    internal void HidePreservingSession()
-    {
-        _previewTimer.Stop();
-        Hide();
-    }
-
     internal void HideForSessionTeardown()
     {
         _previewTimer.Stop();

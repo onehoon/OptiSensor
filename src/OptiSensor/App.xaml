@@ -36,19 +36,6 @@
                 </ControlTemplate.Triggers>
             </ControlTemplate>
 
-            <Style x:Key="AccentButtonStyle" TargetType="Button">
-                <Setter Property="Height" Value="34"/>
-                <Setter Property="Padding" Value="16,0"/>
-                <Setter Property="Background" Value="#2563EB"/>
-                <Setter Property="BorderBrush" Value="#2563EB"/>
-                <Setter Property="Foreground" Value="White"/>
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                <Setter Property="VerticalContentAlignment" Value="Center"/>
-                <Setter Property="Template" Value="{StaticResource FluentButtonTemplate}"/>
-            </Style>
-
             <Style x:Key="NeutralButtonStyle" TargetType="Button">
                 <Setter Property="Height" Value="34"/>
                 <Setter Property="Padding" Value="16,0"/>

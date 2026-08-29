@@ -48,10 +48,13 @@ public sealed class ApplicationHostBackgroundStartupTests
             "Start() must keep MainWindow creation conditional on showMainWindow.");
         Assert.True(showCallIndex > conditionIndex,
             "host.ShowMainWindow() must remain inside/after the showMainWindow guard.");
-        Assert.True(tweaksIndex >= 0 && sensorsIndex >= 0);
-        Assert.True(tweaksIndex < sensorsIndex, "Tweaks must still start before Sensors.");
-        Assert.True(sensorsIndex < conditionIndex,
-            "Background sensor startup must not be gated by the UI branch.");
+
+        // Tweaks and the native publisher both start unconditionally, before the UI branch.
+        // Their relative call order is deliberately not a contract - neither gates the other.
+        Assert.True(tweaksIndex >= 0 && tweaksIndex < conditionIndex,
+            "Tweaks startup must not be gated by the UI branch.");
+        Assert.True(sensorsIndex >= 0 && sensorsIndex < conditionIndex,
+            "Background publisher startup must not be gated by the UI branch.");
     }
 
     [Fact]
@@ -73,9 +76,39 @@ public sealed class ApplicationHostBackgroundStartupTests
     {
         var source = ReadApplicationHostSource();
 
-        Assert.Contains("_mainWindow is not null && !_mainWindow.TryPrepareForExit()", source);
+        // Shutdown and the update visibility check must both tolerate a null MainWindow
+        // (startup mode / already torn down to the tray).
         Assert.Contains("WaitForMainWindowTeardownAsync()", source);
+        Assert.Contains("if (_mainWindow is not null)", source);
         Assert.Contains("_mainWindow?.IsVisible == true", source);
+
+        // The obsolete unsaved-draft exit gate is gone.
+        Assert.DoesNotContain("TryPrepareForExit", source);
+    }
+
+    [Fact]
+    public void BackgroundUpdate_RestartIsGuardedByExitStateAfterTheVisibilityHop()
+    {
+        var source = ReadApplicationHostSource();
+        var start = source.IndexOf("private async Task CheckForUpdatesInBackgroundAsync()", StringComparison.Ordinal);
+        var end = source.IndexOf("private Task<bool> IsMainWindowVisibleAsync()", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var body = source[start..end];
+
+        var visibilityHop = body.IndexOf("await IsMainWindowVisibleAsync()", StringComparison.Ordinal);
+        var finalGuard = body.LastIndexOf("IsExitCleanupInProgress(", StringComparison.Ordinal);
+        var apply = body.IndexOf("GitHubUpdateService.ApplyAndRestart(", StringComparison.Ordinal);
+
+        Assert.True(visibilityHop >= 0, "The visibility check must remain.");
+        Assert.True(finalGuard > visibilityHop && apply > finalGuard,
+            "An explicit Exit during the visibility hop must cancel the update restart: the exit " +
+            "check has to run after the await and immediately before ApplyAndRestart.");
+
+        // The existing application-lifetime token flows into the update work; shutdown cancellation
+        // is treated as normal, not an update failure.
+        Assert.Contains("DownloadLatestAsync(", body);
+        Assert.Contains("shutdownToken", body);
+        Assert.Contains("catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)", body);
     }
 
     [Fact]
