@@ -33,7 +33,7 @@ public sealed class ApplicationHostBackgroundStartupTests
     {
         var source = ReadApplicationHostSource();
         var startMethodStart = source.IndexOf("public static ApplicationHost Start(", StringComparison.Ordinal);
-        var nextMemberStart = source.IndexOf("private void StartTweaksInBackground", startMethodStart, StringComparison.Ordinal);
+        var nextMemberStart = source.IndexOf("private void StartSensorServices", startMethodStart, StringComparison.Ordinal);
 
         Assert.True(startMethodStart >= 0, "Could not locate ApplicationHost.Start().");
         Assert.True(nextMemberStart > startMethodStart, "Could not bound ApplicationHost.Start().");
@@ -41,15 +41,13 @@ public sealed class ApplicationHostBackgroundStartupTests
         var body = source[startMethodStart..nextMemberStart];
         var conditionIndex = body.IndexOf("if (showMainWindow)", StringComparison.Ordinal);
         var showCallIndex = body.IndexOf("host.ShowMainWindow();", StringComparison.Ordinal);
-        var tweaksIndex = body.IndexOf("host.StartTweaksInBackground();", StringComparison.Ordinal);
         var sensorsIndex = body.IndexOf("host.StartSensorServices();", StringComparison.Ordinal);
 
         Assert.True(conditionIndex >= 0,
             "Start() must keep MainWindow creation conditional on showMainWindow.");
         Assert.True(showCallIndex > conditionIndex,
             "host.ShowMainWindow() must remain inside/after the showMainWindow guard.");
-        Assert.True(tweaksIndex >= 0 && sensorsIndex >= 0);
-        Assert.True(tweaksIndex < sensorsIndex, "Tweaks must still start before Sensors.");
+        Assert.True(sensorsIndex >= 0);
         Assert.True(sensorsIndex < conditionIndex,
             "Background sensor startup must not be gated by the UI branch.");
     }

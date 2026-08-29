@@ -67,6 +67,9 @@ The Desktop edition lets you choose either **HWiNFO** or **LibreHardwareMonitor*
 source. OptiSensor discovers sensors from the selected source, lets you choose which values appear in
 the overlay line, and publishes the formatted line to shared memory.
 
+The Desktop edition does not include the MSI Claw-specific Intel VRR Range Fix; that feature remains
+available only in the Claw edition.
+
 ### Installation
 
 Install `OptiSensor-win-Setup.exe` (Velopack `win` channel). It installs per-user under LocalAppData

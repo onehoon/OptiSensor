@@ -6,7 +6,6 @@ using OptiSensor.Libre;
 using OptiSensor.Overlay;
 using OptiSensor.Publishing;
 using OptiSensor.Settings;
-using OptiSensor.Tweaks;
 using OptiSensor.UI;
 using OptiSensor.Updates;
 
@@ -21,7 +20,6 @@ internal sealed class ApplicationHost : IDisposable
     private MainWindow? _mainWindow;
     private readonly CancellationTokenSource _startupCancellationTokenSource = new();
     private Task _sensorStartupTask = Task.CompletedTask;
-    private Task _tweakStartupTask = Task.CompletedTask;
     private Task? _shutdownTask;
     private Task _mainWindowTeardownTask = Task.CompletedTask;
     private bool _mainWindowTeardownInProgress;
@@ -53,12 +51,6 @@ internal sealed class ApplicationHost : IDisposable
         var publishService = new SensorPublishService(() => CreatePublishRunner(settings));
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
-        // Tweaks (e.g. Intel VRR Range Fix) are started first and fully independently of sensor
-        // services: OptiSensor typically launches at Windows boot, well before any game session,
-        // so there's no reason to gate VRR correction on HWiNFO/sensor readiness. Both paths remain
-        // fire-and-forget with their own try/catch and cancellation - see the remarks on
-        // StartTweaksInBackground and StartSensorServices.
-        host.StartTweaksInBackground();
         host.StartSensorServices();
         SimpleLog.TryWrite(showMainWindow ? "Application shell started." : "Startup mode shell started.");
 
@@ -68,19 +60,6 @@ internal sealed class ApplicationHost : IDisposable
         _ = host.CheckForUpdatesInBackgroundAsync();
 
         return host;
-    }
-
-    /// <summary>
-    /// Starts the Tweaks backend (e.g. Intel VRR Range Fix) as an independently tracked
-    /// fire-and-forget background task. Called before <see cref="StartSensorServices"/> so Tweaks
-    /// get a head start, but the two are fully independent - neither awaits or blocks on the other,
-    /// and call order is not a correctness dependency for either. Own try/catch and own cancellation
-    /// (the shared startup token), so a fault here can never surface as an unobserved task exception
-    /// or block shutdown.
-    /// </summary>
-    private void StartTweaksInBackground()
-    {
-        _tweakStartupTask = TweakStartupCoordinator.RunAsync(_settings, _startupCancellationTokenSource.Token);
     }
 
     /// <summary>
@@ -258,11 +237,10 @@ internal sealed class ApplicationHost : IDisposable
         if (_mainWindow is not null)
             windowShutdownTask = Task.WhenAll(windowShutdownTask, _mainWindow.PrepareForShutdownAsync());
         var sensorStartupCompletion = ObserveSensorStartupCompletionAsync();
-        var tweakStartupCompletion = ObserveTweakStartupCompletionAsync();
 
         try
         {
-            await Task.WhenAll(windowShutdownTask, sensorStartupCompletion, tweakStartupCompletion).ConfigureAwait(false);
+            await Task.WhenAll(windowShutdownTask, sensorStartupCompletion).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -423,21 +401,6 @@ internal sealed class ApplicationHost : IDisposable
         catch (Exception ex)
         {
             SimpleLog.TryWrite($"HWiNFO startup monitoring ended with error during shutdown: {ex.Message}");
-        }
-    }
-
-    private async Task ObserveTweakStartupCompletionAsync()
-    {
-        try
-        {
-            await _tweakStartupTask.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            SimpleLog.TryWrite($"Tweaks startup monitoring ended with error during shutdown: {ex.Message}");
         }
     }
 
