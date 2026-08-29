@@ -76,8 +76,14 @@ public partial class MainWindow : Window
 
     private void IntelVrrToggle_Click(object sender, RoutedEventArgs e)
     {
+        var previous = _settings.IntelVrrRangeFixEnabled;
         _settings.IntelVrrRangeFixEnabled = (sender as ToggleButton)?.IsChecked ?? false;
-        TrySaveSettings("Intel VRR Range Fix toggle");
+
+        if (!TrySaveSettings("Intel VRR Range Fix toggle", out _))
+        {
+            _settings.IntelVrrRangeFixEnabled = previous;
+            IntelVrrToggle.IsChecked = previous;
+        }
     }
 
     private void RefreshIntelVrrResult()
@@ -109,19 +115,32 @@ public partial class MainWindow : Window
 
     private void StartWithWindowsToggle_Click(object sender, RoutedEventArgs e)
     {
+        var previous = _settings.StartWithWindows;
         var enabled = (sender as ToggleButton)?.IsChecked ?? false;
 
-        var result = enabled ? StartupRegistration.Register() : StartupRegistration.Unregister();
-        if (!result.Success)
+        var apply = enabled ? StartupRegistration.Register() : StartupRegistration.Unregister();
+        if (!apply.Success)
         {
-            // Revert the toggle and setting so the visible state matches the actual task state.
-            StartWithWindowsToggle.IsChecked = !enabled;
-            StartWithWindowsStatusText.Text = $"Could not update startup task: {result.ErrorMessage}";
+            // Revert the toggle so the visible state matches the actual task state.
+            StartWithWindowsToggle.IsChecked = previous;
+            StartWithWindowsStatusText.Text = $"Could not update startup task: {apply.ErrorMessage}";
             return;
         }
 
         _settings.StartWithWindows = enabled;
-        TrySaveSettings("Start with Windows toggle");
+        if (!TrySaveSettings("Start with Windows toggle", out var saveError))
+        {
+            // Persistence failed: restore the task to the previously persisted state so
+            // settings.json and Task Scheduler do not silently diverge.
+            var rollback = previous ? StartupRegistration.Register() : StartupRegistration.Unregister();
+            _settings.StartWithWindows = previous;
+            StartWithWindowsToggle.IsChecked = previous;
+            StartWithWindowsStatusText.Text = rollback.Success
+                ? $"Could not save the setting; startup change was reverted: {saveError}"
+                : $"Could not save the setting and could not restore the startup task: {rollback.ErrorMessage}";
+            return;
+        }
+
         UpdateStartWithWindowsStatus();
     }
 
@@ -132,15 +151,19 @@ public partial class MainWindow : Window
             : "OptiSensor does not launch at sign-in.";
     }
 
-    private void TrySaveSettings(string context)
+    private bool TrySaveSettings(string context, out string? error)
     {
         try
         {
             _settings.Save();
+            error = null;
+            return true;
         }
         catch (Exception ex)
         {
             SimpleLog.TryWrite($"Failed to persist {context}: {ex.Message}");
+            error = ex.Message;
+            return false;
         }
     }
 

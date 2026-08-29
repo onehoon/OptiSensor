@@ -81,4 +81,25 @@ public sealed class SinglePageUiTests
         Assert.Contains("_settings.IntelVrrRangeFixEnabled =", code);
         Assert.DoesNotContain("IntelVrrRangeTweak", code);
     }
+
+    [Fact]
+    public void ImmediateApplyToggles_RevertOnPersistenceFailure()
+    {
+        var code = Src(Path.Combine("UI", "MainWindow.xaml.cs"));
+
+        // Persistence success/failure is explicit, not fire-and-forget.
+        Assert.Contains("private bool TrySaveSettings(string context, out string? error)", code);
+
+        // Intel VRR: restore the previous flag and toggle when the save fails.
+        Assert.Contains("if (!TrySaveSettings(\"Intel VRR Range Fix toggle\", out _))", code);
+        Assert.Contains("_settings.IntelVrrRangeFixEnabled = previous;", code);
+        Assert.Contains("IntelVrrToggle.IsChecked = previous;", code);
+
+        // Start with Windows: best-effort roll the Task Scheduler mutation back so the
+        // durable task and settings.json cannot silently diverge.
+        Assert.Contains("if (!TrySaveSettings(\"Start with Windows toggle\", out var saveError))", code);
+        Assert.Contains("var rollback = previous ? StartupRegistration.Register() : StartupRegistration.Unregister();", code);
+        Assert.Contains("_settings.StartWithWindows = previous;", code);
+        Assert.Contains("StartWithWindowsToggle.IsChecked = previous;", code);
+    }
 }
