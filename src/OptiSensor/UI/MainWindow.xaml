@@ -3,14 +3,15 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="OptiSensor"
         Width="720"
-        Height="600"
+        Height="690"
         MinWidth="640"
-        MinHeight="540"
+        MinHeight="600"
         Background="#F6F8FB"
         Icon="/Assets/OptiSensor.ico"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="24">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -43,6 +44,33 @@
         </Border>
 
         <Border Grid.Row="2" Style="{StaticResource FluentCardStyle}" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="OptiScaler Replace"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="#0F172A"/>
+                    <TextBlock Margin="0,4,0,0"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Foreground="#64748B"
+                               Text="Replace an existing OptiScaler 0.9 DLL with the latest OptiSensor-compatible build."/>
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Content="Manage"
+                        MinWidth="96"
+                        Margin="12,0,0,0"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource NeutralButtonStyle}"
+                        Click="ManageOptiScalerButton_Click"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" Style="{StaticResource FluentCardStyle}" Margin="0,0,0,12">
             <StackPanel>
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -67,7 +95,7 @@
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="3" Style="{StaticResource FluentCardStyle}" Margin="0,0,0,12">
+        <Border Grid.Row="4" Style="{StaticResource FluentCardStyle}" Margin="0,0,0,12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -91,7 +119,7 @@
             </Grid>
         </Border>
 
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Content="Open Settings Folder"
                     MinWidth="150"
                     Margin="0,0,8,0"

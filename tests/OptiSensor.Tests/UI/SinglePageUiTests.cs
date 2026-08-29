@@ -93,6 +93,37 @@ public sealed class SinglePageUiTests
     }
 
     [Fact]
+    public void OptiScalerReplaceIsTheSecondCardAndOpensAModalNotADllPicker()
+    {
+        var xaml = Src(Path.Combine("UI", "MainWindow.xaml"));
+        var code = Src(Path.Combine("UI", "MainWindow.xaml.cs"));
+
+        // Card order: Current Overlay Feed -> OptiScaler Replace -> Intel VRR Range Fix -> Start with Windows.
+        var feed = xaml.IndexOf("Current Overlay Feed", StringComparison.Ordinal);
+        var replace = xaml.IndexOf("OptiScaler Replace", StringComparison.Ordinal);
+        var vrr = xaml.IndexOf("Intel VRR Range Fix", StringComparison.Ordinal);
+        var startup = xaml.IndexOf("Start with Windows", StringComparison.Ordinal);
+        Assert.True(feed >= 0 && feed < replace && replace < vrr && vrr < startup);
+
+        // "Manage" button lives in the card (right side), not the bottom action row.
+        Assert.Contains("Content=\"Manage\"", xaml);
+        Assert.Contains("Click=\"ManageOptiScalerButton_Click\"", xaml);
+
+        // The Manage handler opens the modal as an owned dialog.
+        Assert.Contains("new OptiScalerReplaceWindow { Owner = this }.ShowDialog()", code);
+
+        // The dialog picks a folder and delegates to the existing core - no DLL picker, no
+        // duplicated discovery, no hard-coded download URL.
+        var dialog = Src(Path.Combine("UI", "OptiScalerReplaceWindow.xaml.cs"));
+        Assert.Contains("OpenFolderDialog", dialog);
+        Assert.DoesNotContain("OpenFileDialog", dialog);
+        Assert.Contains("_discovery.Discover(", dialog);
+        Assert.Contains("_updateService.UpdateAsync(", dialog);
+        Assert.DoesNotContain("github.com", dialog);
+        Assert.DoesNotContain("0.10", dialog);
+    }
+
+    [Fact]
     public void ObsoleteDirtySessionContractIsRemovedFromMainWindow()
     {
         var code = Src(Path.Combine("UI", "MainWindow.xaml.cs"));
