@@ -159,39 +159,48 @@ internal sealed class OptiScalerTargetDiscovery(IFileVersionReader versionReader
     // The only filenames a game will actually load OptiScaler as. A backup copy
     // (dxgi_backup.dll, OptiScaler-old.dll, ...) keeps the OptiScaler PE metadata but is never
     // loaded, so it must not be a replacement target, must not create a false MultipleFound, and
-    // must not affect version-family detection. Filename is checked *before* reading any metadata.
-    private static readonly HashSet<string> SupportedTargetFileNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "dxgi.dll",
-        "winmm.dll",
+    // must not affect version-family detection. Ordered so "the first two" of a MultipleFound is
+    // deterministic; probed by name (see below) so an unrelated file is never even stat-read twice.
+    private static readonly string[] SupportedTargetFileNames =
+    [
         "d3d12.dll",
         "dbghelp.dll",
-        "version.dll",
-        "wininet.dll",
-        "winhttp.dll",
-        "OptiScaler.dll",
+        "dxgi.dll",
         "OptiScaler.asi",
-    };
+        "OptiScaler.dll",
+        "version.dll",
+        "winhttp.dll",
+        "wininet.dll",
+        "winmm.dll",
+    ];
 
+    /// <summary>
+    /// Probes only the 9 supported load names in <paramref name="directory"/> - it never enumerates
+    /// the directory. This matters because the multi-install guard walks the whole selected tree
+    /// on the UI thread; a parent <c>D:\Games</c> library would otherwise stat every unrelated file
+    /// under it. Filename is checked (via <see cref="File.Exists"/>, case-insensitive on Windows)
+    /// before any version metadata is read, so backup copies cost nothing.
+    /// </summary>
     private List<(string Path, OptiScalerFileVersion Version)> FindOptiScalerDlls(string directory)
     {
         var matches = new List<(string, OptiScalerFileVersion)>();
-        foreach (var file in Directory
-                     .EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
-                     .Where(path => SupportedTargetFileNames.Contains(Path.GetFileName(path)))
-                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        foreach (var fileName in SupportedTargetFileNames)
         {
+            var path = Path.Combine(directory, fileName);
+            if (!File.Exists(path))
+                continue;
+
             OptiScalerFileVersion version;
-            try { version = versionReader.Read(file); }
+            try { version = versionReader.Read(path); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FileNotFoundException)
             {
-                continue; // supported name but unreadable - keep scanning this directory
+                continue; // supported name but unreadable - try the next name
             }
 
             if (version.IsOptiScaler)
-                matches.Add((Path.GetFullPath(file), version));
+                matches.Add((Path.GetFullPath(path), version));
         }
-        return matches;
+        return matches.OrderBy(m => m.Item1, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static void EnqueueChildDirectories(string directory, Queue<string> queue)

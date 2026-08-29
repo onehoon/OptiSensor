@@ -111,13 +111,22 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [InlineData("winhttp.dll")]
     [InlineData("OptiScaler.dll")]
     [InlineData("OptiScaler.asi")]
-    [InlineData("DXGI.DLL")]
     public void A_supported_load_filename_with_OptiScaler_0_9_metadata_is_found(string fileName)
     {
         var dll = Dll(fileName);
         var result = Discover(new() { [dll] = V() });
         Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
         Assert.Equal(dll, result.TargetDllPath);
+    }
+
+    [Fact]
+    public void A_supported_load_name_on_disk_in_a_different_case_is_still_found()
+    {
+        var dll = Dll("DXGI.DLL");
+        var result = Discover(new() { [dll] = V() });
+        Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
+        // The probe is case-insensitive; the returned path uses the canonical casing.
+        Assert.Equal(dll, result.TargetDllPath, StringComparer.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -245,10 +254,10 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [Fact]
     public void An_unsupported_only_tree_reports_UnsupportedVersion_with_the_detected_path()
     {
-        var ten = Dll("Tools/optiscaler.dll");
+        var ten = Dll("Tools/optiscaler.dll"); // lower-case on disk; probed case-insensitively
         var result = Discover(new() { [ten] = V(fileVersion: "0.10.2.0") });
         Assert.Equal(OptiScalerDiscoveryStatus.UnsupportedVersion, result.Status);
-        Assert.Equal(ten, result.TargetDllPath);
+        Assert.Equal(ten, result.TargetDllPath, StringComparer.OrdinalIgnoreCase);
         Assert.Equal(new Version(0, 10, 2, 0), result.Version);
     }
 
