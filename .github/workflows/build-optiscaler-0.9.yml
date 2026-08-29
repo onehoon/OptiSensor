@@ -21,8 +21,7 @@ env:
   OPTISCALER_PLATFORM: x64
 
 permissions:
-  contents: read
-  actions: write
+  contents: write
 
 jobs:
   build:
@@ -133,34 +132,41 @@ jobs:
           if (-not $dll) { throw "OptiScaler.dll not found after build." }
           Copy-Item $dll.FullName "$env:GITHUB_WORKSPACE/OptiScaler.dll"
 
-      - name: Upload OptiScaler DLL
-        uses: actions/upload-artifact@v7
-        with:
-          name: OptiScaler-0.9.dll
-          path: OptiScaler.dll
-          if-no-files-found: error
-          retention-days: 14
+      - name: Package OptiScaler.dll
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zip = Join-Path $env:GITHUB_WORKSPACE "OptiScaler-0.9.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path (Join-Path $env:GITHUB_WORKSPACE "OptiScaler.dll") -DestinationPath $zip
 
-      - name: Delete previous runs of this workflow (keeps only this run + its artifact)
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: "build-optiscaler-0.9.yml",
-              per_page: 100,
-            });
-            // Deleting a run also removes its logs and artifacts. Skip the current run and any
-            // run that is not finished yet (the API rejects deleting in-progress runs).
-            const stale = runs.filter(r => r.id !== context.runId && r.status === "completed");
-            core.info(`Keeping run ${context.runId}; deleting ${stale.length} previous run(s).`);
-            for (const r of stale) {
-              await github.rest.actions.deleteWorkflowRun({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: r.id,
-              });
-              core.info(`Deleted run ${r.id} (${r.created_at}, ${r.event}/${r.conclusion}).`);
-            }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          try { $entries = @($archive.Entries.FullName) } finally { $archive.Dispose() }
+          if ($entries -notcontains "OptiScaler.dll") {
+            throw "OptiScaler-0.9.zip does not contain OptiScaler.dll (entries: $($entries -join ', '))."
+          }
+          Write-Host "Packaged OptiScaler-0.9.zip -> $($entries -join ', ')"
+
+      - name: Publish to the rolling OptiScaler Sensor Builds release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "optiscaler-sensor-latest"
+          $zip = Join-Path $env:GITHUB_WORKSPACE "OptiScaler-0.9.zip"
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            # Create the rolling release once. The other OptiScaler workflow may win this
+            # race when both run on the daily schedule; ignore "already exists" and upload.
+            gh release create $tag `
+              --title "OptiScaler Sensor Builds" `
+              --notes "Rolling release of the latest OptiSensor-compatible patched OptiScaler builds. Each asset is replaced in place on every successful build." `
+              --latest=false 2>$null
+          }
+
+          gh release upload $tag $zip --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload failed with exit code $LASTEXITCODE." }
+          Write-Host "Published OptiScaler-0.9.zip to release $tag."
