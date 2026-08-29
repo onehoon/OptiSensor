@@ -8,9 +8,11 @@ namespace OptiSensor.Tests.OptiScalerUpdate;
 
 /// <summary>
 /// Folder-based OptiScaler target discovery: breadth-first through the selected game-folder tree,
-/// identity by exact <c>ProductName</c>/<c>FileDescription</c> == "OptiScaler" (never by filename),
-/// 0.9-only, first supported target closest to the root wins, and a discovery-vs-update failure
-/// policy (an unreadable DLL or inaccessible subfolder is skipped, not fatal).
+/// a candidate must be one of the 9 supported load/proxy filenames AND carry exact
+/// <c>ProductName</c>/<c>FileDescription</c> == "OptiScaler" metadata (filename checked first, so
+/// backup copies are ignored without reading their version resource), 0.9-only, first supported
+/// target closest to the root wins, and a discovery-vs-update failure policy (an unreadable DLL or
+/// inaccessible subfolder is skipped, not fatal).
 /// </summary>
 public sealed class OptiScalerTargetDiscoveryTests : IDisposable
 {
@@ -75,7 +77,7 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [InlineData("  OptiScaler ")]
     public void Identity_is_case_insensitive_and_trimmed(string productName)
     {
-        var dll = Dll("proxy.dll");
+        var dll = Dll("dxgi.dll");
         Assert.Equal(OptiScalerDiscoveryStatus.Found, Discover(new() { [dll] = V(productName: productName) }).Status);
     }
 
@@ -90,20 +92,75 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void Does_not_rely_on_filename_arbitrary_name_is_found()
-    {
-        var dll = Dll("abc123.dll");
-        var result = Discover(new() { [dll] = V(productName: "OptiScaler") });
-        Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
-        Assert.Equal(dll, result.TargetDllPath);
-    }
-
-    [Fact]
-    public void Does_not_rely_on_filename_proxy_name_without_metadata_is_not_found()
+    public void A_supported_filename_without_OptiScaler_metadata_is_not_a_target()
     {
         var dll = Dll("dxgi.dll");
         Assert.Equal(OptiScalerDiscoveryStatus.NotFound,
             Discover(new() { [dll] = V(productName: "Direct3D", fileDescription: "Direct3D") }).Status);
+    }
+
+    // ---- supported load/proxy filename gate ------------------------------
+
+    [Theory]
+    [InlineData("dxgi.dll")]
+    [InlineData("winmm.dll")]
+    [InlineData("d3d12.dll")]
+    [InlineData("dbghelp.dll")]
+    [InlineData("version.dll")]
+    [InlineData("wininet.dll")]
+    [InlineData("winhttp.dll")]
+    [InlineData("OptiScaler.dll")]
+    [InlineData("OptiScaler.asi")]
+    [InlineData("DXGI.DLL")]
+    public void A_supported_load_filename_with_OptiScaler_0_9_metadata_is_found(string fileName)
+    {
+        var dll = Dll(fileName);
+        var result = Discover(new() { [dll] = V() });
+        Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
+        Assert.Equal(dll, result.TargetDllPath);
+    }
+
+    [Theory]
+    [InlineData("dxgi_backup.dll")]
+    [InlineData("old_dxgi.dll")]
+    [InlineData("winmm_backup.dll")]
+    [InlineData("OptiScaler_backup.dll")]
+    [InlineData("OptiScaler-old.dll")]
+    [InlineData("backup.dll")]
+    [InlineData("abc123.dll")]
+    public void A_backup_filename_with_OptiScaler_metadata_is_ignored_completely(string fileName)
+    {
+        var backup = Dll(fileName);
+        // Its metadata is never even read - it's not a supported load name.
+        var recorder = new RecordingVersionReader(new PathVersionReader(new() { [backup] = V() }));
+        var result = DiscoverWith(recorder);
+
+        Assert.Equal(OptiScalerDiscoveryStatus.NotFound, result.Status);
+        Assert.DoesNotContain(Path.GetFullPath(backup), recorder.ReadPaths);
+    }
+
+    [Fact]
+    public void A_backup_copy_beside_a_real_target_does_not_cause_MultipleFound()
+    {
+        var real = Dll("Binaries/Win64/dxgi.dll");
+        Dll("Binaries/Win64/dxgi_backup.dll");
+        var result = Discover(new() { [real] = V() });
+        Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
+        Assert.Equal(real, result.TargetDllPath);
+    }
+
+    [Fact]
+    public void A_backup_copy_of_another_family_does_not_affect_version_detection()
+    {
+        var real = Dll("dxgi.dll");
+        var backup = Dll("winmm_backup.dll");
+        var result = Discover(new()
+        {
+            [real] = V(fileVersion: "0.9.5.3"),
+            [backup] = V(fileVersion: "0.10.0.0"),
+        });
+        Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
+        Assert.Equal(real, result.TargetDllPath);
     }
 
     // ---- breadth-first subfolder search ---------------------------------
@@ -136,8 +193,8 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [Fact]
     public void A_shallower_target_wins_over_a_deeper_one()
     {
-        var deep = Dll("A/Deep/deep.dll");
-        var shallow = Dll("B/shallow.dll");
+        var deep = Dll("A/Deep/dxgi.dll");
+        var shallow = Dll("B/winmm.dll");
         var result = Discover(new() { [deep] = V(), [shallow] = V() });
         Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
         Assert.Equal(shallow, result.TargetDllPath);
@@ -146,8 +203,8 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [Fact]
     public void Traversal_stops_at_the_first_supported_target_and_does_not_read_deeper_dlls()
     {
-        var target = Dll("aaa/target.dll");       // depth 1, alphabetically first
-        var deeper = Dll("zzz/Deep/Deeper/x.dll"); // depth 3, must never be inspected
+        var target = Dll("aaa/dxgi.dll");            // depth 1, alphabetically first
+        var deeper = Dll("zzz/Deep/Deeper/winmm.dll"); // depth 3, must never be inspected
         var recorder = new RecordingVersionReader(new PathVersionReader(new() { [target] = V(), [deeper] = V() }));
 
         var result = DiscoverWith(recorder);
@@ -197,7 +254,7 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     [Fact]
     public void An_unreadable_dll_does_not_block_a_valid_target_elsewhere_in_the_tree()
     {
-        var broken = Dll("bin/broken.dll");
+        var broken = Dll("bin/dxgi.dll");
         var valid = Dll("bin/x64/winmm.dll");
         var result = Discover(new() { [broken] = null, [valid] = V() });
         Assert.Equal(OptiScalerDiscoveryStatus.Found, result.Status);
@@ -208,7 +265,7 @@ public sealed class OptiScalerTargetDiscoveryTests : IDisposable
     public void An_inaccessible_subfolder_does_not_block_a_valid_target_in_another_branch()
     {
         var blocked = Directory.CreateDirectory(Path.Combine(_folder, "blocked")).FullName;
-        Dll("blocked/hidden.dll");
+        Dll("blocked/dxgi.dll");
         var valid = Dll("ok/dxgi.dll");
 
         if (!TryDenyListAccess(blocked))

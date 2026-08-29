@@ -61,10 +61,13 @@ internal sealed record OptiScalerDiscoveryResult(
 /// and returns the <b>first supported OptiScaler 0.9 target it reaches</b>, stopping immediately
 /// (a target closer to the game root wins over a deeper one).
 ///
-/// Identity is by real Win32 version metadata via the shared
-/// <see cref="OptiScalerFileVersion.IsOptiScaler"/> rule, never by filename. Per directory: one
-/// identity match that is 0.9.x -> <see cref="OptiScalerDiscoveryStatus.Found"/>; more than one
-/// identity match -> <see cref="OptiScalerDiscoveryStatus.MultipleFound"/>. An unsupported
+/// A candidate must be both a supported load/proxy filename (<see cref="SupportedTargetFileNames"/>,
+/// case-insensitive) <b>and</b> carry OptiScaler identity via the shared
+/// <see cref="OptiScalerFileVersion.IsOptiScaler"/> rule - the filename is checked first, so backup
+/// copies that keep the metadata (<c>dxgi_backup.dll</c>, <c>OptiScaler-old.dll</c>) are ignored
+/// without even reading their version resource. Per directory: one candidate that is 0.9.x ->
+/// <see cref="OptiScalerDiscoveryStatus.Found"/>; more than one candidate ->
+/// <see cref="OptiScalerDiscoveryStatus.MultipleFound"/>. An unsupported
 /// (e.g. 0.10) OptiScaler seen along the way is only reported
 /// (<see cref="OptiScalerDiscoveryStatus.UnsupportedVersion"/>) if the whole walk finds no 0.9
 /// target. Unreadable DLLs and inaccessible subdirectories are skipped; reparse points (junctions /
@@ -132,23 +135,40 @@ internal sealed class OptiScalerTargetDiscovery(IFileVersionReader versionReader
             : OptiScalerDiscoveryResult.NotFound();
     }
 
+    // The only filenames a game will actually load OptiScaler as. A backup copy
+    // (dxgi_backup.dll, OptiScaler-old.dll, ...) keeps the OptiScaler PE metadata but is never
+    // loaded, so it must not be a replacement target, must not create a false MultipleFound, and
+    // must not affect version-family detection. Filename is checked *before* reading any metadata.
+    private static readonly HashSet<string> SupportedTargetFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "dxgi.dll",
+        "winmm.dll",
+        "d3d12.dll",
+        "dbghelp.dll",
+        "version.dll",
+        "wininet.dll",
+        "winhttp.dll",
+        "OptiScaler.dll",
+        "OptiScaler.asi",
+    };
+
     private List<(string Path, OptiScalerFileVersion Version)> FindOptiScalerDlls(string directory)
     {
         var matches = new List<(string, OptiScalerFileVersion)>();
-        foreach (var dll in Directory
-                     .EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly)
-                     .Where(path => Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase))
+        foreach (var file in Directory
+                     .EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
+                     .Where(path => SupportedTargetFileNames.Contains(Path.GetFileName(path)))
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
             OptiScalerFileVersion version;
-            try { version = versionReader.Read(dll); }
+            try { version = versionReader.Read(file); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FileNotFoundException)
             {
-                continue; // unrelated / unreadable DLL - keep scanning this directory
+                continue; // supported name but unreadable - keep scanning this directory
             }
 
             if (version.IsOptiScaler)
-                matches.Add((Path.GetFullPath(dll), version));
+                matches.Add((Path.GetFullPath(file), version));
         }
         return matches;
     }
