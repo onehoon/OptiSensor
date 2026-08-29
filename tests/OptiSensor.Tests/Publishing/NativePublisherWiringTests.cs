@@ -7,36 +7,31 @@ using Xunit;
 namespace OptiSensor.Tests.Publishing;
 
 /// <summary>
-/// The authority switch is pinned with a minimal source-level check that normal startup no
-/// longer enters the HWiNFO path, plus real end-to-end lifecycle coverage of the native
+/// The authority switch is pinned with a minimal source-level check that no HWiNFO
+/// infrastructure remains, plus real end-to-end lifecycle coverage of the native
 /// sampler/publisher and a protocol-length check.
 /// </summary>
+[Collection("ExternalOverlayMapping")]
 public class NativePublisherWiringTests
 {
-    private static string ReadSource(string relativePath, [CallerFilePath] string thisFilePath = "")
-    {
-        var repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFilePath)!, "..", "..", ".."));
-        return File.ReadAllText(Path.Combine(repoRoot, "src", "OptiSensor", relativePath));
-    }
+    private static string RepoRoot([CallerFilePath] string thisFilePath = "") =>
+        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFilePath)!, "..", "..", ".."));
+
+    private static string ReadSource(string relativePath) =>
+        File.ReadAllText(Path.Combine(RepoRoot(), "src", "OptiSensor", relativePath));
 
     [Fact]
-    public void NormalStartupUsesNativeTelemetryAndNeverWaitsForHwInfo()
+    public void NormalStartupUsesNativeTelemetryAndHasNoHwInfoInfrastructure()
     {
         var host = ReadSource(Path.Combine("App", "ApplicationHost.cs"));
 
-        var startServicesStart = host.IndexOf("private void StartSensorServices()", StringComparison.Ordinal);
-        var startServices = host[startServicesStart..host.IndexOf('}', host.IndexOf('{', startServicesStart))];
-        Assert.Contains("StartPublishService();", startServices);
-        Assert.DoesNotContain("EnsureRunningAndWaitForSharedMemoryAsync", startServices);
-        Assert.DoesNotContain("StartHwInfoAndPublishWhenReadyAsync", startServices);
         Assert.Contains("var publishService = new SensorPublishService();", host);
-
-        // Native publish start must not re-raise the legacy readiness signal that drives the
-        // HWiNFO sensor-discovery UI.
-        var startPublish = host[host.IndexOf("private void StartPublishService()", StringComparison.Ordinal)..
-            host.IndexOf("private bool IsExitCleanupInProgress", StringComparison.Ordinal)];
-        Assert.DoesNotContain("SensorSourceReady?.Invoke", startPublish);
-        Assert.DoesNotContain("IsSensorSourceReady = true", startPublish);
+        Assert.Contains("host.StartPublishService();", host);
+        Assert.DoesNotContain("HWiNFO", host);
+        Assert.DoesNotContain("EnsureRunningAndWaitForSharedMemoryAsync", host);
+        Assert.DoesNotContain("SensorSourceReady", host);
+        Assert.DoesNotContain("SensorSourceStartupFailed", host);
+        Assert.DoesNotContain("CreatePublishRunner", host);
 
         var service = ReadSource(Path.Combine("Publishing", "SensorPublishService.cs"));
         Assert.Contains("new ClawTelemetrySampler()", service);
@@ -44,6 +39,10 @@ public class NativePublisherWiringTests
         Assert.Contains("new ExternalOverlayPublisher()", service);
         Assert.DoesNotContain("HwInfoSensorReader", service);
         Assert.DoesNotContain("SensorPublishRunner", service);
+
+        // The HWiNFO reader / startup configurator and package reference are gone.
+        Assert.DoesNotContain("Hwinfo.SharedMemory.Net", ReadSource("OptiSensor.csproj"));
+        Assert.False(Directory.Exists(Path.Combine(RepoRoot(), "src", "OptiSensor", "HWiNFO")), "src/OptiSensor/HWiNFO must be deleted.");
     }
 
     [Fact]

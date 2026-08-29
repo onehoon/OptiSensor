@@ -7,10 +7,16 @@ internal static class ExternalOverlayProtocol
     public const uint PayloadVersion = 1;
     public const int MaxLines = 4;
     public const int MaxLineLength = 128;
+    public const int MagicOffset = 0;
+    public const int VersionOffset = 4;
+    public const int SequenceOffset = 8;
     public const int LastUpdateTickOffset = 16;
     public const int LineCountOffset = 24;
     public const int LinesOffset = 28;
     public const int PayloadSize = 544;
+
+    /// <summary>OptiScaler drops an external line whose <c>lastUpdateTickMs</c> is older than this.</summary>
+    public const long StaleAfterMs = 5000;
 
     // External overlay protocol v1
     // Offset  Size  Field

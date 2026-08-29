@@ -1,6 +1,5 @@
 using OptiSensor.App;
 using OptiSensor.Claw;
-using OptiSensor.Models;
 using OptiSensor.Overlay;
 
 namespace OptiSensor.Publishing;
@@ -31,14 +30,6 @@ internal sealed class SensorPublishService : IDisposable
 
     public bool IsRunning { get; private set; }
     public string? LastOverlayLine { get; private set; }
-
-    // Legacy HWiNFO sensor-list surface. Kept for UI/compilation compatibility during the native
-    // migration; native publishing leaves these neutral. PR #57 removes them with the sensor UI.
-    public IReadOnlyList<DetectedSensorInfo>? LastSensors { get; private set; }
-    public int LastDetectedSensorCount { get; private set; }
-    public int EnabledSelectedSensorCount { get; private set; }
-    public int TotalSelectedSensorCount { get; private set; }
-
     public string? LastError { get; private set; }
     public event EventHandler? StatusChanged;
 
@@ -77,7 +68,6 @@ internal sealed class SensorPublishService : IDisposable
         }
 
         IsRunning = false;
-        LastSensors = null;
         SimpleLog.TryWrite("Native Claw telemetry publish service stopped.");
         OnStatusChanged();
     }
