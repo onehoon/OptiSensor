@@ -35,7 +35,6 @@ public partial class MainWindow : Window
         _settings = settings;
 
         Title = $"OptiSensor v{GetApplicationVersion()}";
-        VersionText.Text = $"Version {GetApplicationVersion()}";
 
         IntelVrrToggle.IsChecked = _settings.IntelVrrRangeFixEnabled;
         RefreshIntelVrrResult();
