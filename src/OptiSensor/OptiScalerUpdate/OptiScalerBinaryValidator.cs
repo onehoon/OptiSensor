@@ -46,7 +46,7 @@ internal sealed class OptiScalerBinaryValidator(IFileVersionReader versionReader
             using (File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read)) { }
 
             var version = versionReader.Read(fullPath);
-            if (!version.LooksLikeOptiScaler)
+            if (!version.IsOptiScaler)
                 return OptiScalerBinaryValidation.Fail(OptiScalerBinaryProblem.NotOptiScaler,
                     "The file is not an OptiScaler binary.");
             if (!version.HasReadableNumericVersion)

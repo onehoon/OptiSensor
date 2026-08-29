@@ -47,7 +47,7 @@ internal sealed class OptiScalerReplacementService(IFileVersionReader versionRea
             // Re-validate the target immediately before touching it: identity and version can
             // change externally between the caller picking the file and this call.
             var current = versionReader.Read(targetPath);
-            if (!current.LooksLikeOptiScaler)
+            if (!current.IsOptiScaler)
                 return OptiScalerUpdateResult.Failed(OptiScalerUpdateReason.TargetNotOptiScaler,
                     "The selected file is not an OptiScaler binary.");
             if (!current.IsSupportedNineFamily)
@@ -97,7 +97,7 @@ internal sealed class OptiScalerReplacementService(IFileVersionReader versionRea
                 : [];
             if (!File.Exists(targetPath)
                 || !CryptographicOperations.FixedTimeEquals(sourceHash, finalHash)
-                || !versionReader.Read(targetPath).LooksLikeOptiScaler)
+                || !versionReader.Read(targetPath).IsOptiScaler)
             {
                 return Recover(OptiScalerUpdateReason.FinalVerificationFailed,
                     "The replaced OptiScaler.dll could not be verified.");
