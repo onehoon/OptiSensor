@@ -14,14 +14,18 @@ public sealed class ApplicationHostUiSessionTests
     }
 
     [Fact]
-    public void HidePathPreservesDirtySessionsAndTearsDownCleanSessions()
+    public void HidePathAlwaysRetiresTheCurrentWindowSession()
     {
         var source = ReadApplicationHostSource();
 
-        Assert.Contains("window.ShouldPreserveSessionOnHide", source);
-        Assert.Contains("window.HidePreservingSession()", source);
+        // Single supported hide behavior: retire the window, tear the session down, recreate on
+        // next Show. The old unsaved/dirty-session preservation branch is gone.
+        Assert.DoesNotContain("ShouldPreserveSessionOnHide", source);
+        Assert.DoesNotContain("HidePreservingSession", source);
+
         Assert.Contains("window.HideForSessionTeardown()", source);
         Assert.Contains("_mainWindowTeardownTask = TearDownMainWindowAsync(window)", source);
+        Assert.Contains("if (_mainWindowTeardownInProgress)", source);
     }
 
     [Fact]

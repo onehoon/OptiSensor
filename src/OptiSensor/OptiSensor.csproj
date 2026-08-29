@@ -30,7 +30,6 @@
     <ApplicationDefinition Remove="App.xaml" />
     <Page Include="App.xaml" />
     <Resource Include="Assets\OptiSensor.ico" />
-    <Resource Include="Assets\OptiSensor.png" />
   </ItemGroup>
 
   <ItemGroup>

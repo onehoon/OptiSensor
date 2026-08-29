@@ -7,15 +7,14 @@ namespace OptiSensor.Settings;
 /// The Claw edition persists only two flags: whether OptiSensor launches at sign-in, and whether
 /// the Intel VRR Range Fix should run. The native telemetry line is fixed by
 /// <c>ClawTelemetryFormatter</c>, so there is no sensor-selection state. Unknown legacy JSON keys
-/// (old HWiNFO/overlay-group settings) are ignored.
+/// from older builds are ignored.
 /// </summary>
 internal sealed class AppSettings
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() }
+        WriteIndented = true
     };
 
     [JsonPropertyName("startWithWindows")]

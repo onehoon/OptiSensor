@@ -205,8 +205,9 @@ internal sealed class SensorPublishService : IDisposable
     /// One sampling loop, two independent monotonic schedules. Runs until the session token is
     /// cancelled (task ends Canceled) or a native read throws (task ends Faulted); either way the
     /// publish loop observes completion and ends the session, then separates cancellation from
-    /// fault during cleanup. Due-times advance by whole intervals and skip past any that already
-    /// elapsed, so a slow read shifts the next read but does not accumulate drift.
+    /// fault during cleanup. The clock is re-read *after* each native sample so a read that
+    /// overran one or more intervals skips the missed deadlines instead of firing an immediate
+    /// catch-up burst.
     /// </summary>
     private static async Task RunSamplingLoopAsync(
         ClawTelemetrySampler sampler,
@@ -216,24 +217,33 @@ internal sealed class SensorPublishService : IDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var now = Environment.TickCount64;
-            if (now >= nextCoreDueMs)
+            if (Environment.TickCount64 >= nextCoreDueMs)
             {
                 sampler.SampleCore();
-                do { nextCoreDueMs += CoreSampleIntervalMs; }
-                while (nextCoreDueMs <= now);
+                nextCoreDueMs = AdvanceDueTime(nextCoreDueMs, CoreSampleIntervalMs, Environment.TickCount64);
             }
 
-            now = Environment.TickCount64;
-            if (now >= nextBatteryDueMs)
+            if (Environment.TickCount64 >= nextBatteryDueMs)
             {
                 sampler.SampleBattery();
-                do { nextBatteryDueMs += BatterySampleIntervalMs; }
-                while (nextBatteryDueMs <= now);
+                nextBatteryDueMs = AdvanceDueTime(nextBatteryDueMs, BatterySampleIntervalMs, Environment.TickCount64);
             }
 
             await DelayUntilAsync(Math.Min(nextCoreDueMs, nextBatteryDueMs), cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Advances a monotonic due-time by whole <paramref name="intervalMs"/> steps until it is past
+    /// <paramref name="nowMs"/>. Called with a timestamp taken after the (possibly slow) sample, so
+    /// deadlines that already elapsed while sampling are skipped rather than replayed as a burst.
+    /// </summary>
+    internal static long AdvanceDueTime(long previousDueMs, long intervalMs, long nowMs)
+    {
+        var next = previousDueMs + intervalMs;
+        while (next <= nowMs)
+            next += intervalMs;
+        return next;
     }
 
     private static Task DelayUntilAsync(long dueMs, CancellationToken cancellationToken)

@@ -81,21 +81,35 @@ internal sealed class ApplicationHost : IDisposable
     /// </summary>
     private async Task CheckForUpdatesInBackgroundAsync()
     {
+        var shutdownToken = _startupCancellationTokenSource.Token;
         try
         {
             var result = await GitHubUpdateService
-                .DownloadLatestAsync(message => SimpleLog.TryWrite($"Background update check: {message}"))
+                .DownloadLatestAsync(
+                    message => SimpleLog.TryWrite($"Background update check: {message}"),
+                    shutdownToken)
                 .ConfigureAwait(false);
 
             SimpleLog.TryWrite($"Background update check: {result.Message}");
 
-            if (result.IsReady && !IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
-            {
-                var restartArgs = await IsMainWindowVisibleAsync().ConfigureAwait(false)
-                    ? null
-                    : new[] { "--startup" };
-                GitHubUpdateService.ApplyAndRestart(result, restartArgs);
-            }
+            if (!result.IsReady || IsExitCleanupInProgress(shutdownToken))
+                return;
+
+            var restartArgs = await IsMainWindowVisibleAsync().ConfigureAwait(false)
+                ? null
+                : new[] { "--startup" };
+
+            // Re-check after the awaited UI-thread hop: the user may have chosen Exit while we were
+            // querying window visibility. An explicit exit must win over an automatic update restart.
+            if (IsExitCleanupInProgress(shutdownToken))
+                return;
+
+            GitHubUpdateService.ApplyAndRestart(result, restartArgs);
+        }
+        catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
+        {
+            // The application is exiting; a canceled update check is expected, not a failure.
+            SimpleLog.TryWrite("Background update check canceled because the application is exiting.");
         }
         catch (Exception ex)
         {
@@ -187,16 +201,12 @@ internal sealed class ApplicationHost : IDisposable
         if (IsExitRequested || _shutdownTask is not null || _mainWindow is null)
             return;
 
-        var window = _mainWindow;
-        if (window.ShouldPreserveSessionOnHide)
-        {
-            window.HidePreservingSession();
-            return;
-        }
-
         if (_mainWindowTeardownInProgress)
             return;
 
+        // All supported settings apply immediately, so a hide always retires the current UI
+        // session; a fresh window is created on the next Show.
+        var window = _mainWindow;
         window.HideForSessionTeardown();
         _mainWindowTeardownInProgress = true;
         _mainWindowTeardownTask = TearDownMainWindowAsync(window);
@@ -212,9 +222,6 @@ internal sealed class ApplicationHost : IDisposable
         }
 
         if (IsExitRequested || _shutdownTask is not null)
-            return;
-
-        if (_mainWindow is not null && !_mainWindow.TryPrepareForExit())
             return;
 
         IsExitRequested = true;
