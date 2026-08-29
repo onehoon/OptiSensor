@@ -159,21 +159,22 @@ The single-page window contains:
 
 **OptiSensor telemetry does not appear with a standard OptiScaler build.** Upstream OptiScaler does
 not contain the external-overlay patch that reads `Local\OptiScalerExternalOverlay`. You must replace
-your `OptiScaler.dll` with the patched build produced by this repository's GitHub Actions.
+your `OptiScaler.dll` with the patched build published by this repository.
 
-### Download the patched artifact
+### Download the patched DLL
 
-1. Open this repository's **Actions** tab on GitHub.
-2. Select the workflow matching the OptiScaler version you run:
-   - **Build OptiScaler 0.9** — for OptiScaler `release/0.9`
-   - **Build OptiScaler 0.10** — for current OptiScaler `master`
-3. Open a successful run of that workflow.
-4. Download its artifact from the run's **Artifacts** section:
-   - `OptiScaler-0.9.dll` or `OptiScaler-0.10.dll`
-5. Extract `OptiScaler.dll` from the downloaded archive.
-6. Back up your existing `OptiScaler.dll` if you want to keep it.
-7. Replace your existing `OptiScaler.dll` with the patched one.
-8. Run OptiSensor alongside OptiScaler, and set the OptiScaler FPS overlay type to
+The patched builds are published as fixed assets on the rolling
+[`optiscaler-sensor-latest`](https://github.com/onehoon/OptiSensor/releases/tag/optiscaler-sensor-latest)
+release ("OptiScaler Sensor Builds"), refreshed automatically after each successful build.
+
+1. Open the **optiscaler-sensor-latest** release on the repository's **Releases** page.
+2. Download the ZIP matching the OptiScaler version you run:
+   - `OptiScaler-0.9.zip` — for OptiScaler `release/0.9`
+   - `OptiScaler-0.10.zip` — for current OptiScaler `master`
+3. Extract `OptiScaler.dll` from the ZIP.
+4. Back up your existing `OptiScaler.dll` if you want to keep it.
+5. Replace your existing `OptiScaler.dll` with the patched one.
+6. Run OptiSensor alongside OptiScaler, and set the OptiScaler FPS overlay type to
    `Just FPS (+External)`.
 
 ### Match the OptiScaler version
@@ -181,11 +182,11 @@ your `OptiScaler.dll` with the patched build produced by this repository's GitHu
 The patched DLL is built against a specific OptiScaler branch and only works with that version:
 
 ```text
-OptiScaler 0.9   → use the 0.9 patched artifact (OptiScaler-0.9.dll)
-OptiScaler 0.10  → use the 0.10 patched artifact (OptiScaler-0.10.dll)
+OptiScaler 0.9   → use OptiScaler-0.9.zip
+OptiScaler 0.10  → use OptiScaler-0.10.zip
 ```
 
-> Always use the patched artifact built for the OptiScaler version you are running. Do not mix DLLs
+> Always use the patched build made for the OptiScaler version you are running. Do not mix DLLs
 > built against different OptiScaler branches.
 
 ## Updates
