@@ -15,23 +15,7 @@ internal static class SettingsStore
         try
         {
             var json = File.ReadAllText(AppPaths.SettingsFilePath);
-            var settings = AppSettings.Deserialize(json);
-
-            // Legacy migration: older files kept overlay config in top-level properties
-            // (or, before Claw became single-source, in a separate Libre profile). Only
-            // seed the HWiNFO profile from them when it has no data of its own.
-            if (settings.HwInfoProfile.OverlayGroups.Count == 0 &&
-                settings.HwInfoProfile.SelectedSensors.Count == 0)
-            {
-                if (settings.OverlayGroups.Count > 0)
-                    settings.ReplaceOverlayGroups(settings.OverlayGroups);
-                else
-                    settings.ReplaceSelectedSensors(settings.SelectedSensors ?? []);
-
-                settings.ReplaceSensorCategoryFilters(settings.SensorCategoryFilters);
-            }
-
-            return settings;
+            return AppSettings.Deserialize(json);
         }
         catch (JsonException)
         {

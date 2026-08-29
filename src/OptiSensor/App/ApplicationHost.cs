@@ -1,8 +1,5 @@
 using System.Windows;
 using OptiSensor.Install;
-using OptiSensor.HWiNFO;
-using OptiSensor.Models;
-using OptiSensor.Overlay;
 using OptiSensor.Publishing;
 using OptiSensor.Settings;
 using OptiSensor.Tweaks;
@@ -19,14 +16,11 @@ internal sealed class ApplicationHost : IDisposable
     private readonly TrayIconService _trayIcon;
     private MainWindow? _mainWindow;
     private readonly CancellationTokenSource _startupCancellationTokenSource = new();
-    private Task _sensorStartupTask = Task.CompletedTask;
     private Task _tweakStartupTask = Task.CompletedTask;
     private Task? _shutdownTask;
     private Task _mainWindowTeardownTask = Task.CompletedTask;
     private bool _mainWindowTeardownInProgress;
     private bool _showMainWindowAfterTeardown;
-
-    private static readonly TimeSpan SharedMemoryRecoveryProbeWindow = TimeSpan.FromSeconds(5);
     private bool _disposed;
 
     private ApplicationHost(SingleInstanceGuard singleInstance, AppSettings settings, SensorPublishService publishService)
@@ -40,15 +34,6 @@ internal sealed class ApplicationHost : IDisposable
     }
 
     public bool IsExitRequested { get; private set; }
-    public bool IsSensorSourceReady { get; private set; }
-
-    // Obsolete HWiNFO readiness contract - no longer raised now that Claw publishes native
-    // telemetry directly (see StartPublishService). Kept, with its UI wiring, until PR #57
-    // removes it together with the sensor-selection UI.
-#pragma warning disable CS0067
-    public event EventHandler? SensorSourceReady;
-#pragma warning restore CS0067
-    public event EventHandler<string>? SensorSourceStartupFailed;
 
     public static ApplicationHost Start(SingleInstanceGuard singleInstance, bool showMainWindow)
     {
@@ -57,13 +42,10 @@ internal sealed class ApplicationHost : IDisposable
         var publishService = new SensorPublishService();
         var host = new ApplicationHost(singleInstance, settings, publishService);
 
-        // Tweaks (e.g. Intel VRR Range Fix) are started first and fully independently of sensor
-        // services: OptiSensor typically launches at Windows boot, well before any game session,
-        // so there's no reason to gate VRR correction on HWiNFO/sensor readiness. Both paths remain
-        // fire-and-forget with their own try/catch and cancellation - see the remarks on
-        // StartTweaksInBackground and StartSensorServices.
+        // Tweaks (e.g. Intel VRR Range Fix) and the native telemetry publisher are fully
+        // independent fire-and-forget paths - neither awaits or blocks on the other.
         host.StartTweaksInBackground();
-        host.StartSensorServices();
+        host.StartPublishService();
         SimpleLog.TryWrite(showMainWindow ? "Application shell started." : "Startup mode shell started.");
 
         if (showMainWindow)
@@ -75,22 +57,27 @@ internal sealed class ApplicationHost : IDisposable
     }
 
     /// <summary>
-    /// Starts the Tweaks backend (e.g. Intel VRR Range Fix) as an independently tracked
-    /// fire-and-forget background task. Called before <see cref="StartSensorServices"/> so Tweaks
-    /// get a head start, but the two are fully independent - neither awaits or blocks on the other,
-    /// and call order is not a correctness dependency for either. Own try/catch and own cancellation
-    /// (the shared startup token), so a fault here can never surface as an unobserved task exception
-    /// or block shutdown.
+    /// Starts the Tweaks backend (Intel VRR Range Fix) as an independently tracked fire-and-forget
+    /// background task with its own try/catch and the shared startup token, so a fault here can
+    /// never surface as an unobserved task exception or block shutdown.
     /// </summary>
     private void StartTweaksInBackground()
     {
         _tweakStartupTask = TweakStartupCoordinator.RunAsync(_settings, _startupCancellationTokenSource.Token);
     }
 
+    private void StartPublishService()
+    {
+        if (IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
+            return;
+
+        SimpleLog.TryWrite("Native Claw telemetry publishing started.");
+        _publishService.Start();
+    }
+
     /// <summary>
     /// Runs a silent update check regardless of whether the main window is shown, so launches
-    /// from Windows startup (which start hidden to the tray) still pick up updates instead of
-    /// relying solely on the "Check for Updates" button in Settings.
+    /// from Windows startup (hidden to the tray) still pick up updates.
     /// </summary>
     private async Task CheckForUpdatesInBackgroundAsync()
     {
@@ -136,19 +123,6 @@ internal sealed class ApplicationHost : IDisposable
             SimpleLog.TryWrite($"Startup task refresh failed: {result.ErrorMessage}");
     }
 
-    public static SensorPublishRunner CreatePublishRunner(AppSettings? settings = null)
-    {
-        settings ??= AppSettings.LoadOrCreate();
-
-        ISensorReader sensorReader = new HwInfoSensorReader();
-        var outputComposer = new OverlayOutputComposer(new OverlayLineBuilder());
-        return new SensorPublishRunner(
-            sensorReader,
-            outputComposer,
-            new ExternalOverlayPublisher(),
-            settings.GetOverlayGroupsSnapshot);
-    }
-
     public void ShowMainWindow()
     {
         var dispatcher = System.Windows.Application.Current.Dispatcher;
@@ -191,8 +165,7 @@ internal sealed class ApplicationHost : IDisposable
         _mainWindow.Focus();
     }
 
-    private MainWindow CreateMainWindow() =>
-        new(this, _publishService, _settings);
+    private MainWindow CreateMainWindow() => new(this, _settings);
 
     private bool IsUiCreationBlocked(System.Windows.Threading.Dispatcher dispatcher)
     {
@@ -259,12 +232,11 @@ internal sealed class ApplicationHost : IDisposable
         var windowShutdownTask = WaitForMainWindowTeardownAsync();
         if (_mainWindow is not null)
             windowShutdownTask = Task.WhenAll(windowShutdownTask, _mainWindow.PrepareForShutdownAsync());
-        var sensorStartupCompletion = ObserveSensorStartupCompletionAsync();
         var tweakStartupCompletion = ObserveTweakStartupCompletionAsync();
 
         try
         {
-            await Task.WhenAll(windowShutdownTask, sensorStartupCompletion, tweakStartupCompletion).ConfigureAwait(false);
+            await Task.WhenAll(windowShutdownTask, tweakStartupCompletion).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -309,8 +281,6 @@ internal sealed class ApplicationHost : IDisposable
         }
         catch (Exception ex)
         {
-            // Last-resort observation so a fault here can't strand the app half-shut-down
-            // as an unobserved _shutdownTask failure.
             SimpleLog.TryWrite($"Error during final shutdown dispatch: {ex.Message}");
             SimpleLog.TryWriteException(ex);
         }
@@ -407,25 +377,8 @@ internal sealed class ApplicationHost : IDisposable
 
     private void MarkMainWindowTeardownFinished()
     {
-        // Do not keep the completed async teardown state machine rooted from the
-        // process-lifetime host; it may retain the retired MainWindow graph.
         _mainWindowTeardownTask = Task.CompletedTask;
         _mainWindowTeardownInProgress = false;
-    }
-
-    private async Task ObserveSensorStartupCompletionAsync()
-    {
-        try
-        {
-            await _sensorStartupTask.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            SimpleLog.TryWrite($"HWiNFO startup monitoring ended with error during shutdown: {ex.Message}");
-        }
     }
 
     private async Task ObserveTweakStartupCompletionAsync()
@@ -464,8 +417,6 @@ internal sealed class ApplicationHost : IDisposable
 
         dispatcher.BeginInvoke(() =>
         {
-            // Re-check inside the callback: shutdown may have started (and the tray
-            // icon been disposed) between queueing and execution.
             if (_disposed || IsExitRequested || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
                 return;
 
@@ -473,81 +424,9 @@ internal sealed class ApplicationHost : IDisposable
         });
     }
 
-    private void StartSensorServices()
-    {
-        // Claw publishes native telemetry (MSI EC / Windows / IGCL) directly - no HWiNFO
-        // process launch, shared-memory wait, startup timeout, or recovery loop.
-        SimpleLog.TryWrite("Native Claw telemetry publishing started.");
-        StartPublishService();
-    }
-
-    private async Task StartHwInfoAndPublishWhenReadyAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            var startupResult = await HWiNFOStartupConfigurator
-                .EnsureRunningAndWaitForSharedMemoryAsync(cancellationToken)
-                .ConfigureAwait(false);
-            SimpleLog.TryWrite(startupResult.Message);
-
-            if (IsExitCleanupInProgress(cancellationToken))
-                return;
-
-            if (!startupResult.Ready)
-            {
-                SensorSourceStartupFailed?.Invoke(this, startupResult.Message);
-                await ContinueWaitingForHwInfoSharedMemoryAsync(cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            StartPublishService();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            SimpleLog.TryWrite("HWiNFO startup monitoring canceled.");
-        }
-        catch (Exception ex)
-        {
-            SimpleLog.TryWriteException(ex);
-            if (!IsExitCleanupInProgress(cancellationToken))
-                SensorSourceStartupFailed?.Invoke(this, $"HWiNFO startup failed: {ex.Message}");
-        }
-    }
-
-    private void StartPublishService()
-    {
-        if (IsExitCleanupInProgress(_startupCancellationTokenSource.Token))
-            return;
-
-        _publishService.Start();
-
-        // Intentionally does not raise SensorSourceReady / set IsSensorSourceReady: that legacy
-        // signal drives the HWiNFO sensor-discovery UI path, which native publishing must not
-        // reactivate. The obsolete readiness contract is removed with the sensor UI in PR #57.
-    }
-
-    /// <summary>Guards against starting the publisher or raising ready/failed events once exit has begun.</summary>
+    /// <summary>Guards against starting the publisher or creating UI once exit has begun.</summary>
     private bool IsExitCleanupInProgress(CancellationToken cancellationToken)
     {
         return _disposed || IsExitRequested || cancellationToken.IsCancellationRequested;
-    }
-
-    private async Task ContinueWaitingForHwInfoSharedMemoryAsync(CancellationToken cancellationToken)
-    {
-        SimpleLog.TryWrite("HWiNFO shared memory recovery monitoring started.");
-
-        while (!IsExitCleanupInProgress(cancellationToken))
-        {
-            var recoveryResult = await HWiNFOStartupConfigurator
-                .WaitForSharedMemoryAsync(SharedMemoryRecoveryProbeWindow, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (!recoveryResult.Ready)
-                continue;
-
-            SimpleLog.TryWrite("HWiNFO shared memory recovered after startup timeout.");
-            StartPublishService();
-            return;
-        }
     }
 }

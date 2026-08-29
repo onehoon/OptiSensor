@@ -38,7 +38,7 @@ public sealed class ApplicationHostUiSessionTests
         Assert.Contains("if (reopen && !IsExitRequested && _shutdownTask is null && !_disposed)", source);
 
         var completeStart = source.IndexOf("private void CompleteMainWindowTeardown(", StringComparison.Ordinal);
-        var completeEnd = source.IndexOf("private async Task ObserveSensorStartupCompletionAsync", completeStart, StringComparison.Ordinal);
+        var completeEnd = source.IndexOf("private async Task ObserveTweakStartupCompletionAsync", completeStart, StringComparison.Ordinal);
         Assert.True(completeStart >= 0 && completeEnd > completeStart);
         var completion = source[completeStart..completeEnd];
         var markFinished = completion.IndexOf("MarkMainWindowTeardownFinished()", StringComparison.Ordinal);

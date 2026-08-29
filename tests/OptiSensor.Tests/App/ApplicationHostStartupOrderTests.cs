@@ -21,7 +21,7 @@ public class ApplicationHostStartupOrderTests
     }
 
     [Fact]
-    public void Start_InvokesStartTweaksInBackground_BeforeStartSensorServices()
+    public void Start_InvokesStartTweaksInBackground_BeforeStartPublishService()
     {
         var source = ReadApplicationHostSource();
 
@@ -35,10 +35,10 @@ public class ApplicationHostStartupOrderTests
         var body = source[startMethodStart..nextMemberStart];
 
         var tweaksCallIndex = body.IndexOf("host.StartTweaksInBackground();", StringComparison.Ordinal);
-        var sensorsCallIndex = body.IndexOf("host.StartSensorServices();", StringComparison.Ordinal);
+        var sensorsCallIndex = body.IndexOf("host.StartPublishService();", StringComparison.Ordinal);
 
         Assert.True(tweaksCallIndex >= 0, "Start() must call host.StartTweaksInBackground().");
-        Assert.True(sensorsCallIndex >= 0, "Start() must call host.StartSensorServices().");
+        Assert.True(sensorsCallIndex >= 0, "Start() must call host.StartPublishService().");
         Assert.True(tweaksCallIndex < sensorsCallIndex,
             "Tweaks startup must be kicked off before sensor services, so Tweaks (e.g. Intel VRR " +
             "Range Fix) isn't gated on HWiNFO/sensor readiness at Windows boot.");

@@ -24,14 +24,14 @@ When **Register startup task** is enabled, OptiSensor creates the current-user `
 Policy:
 
 ```text
-Trigger: At user logon, delayed by 5 minutes
-Run level: Least privilege
+Trigger: At user logon, delayed by 1 minute
+Run level: HighestAvailable
 Restart on failure: every 1 minute, up to 3 attempts
 ```
 
 The task action remains valid after a Velopack update because the app's `current` path is updated in place. Legacy `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entries named `OptiSensor` are removed when the task is registered or unregistered.
 
-OptiSensor normally runs without administrator rights. If HWiNFO shared memory is unavailable and OptiSensor must change HWiNFO's setting or restart HWiNFO, it requests UAC only for that short configuration operation.
+The Claw edition needs administrator rights to read MSI EC and Intel IGCL telemetry, so it elevates itself on launch (prompting for UAC when not started elevated). The `HighestAvailable` run level lets the startup task launch it elevated without a prompt.
 
 Check the task:
 
@@ -40,17 +40,10 @@ schtasks /Query /TN "OptiSensor"
 schtasks /Query /TN "OptiSensor" /XML
 ```
 
-## Diagnostic commands
+## Command-line modes
 
-The installed app supports the existing diagnostic commands:
+`--startup` is the only supported runtime mode; it is reserved for the Task Scheduler action and suppresses the startup window. Normal app launches show the window; closing the window hides it to the tray, and only the tray/menu **Exit** action closes the helper.
 
-```powershell
-OptiSensor.exe --once
-OptiSensor.exe --watch
-```
+## Updates
 
-`--startup` is reserved for the Task Scheduler action. Normal app launches show the window; closing the window hides it to the tray, and only the tray/menu **Exit** action closes the helper.
-
-## GitHub updates
-
-The Settings page includes a **Check for updates** button that reads public stable GitHub Releases from `onehoon/OptiSensor`, downloads the newest Velopack package, and asks before restarting to apply it.
+OptiSensor checks for updates automatically at startup using Velopack. There is no manual update button.

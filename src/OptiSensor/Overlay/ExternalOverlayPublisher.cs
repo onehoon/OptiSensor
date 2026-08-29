@@ -16,9 +16,9 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         _mappedFile = MemoryMappedFile.CreateOrOpen(ExternalOverlayProtocol.MappingName, ExternalOverlayProtocol.PayloadSize, MemoryMappedFileAccess.ReadWrite);
         _accessor = _mappedFile.CreateViewAccessor(0, ExternalOverlayProtocol.PayloadSize, MemoryMappedFileAccess.ReadWrite);
 
-        _accessor.Write(0, ExternalOverlayProtocol.PayloadMagic);
-        _accessor.Write(4, ExternalOverlayProtocol.PayloadVersion);
-        _accessor.Write(8, _sequence);
+        _accessor.Write(ExternalOverlayProtocol.MagicOffset, ExternalOverlayProtocol.PayloadMagic);
+        _accessor.Write(ExternalOverlayProtocol.VersionOffset, ExternalOverlayProtocol.PayloadVersion);
+        _accessor.Write(ExternalOverlayProtocol.SequenceOffset, _sequence);
     }
 
     public void Publish(string line)
@@ -35,13 +35,13 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         if ((_sequence & 1U) == 0)
             _sequence++;
 
-        _accessor.Write(8, _sequence);
+        _accessor.Write(ExternalOverlayProtocol.SequenceOffset, _sequence);
         _accessor.Write(ExternalOverlayProtocol.LastUpdateTickOffset, Environment.TickCount64);
         _accessor.Write(ExternalOverlayProtocol.LineCountOffset, 1U);
         _accessor.WriteArray(ExternalOverlayProtocol.LinesOffset, lineBuffer.ToArray(), 0, lineBuffer.Length);
 
         _sequence++;
-        _accessor.Write(8, _sequence);
+        _accessor.Write(ExternalOverlayProtocol.SequenceOffset, _sequence);
         _accessor.Flush();
     }
 
@@ -54,7 +54,7 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         if ((_sequence & 1U) == 0)
             _sequence++;
 
-        _accessor.Write(8, _sequence);
+        _accessor.Write(ExternalOverlayProtocol.SequenceOffset, _sequence);
         _accessor.Write(ExternalOverlayProtocol.LastUpdateTickOffset, Environment.TickCount64);
         _accessor.Write(ExternalOverlayProtocol.LineCountOffset, 0U);
 
@@ -62,7 +62,7 @@ internal sealed class ExternalOverlayPublisher : IDisposable
         _accessor.WriteArray(ExternalOverlayProtocol.LinesOffset, lineBuffer, 0, lineBuffer.Length);
 
         _sequence++;
-        _accessor.Write(8, _sequence);
+        _accessor.Write(ExternalOverlayProtocol.SequenceOffset, _sequence);
         _accessor.Flush();
     }
 

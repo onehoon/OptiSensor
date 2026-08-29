@@ -42,7 +42,7 @@ public sealed class ApplicationHostBackgroundStartupTests
         var conditionIndex = body.IndexOf("if (showMainWindow)", StringComparison.Ordinal);
         var showCallIndex = body.IndexOf("host.ShowMainWindow();", StringComparison.Ordinal);
         var tweaksIndex = body.IndexOf("host.StartTweaksInBackground();", StringComparison.Ordinal);
-        var sensorsIndex = body.IndexOf("host.StartSensorServices();", StringComparison.Ordinal);
+        var sensorsIndex = body.IndexOf("host.StartPublishService();", StringComparison.Ordinal);
 
         Assert.True(conditionIndex >= 0,
             "Start() must keep MainWindow creation conditional on showMainWindow.");
