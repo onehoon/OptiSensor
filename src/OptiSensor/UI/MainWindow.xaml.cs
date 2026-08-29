@@ -174,6 +174,11 @@ public partial class MainWindow : Window
         Process.Start(new ProcessStartInfo { FileName = AppPaths.DataDirectory, UseShellExecute = true });
     }
 
+    private void ManageOptiScalerButton_Click(object sender, RoutedEventArgs e)
+    {
+        new OptiScalerReplaceWindow { Owner = this }.ShowDialog();
+    }
+
     private void HideButton_Click(object sender, RoutedEventArgs e) => _host.RequestHideMainWindow();
 
     private void ExitButton_Click(object sender, RoutedEventArgs e) => _host.RequestExit();
