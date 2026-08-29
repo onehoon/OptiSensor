@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="OptiSensor"
-        Width="560"
-        Height="520"
-        MinWidth="480"
-        MinHeight="460"
+        Width="720"
+        Height="600"
+        MinWidth="640"
+        MinHeight="540"
         Background="#F6F8FB"
         Icon="/Assets/OptiSensor.ico"
         WindowStartupLocation="CenterScreen">
@@ -90,12 +90,6 @@
                               VerticalAlignment="Center"/>
             </Grid>
         </Border>
-
-        <TextBlock x:Name="VersionText"
-                   Grid.Row="4"
-                   VerticalAlignment="Bottom"
-                   Foreground="#94A3B8"
-                   FontSize="12"/>
 
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Content="Open Settings Folder"
