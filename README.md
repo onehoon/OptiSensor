@@ -70,8 +70,7 @@ the overlay line, and publishes the formatted line to shared memory.
 ### Installation
 
 Install `OptiSensor-win-Setup.exe` (Velopack `win` channel). It installs per-user under LocalAppData
-and updates in place. See [docs/helper-installation.md](docs/helper-installation.md) for the shared
-installer / startup-task details.
+and updates in place.
 
 ## Claw Edition
 
