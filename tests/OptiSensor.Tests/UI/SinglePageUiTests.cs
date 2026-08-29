@@ -112,15 +112,26 @@ public sealed class SinglePageUiTests
         // The Manage handler opens the modal as an owned dialog.
         Assert.Contains("new OptiScalerReplaceWindow { Owner = this }.ShowDialog()", code);
 
-        // The dialog picks a folder and delegates to the existing core - no DLL picker, no
-        // duplicated discovery, no hard-coded download URL.
+        // The dialog picks a folder (classic folder tree) and delegates to the existing core - no
+        // DLL picker, no duplicated discovery, no hard-coded download URL.
         var dialog = Src(Path.Combine("UI", "OptiScalerReplaceWindow.xaml.cs"));
-        Assert.Contains("OpenFolderDialog", dialog);
+        Assert.Contains("FolderBrowserDialog", dialog);
+        Assert.Contains("ShowNewFolderButton = false", dialog);
         Assert.DoesNotContain("OpenFileDialog", dialog);
+        Assert.DoesNotContain("OpenFolderDialog", dialog);
         Assert.Contains("_discovery.Discover(", dialog);
         Assert.Contains("_updateService.UpdateAsync(", dialog);
         Assert.DoesNotContain("github.com", dialog);
         Assert.DoesNotContain("0.10", dialog);
+
+        // Folder picker: preselect the current folder, cancel is a no-op, success runs discovery.
+        Assert.Contains("picker.SelectedPath = _selectedFolder", dialog);
+        Assert.Contains("!= WinForms.DialogResult.OK)", dialog);
+        var pick = dialog.IndexOf("FolderBrowserDialog", StringComparison.Ordinal);
+        var cancelReturn = dialog.IndexOf("return; // cancel", pick, StringComparison.Ordinal);
+        var assignSelected = dialog.IndexOf("_selectedFolder = picker.SelectedPath", pick, StringComparison.Ordinal);
+        var runDiscovery = dialog.IndexOf("RunDiscovery();", assignSelected, StringComparison.Ordinal);
+        Assert.True(cancelReturn > pick && cancelReturn < assignSelected && runDiscovery > assignSelected);
     }
 
     [Fact]

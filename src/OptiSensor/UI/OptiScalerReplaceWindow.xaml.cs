@@ -1,8 +1,9 @@
 using System.ComponentModel;
 using System.Windows;
-using Microsoft.Win32;
+using System.Windows.Interop;
 using OptiSensor.App;
 using OptiSensor.OptiScalerUpdate;
+using WinForms = System.Windows.Forms;
 
 namespace OptiSensor.UI;
 
@@ -33,16 +34,30 @@ public partial class OptiScalerReplaceWindow : Window
         if (_busy)
             return;
 
-        var picker = new OpenFolderDialog { Title = "Select the game folder that contains OptiScaler" };
+        // The classic expandable folder tree, so the user can drill into the specific game folder
+        // rather than accidentally picking a top-level library folder like D:\Games.
+        using var picker = new WinForms.FolderBrowserDialog
+        {
+            Description = "Select the specific game folder that contains OptiScaler.",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false,
+        };
         if (_selectedFolder is not null && Directory.Exists(_selectedFolder))
-            picker.InitialDirectory = _selectedFolder;
-        if (picker.ShowDialog(this) != true)
-            return;
+            picker.SelectedPath = _selectedFolder;
 
-        _selectedFolder = picker.FolderName;
+        if (picker.ShowDialog(new Win32Window(this)) != WinForms.DialogResult.OK)
+            return; // cancel leaves the current selection / discovery untouched
+
+        _selectedFolder = picker.SelectedPath;
         FolderText.Text = _selectedFolder;
         StatusText.Text = string.Empty;
         RunDiscovery();
+    }
+
+    /// <summary>Minimal WPF-window-as-owner adapter for the Win32 folder dialog.</summary>
+    private sealed class Win32Window(Window window) : WinForms.IWin32Window
+    {
+        public IntPtr Handle { get; } = new WindowInteropHelper(window).Handle;
     }
 
     private void RunDiscovery()
