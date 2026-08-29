@@ -55,10 +55,21 @@ internal sealed record OptiScalerDiscoveryResult(
 
 /// <summary>
 /// Resolves the existing OptiScaler proxy DLL inside a user-selected game folder so the future UI
-/// can take a folder, not a specific DLL. Inspection is <b>top-level only</b> and by real Win32
-/// version metadata via the shared <see cref="OptiScalerFileVersion.IsOptiScaler"/> identity rule -
-/// never by filename. A DLL that cannot be inspected is skipped (discovery keeps going); this is the
-/// opposite of the update path, where the already-chosen target failing inspection is a hard error.
+/// can take a folder, not a specific DLL. Some games install OptiScaler in a subfolder
+/// (<c>Binaries\Win64</c>, <c>bin</c>, <c>x64</c>), so this walks the selected tree
+/// <b>breadth-first</b> - the selected folder, then its immediate children, then their children -
+/// and returns the <b>first supported OptiScaler 0.9 target it reaches</b>, stopping immediately
+/// (a target closer to the game root wins over a deeper one).
+///
+/// Identity is by real Win32 version metadata via the shared
+/// <see cref="OptiScalerFileVersion.IsOptiScaler"/> rule, never by filename. Per directory: one
+/// identity match that is 0.9.x -> <see cref="OptiScalerDiscoveryStatus.Found"/>; more than one
+/// identity match -> <see cref="OptiScalerDiscoveryStatus.MultipleFound"/>. An unsupported
+/// (e.g. 0.10) OptiScaler seen along the way is only reported
+/// (<see cref="OptiScalerDiscoveryStatus.UnsupportedVersion"/>) if the whole walk finds no 0.9
+/// target. Unreadable DLLs and inaccessible subdirectories are skipped; reparse points (junctions /
+/// symlinks) are not followed. Only a root that cannot be traversed at all yields
+/// <see cref="OptiScalerDiscoveryStatus.InvalidFolder"/>.
 /// </summary>
 internal sealed class OptiScalerTargetDiscovery(IFileVersionReader versionReader)
 {
@@ -67,53 +78,117 @@ internal sealed class OptiScalerTargetDiscovery(IFileVersionReader versionReader
         if (string.IsNullOrWhiteSpace(gameFolderPath))
             return OptiScalerDiscoveryResult.InvalidFolder();
 
-        string fullPath;
-        try { fullPath = Path.GetFullPath(gameFolderPath); }
+        string root;
+        try { root = Path.GetFullPath(gameFolderPath); }
         catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
         {
             return OptiScalerDiscoveryResult.InvalidFolder();
         }
 
-        if (!Directory.Exists(fullPath))
+        if (!Directory.Exists(root))
             return OptiScalerDiscoveryResult.InvalidFolder();
 
-        List<string> dlls;
-        try
+        // Plain FIFO queue = breadth-first: a directory's children are enqueued behind every
+        // still-pending directory of the current depth, so each depth is fully searched first.
+        var queue = new Queue<string>();
+        queue.Enqueue(root);
+        (string Path, Version? Version)? firstUnsupported = null;
+
+        while (queue.Count > 0)
         {
-            dlls = Directory
-                .EnumerateFiles(fullPath, "*.dll", SearchOption.TopDirectoryOnly)
-                .Where(path => Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return OptiScalerDiscoveryResult.InvalidFolder();
+            var directory = queue.Dequeue();
+
+            List<(string Path, OptiScalerFileVersion Version)> matches;
+            try
+            {
+                matches = FindOptiScalerDlls(directory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A subdirectory we can't read is skipped; if the selected root itself can't be
+                // read, the walk never really starts.
+                if (PathsEqual(directory, root))
+                    return OptiScalerDiscoveryResult.InvalidFolder();
+                continue;
+            }
+
+            if (matches.Count > 1)
+                return OptiScalerDiscoveryResult.MultipleFound(matches.Select(m => m.Path).ToList());
+
+            if (matches.Count == 1)
+            {
+                var (path, version) = matches[0];
+                if (version.HasReadableNumericVersion && version.IsSupportedNineFamily)
+                    return OptiScalerDiscoveryResult.Found(path, version.NumericVersion);
+
+                firstUnsupported ??= (path, version.HasReadableNumericVersion ? version.NumericVersion : null);
+            }
+
+            EnqueueChildDirectories(directory, queue);
         }
 
-        var candidates = new List<(string Path, OptiScalerFileVersion Version)>();
-        foreach (var dll in dlls)
+        return firstUnsupported is { } unsupported
+            ? OptiScalerDiscoveryResult.UnsupportedVersion(unsupported.Path, unsupported.Version)
+            : OptiScalerDiscoveryResult.NotFound();
+    }
+
+    private List<(string Path, OptiScalerFileVersion Version)> FindOptiScalerDlls(string directory)
+    {
+        var matches = new List<(string, OptiScalerFileVersion)>();
+        foreach (var dll in Directory
+                     .EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly)
+                     .Where(path => Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
             OptiScalerFileVersion version;
             try { version = versionReader.Read(dll); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FileNotFoundException)
             {
-                continue; // unrelated / unreadable DLL - not an OptiScaler candidate, keep scanning
+                continue; // unrelated / unreadable DLL - keep scanning this directory
             }
 
             if (version.IsOptiScaler)
-                candidates.Add((Path.GetFullPath(dll), version));
+                matches.Add((Path.GetFullPath(dll), version));
+        }
+        return matches;
+    }
+
+    private static void EnqueueChildDirectories(string directory, Queue<string> queue)
+    {
+        List<string> children;
+        try
+        {
+            children = Directory
+                .EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
         }
 
-        if (candidates.Count == 0)
-            return OptiScalerDiscoveryResult.NotFound();
-        if (candidates.Count > 1)
-            return OptiScalerDiscoveryResult.MultipleFound(candidates.Select(c => c.Path).ToList());
+        foreach (var child in children)
+        {
+            try
+            {
+                // Never follow junctions / symlinks: they can loop or point outside the selected
+                // game-folder tree. Skipping them removes the need for a visited-path set.
+                if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
+                    continue;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException)
+            {
+                continue;
+            }
 
-        var (targetPath, target) = candidates[0];
-        if (!target.HasReadableNumericVersion || !target.IsSupportedNineFamily)
-            return OptiScalerDiscoveryResult.UnsupportedVersion(
-                targetPath, target.HasReadableNumericVersion ? target.NumericVersion : null);
-
-        return OptiScalerDiscoveryResult.Found(targetPath, target.NumericVersion);
+            queue.Enqueue(child);
+        }
     }
+
+    private static bool PathsEqual(string a, string b) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(a),
+            Path.TrimEndingDirectorySeparator(b),
+            StringComparison.OrdinalIgnoreCase);
 }
