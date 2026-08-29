@@ -26,8 +26,9 @@ internal static class OptiScalerReplacePresentation
                 ? $"{Path.GetFileName(discovery.TargetDllPath)} is OptiScaler, but its version could not be read. Only OptiScaler 0.9 is supported."
                 : $"{Path.GetFileName(discovery.TargetDllPath)} is OptiScaler {discovery.Version}. Only OptiScaler 0.9 is supported.",
         OptiScalerDiscoveryStatus.MultipleFound =>
-            "Multiple OptiScaler DLLs were found in the selected folder: "
-            + string.Join(", ", discovery.DetectedPaths.Select(Path.GetFileName)),
+            "More than one OptiScaler installation was found under the selected folder. "
+            + "Select the specific game folder to update:\n"
+            + string.Join("\n", discovery.DetectedPaths),
         _ => "Select an existing game folder.",
     };
 

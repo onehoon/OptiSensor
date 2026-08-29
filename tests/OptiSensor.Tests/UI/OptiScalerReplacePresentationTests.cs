@@ -60,6 +60,16 @@ public sealed class OptiScalerReplacePresentationTests
     }
 
     [Fact]
+    public void Multiple_found_shows_the_full_paths_of_the_two_installations()
+    {
+        var text = OptiScalerReplacePresentation.DescribeDiscovery(OptiScalerDiscoveryResult.MultipleFound(
+            [@"D:\Games\GameA\Binaries\Win64\dxgi.dll", @"D:\Games\GameC\winmm.dll"]));
+        Assert.Contains(@"D:\Games\GameA\Binaries\Win64\dxgi.dll", text);
+        Assert.Contains(@"D:\Games\GameC\winmm.dll", text);
+        Assert.Contains("specific game folder", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Unsupported_version_is_not_reported_as_not_found()
     {
         var text = OptiScalerReplacePresentation.DescribeDiscovery(
