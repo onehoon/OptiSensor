@@ -34,6 +34,16 @@ public sealed class SinglePageUiTests
     }
 
     [Fact]
+    public void WpfUiDependencyIsRemoved()
+    {
+        // The single native page uses only local styles + standard WPF controls, so the
+        // WPF-UI package and its resource dictionaries must not be loaded at startup.
+        Assert.DoesNotContain("WPF-UI", Src("OptiSensor.csproj"));
+        Assert.DoesNotContain("Wpf.Ui", Src("App.xaml"));
+        Assert.DoesNotContain("Wpf.Ui", Src(Path.Combine("UI", "MainWindow.xaml")));
+    }
+
+    [Fact]
     public void VisibleTelemetryLineComesFromSharedMemoryReadbackNotLastOverlayLine()
     {
         var code = Src(Path.Combine("UI", "MainWindow.xaml.cs"));
