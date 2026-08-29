@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using OptiSensor.Publishing;
 using Xunit;
 
@@ -43,9 +44,61 @@ public sealed class SamplingScheduleTests
     }
 
     [Fact]
+    public void SlowWarmup_BatteryHandoffStillWaitsAFullInterval()
+    {
+        // Priming Core+Battery read at 0, warm-up Core read overran and finished at 3200.
+        // The first post-warm-up Battery deadline is still 5000 - not an immediate read.
+        var nextBattery = SensorPublishService.AdvanceDueTime(previousDueMs: 0, intervalMs: 5000, nowMs: 3200);
+
+        Assert.Equal(5000, nextBattery);
+        Assert.True(nextBattery > 3200);
+    }
+
+    [Fact]
     public void ExactDeadlineHit_StillAdvancesPastNow()
     {
         // now == the freshly computed next due-time must not leave a zero-length wait.
         Assert.Equal(3000, SensorPublishService.AdvanceDueTime(previousDueMs: 1000, intervalMs: 1000, nowMs: 2000));
+    }
+
+    [Fact]
+    public void WarmupSchedule_AnchorsToPostSampleTimestamps_NotThePreReadSessionStart()
+    {
+        var session = Slice(
+            ReadPublishServiceSource(),
+            "private async Task RunPublishSessionAsync",
+            "private static async Task RunSamplingLoopAsync");
+
+        // No deadline is derived from a timestamp captured before the first read anymore.
+        Assert.DoesNotContain("startedAtMs", session);
+        Assert.DoesNotContain("2 * CoreSampleIntervalMs", session);
+
+        // The priming timestamp is taken after the first Core + Battery reads.
+        var firstBattery = session.IndexOf("sampler.SampleBattery();", StringComparison.Ordinal);
+        var primed = session.IndexOf("var primedAtMs = Environment.TickCount64;", StringComparison.Ordinal);
+        Assert.True(firstBattery >= 0 && primed > firstBattery);
+
+        // The warm-up timestamp is taken after the second Core read.
+        var secondCore = session.IndexOf("sampler.SampleCore();", primed, StringComparison.Ordinal);
+        var warmed = session.IndexOf("var warmedAtMs = Environment.TickCount64;", StringComparison.Ordinal);
+        Assert.True(secondCore >= 0 && warmed > secondCore);
+
+        // Normal Core resumes one interval after the warm-up read; elapsed Battery deadlines skip.
+        Assert.Contains("nextCoreDueMs: warmedAtMs + CoreSampleIntervalMs", session);
+        Assert.Contains("nextBatteryDueMs: AdvanceDueTime(primedAtMs, BatterySampleIntervalMs, warmedAtMs)", session);
+    }
+
+    private static string ReadPublishServiceSource([CallerFilePath] string thisFilePath = "")
+    {
+        var repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFilePath)!, "..", "..", ".."));
+        return File.ReadAllText(Path.Combine(repoRoot, "src", "OptiSensor", "Publishing", "SensorPublishService.cs"));
+    }
+
+    private static string Slice(string source, string startMarker, string endMarker)
+    {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start, $"Could not slice between '{startMarker}' and '{endMarker}'.");
+        return source[start..end];
     }
 }

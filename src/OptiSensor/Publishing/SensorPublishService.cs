@@ -133,19 +133,24 @@ internal sealed class SensorPublishService : IDisposable
 
         // Immediate startup reads, then a second Core read after one interval so the Windows /
         // IGCL rate counters are primed before normal publishing begins. Unavailable metrics do
-        // not gate this - whatever is present after priming is published.
-        var startedAtMs = Environment.TickCount64;
+        // not gate this - whatever is present after priming is published. Every deadline below is
+        // anchored to a timestamp taken *after* a real read, so a slow MSI EC / IGCL warm-up on
+        // the Windows-startup path can't make the next read fire immediately.
         sampler.SampleCore();
         sampler.SampleBattery();
-        await DelayUntilAsync(startedAtMs + CoreSampleIntervalMs, sessionToken).ConfigureAwait(false);
-        sampler.SampleCore();
+        var primedAtMs = Environment.TickCount64;
 
-        // Core resumes one interval after the warm-up sample; Battery is due one full interval
-        // after its startup sample - each on its own monotonic schedule, not chained to the other.
+        await DelayUntilAsync(primedAtMs + CoreSampleIntervalMs, sessionToken).ConfigureAwait(false);
+        sampler.SampleCore();
+        var warmedAtMs = Environment.TickCount64;
+
+        // Normal Core sampling resumes one full interval after the warm-up read completes; Battery
+        // keeps its own schedule from the priming read, skipping any deadline that already elapsed
+        // during warm-up (same no-catch-up policy as the loop itself).
         var samplingTask = RunSamplingLoopAsync(
             sampler,
-            nextCoreDueMs: startedAtMs + (2 * CoreSampleIntervalMs),
-            nextBatteryDueMs: startedAtMs + BatterySampleIntervalMs,
+            nextCoreDueMs: warmedAtMs + CoreSampleIntervalMs,
+            nextBatteryDueMs: AdvanceDueTime(primedAtMs, BatterySampleIntervalMs, warmedAtMs),
             sessionToken);
         try
         {
