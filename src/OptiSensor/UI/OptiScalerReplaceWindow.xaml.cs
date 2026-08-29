@@ -39,8 +39,10 @@ public partial class OptiScalerReplaceWindow : Window
         using var picker = new WinForms.FolderBrowserDialog
         {
             Description = "Select the specific game folder that contains OptiScaler.",
-            UseDescriptionForTitle = true,
             ShowNewFolderButton = false,
+            // Force the legacy expandable folder-tree dialog; the modern default (true) shows the
+            // Vista-style COM picker instead.
+            AutoUpgradeEnabled = false,
         };
         if (_selectedFolder is not null && Directory.Exists(_selectedFolder))
             picker.SelectedPath = _selectedFolder;

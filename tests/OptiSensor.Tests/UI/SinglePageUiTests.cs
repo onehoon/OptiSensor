@@ -117,6 +117,7 @@ public sealed class SinglePageUiTests
         var dialog = Src(Path.Combine("UI", "OptiScalerReplaceWindow.xaml.cs"));
         Assert.Contains("FolderBrowserDialog", dialog);
         Assert.Contains("ShowNewFolderButton = false", dialog);
+        Assert.Contains("AutoUpgradeEnabled = false", dialog); // classic expandable folder tree
         Assert.DoesNotContain("OpenFileDialog", dialog);
         Assert.DoesNotContain("OpenFolderDialog", dialog);
         Assert.Contains("_discovery.Discover(", dialog);
