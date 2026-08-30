@@ -151,4 +151,69 @@ public class WindowsUsageTelemetryTests
     {
         Assert.Equal(expected, WindowsUsageTelemetryReader.ShouldRetryIntelGpuMemoryCounters(dedicatedEmpty, sharedEmpty, attempts));
     }
+
+    // ---- Intel GPU memory: recovery policy ------------------------------
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, false)]
+    public void NeedsIntelGpuMemoryBinding_TrueWhileEitherCategoryIsUnbound(
+        bool dedicatedEmpty, bool sharedEmpty, bool expected)
+    {
+        Assert.Equal(expected, WindowsUsageTelemetryReader.NeedsIntelGpuMemoryBinding(dedicatedEmpty, sharedEmpty));
+    }
+
+    [Theory]
+    [InlineData(2, 3, false)] // below threshold: keep the bound counters
+    [InlineData(3, 3, true)]  // threshold reached: release for rebind
+    [InlineData(4, 3, true)]
+    [InlineData(3, 0, false)] // threshold 0: disabled
+    public void ShouldReleaseIntelGpuMemoryCounters_OnlyAtOrAboveThreshold(
+        int consecutiveFailures, int failureThreshold, bool expected)
+    {
+        Assert.Equal(expected, WindowsUsageTelemetryReader.ShouldReleaseIntelGpuMemoryCounters(consecutiveFailures, failureThreshold));
+    }
+
+    [Theory]
+    [InlineData(3, 29, false)] // attempts exhausted, cooldown not yet reached
+    [InlineData(3, 30, true)]  // attempts exhausted, cooldown reached: re-arm
+    [InlineData(3, 31, true)]
+    [InlineData(2, 30, false)] // attempts not exhausted: no cooldown-driven re-arm
+    public void ShouldRearmIntelGpuMemoryCounters_OnlyAfterCooldownWhenAttemptsExhausted(
+        int attempts, int cooldownSamples, bool expected)
+    {
+        Assert.Equal(expected, WindowsUsageTelemetryReader.ShouldRearmIntelGpuMemoryCounters(
+            attempts, cooldownSamples, maxAttempts: 3, cooldownThreshold: 30));
+    }
+
+    // ---- VRAM failure isolation ----------------------------------------
+
+    [Fact]
+    public void WindowsUsageSnapshot_CarriesCpuAndRamWithIntelVramUnavailable()
+    {
+        var snapshot = new WindowsUsageSnapshot(CpuUsagePercent: 42.0, SystemMemoryUsedBytes: 50, IntelGpuMemoryUsedBytes: null);
+
+        Assert.Equal(42.0, snapshot.CpuUsagePercent);
+        Assert.Equal(50ul, snapshot.SystemMemoryUsedBytes);
+        Assert.Null(snapshot.IntelGpuMemoryUsedBytes);
+    }
+
+    [Fact]
+    public void Sample_DoesNotReturnNullJustBecauseIntelVramIsUnavailable()
+    {
+        using var reader = new WindowsUsageTelemetryReader();
+        Assert.True(reader.Initialize());
+
+        // First real sample after priming.
+        WindowsUsageSnapshot? snapshot = null;
+        for (var i = 0; i < 4 && (snapshot is null || snapshot.SystemMemoryUsedBytes is null); i++)
+            snapshot = reader.Sample();
+
+        // RAM comes from GlobalMemoryStatusEx and is always available; the CI host has no Intel GPU
+        // so VRAM stays null - the whole sample must still be returned.
+        Assert.NotNull(snapshot);
+        Assert.NotNull(snapshot!.SystemMemoryUsedBytes);
+    }
 }
