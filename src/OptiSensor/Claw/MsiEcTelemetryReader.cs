@@ -24,7 +24,6 @@ internal sealed class MsiEcTelemetryReader
         int? cpuTempC = null;
         int? fan1Rpm = null;
         int? fan2Rpm = null;
-        int? hudFanRpm = null;
         int? cpuPackagePowerW = null;
 
         if (_transport.TryRead(GetTemperature, 0, out var temperature))
@@ -34,13 +33,12 @@ internal sealed class MsiEcTelemetryReader
         {
             fan1Rpm = decodedFan1;
             fan2Rpm = decodedFan2;
-            hudFanRpm = SelectHudFanRpm(decodedFan1, decodedFan2);
         }
 
         if (_transport.TryRead(GetData, CpuPackagePowerSelector, out var power))
             cpuPackagePowerW = DecodeCpuPackagePowerW(power);
 
-        return new MsiEcTelemetrySnapshot(cpuTempC, fan1Rpm, fan2Rpm, hudFanRpm, cpuPackagePowerW);
+        return new MsiEcTelemetrySnapshot(cpuTempC, fan1Rpm, fan2Rpm, cpuPackagePowerW);
     }
 
     /// <summary><c>Get_Temperature(0)</c> payload[0] = CPU °C. Empty payload or a 0 byte is unavailable.</summary>
@@ -77,18 +75,6 @@ internal sealed class MsiEcTelemetryReader
             return 0;
 
         return Math.Abs(480000 / delta);
-    }
-
-    /// <summary>
-    /// ClawHUD single-FAN policy: mean of both available fans, otherwise the one available
-    /// fan, otherwise unavailable. Integer arithmetic.
-    /// </summary>
-    internal static int? SelectHudFanRpm(int? fan1Rpm, int? fan2Rpm)
-    {
-        if (fan1Rpm is int both1 && fan2Rpm is int both2)
-            return (both1 + both2) / 2;
-
-        return fan1Rpm ?? fan2Rpm;
     }
 
     /// <summary>

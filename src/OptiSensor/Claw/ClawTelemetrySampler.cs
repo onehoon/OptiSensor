@@ -114,9 +114,9 @@ internal sealed class ClawTelemetrySampler : IDisposable
     /// <summary>
     /// Bounded per-field EC retention. Each source field (CPU temp, Fan 1, Fan 2, TDP) survives up
     /// to <see cref="EcTelemetryMissingThreshold"/> - 1 consecutive misses and is then cleared; a
-    /// fresh value recovers it immediately. <c>HudFanRpm</c> is never retained on its own - it is
-    /// recomputed from the retained/updated Fan 1 + Fan 2 pair, which stay the single source of
-    /// truth. A genuine numeric 0 (stopped fan, 0 W) is a value, not a miss.
+    /// fresh value recovers it immediately. The single overlay FAN value is not stored here - it is
+    /// derived from the retained Fan 1 + Fan 2 pair in <see cref="Compose"/>. A genuine numeric 0
+    /// (stopped fan, 0 W) is a value, not a miss.
     /// </summary>
     internal MsiEcTelemetrySnapshot MergeEc(MsiEcTelemetrySnapshot incoming)
     {
@@ -129,9 +129,20 @@ internal sealed class ClawTelemetrySampler : IDisposable
             CpuTempC: cpuTempC,
             Fan1Rpm: fan1Rpm,
             Fan2Rpm: fan2Rpm,
-            HudFanRpm: MsiEcTelemetryReader.SelectHudFanRpm(fan1Rpm, fan2Rpm),
             CpuPackagePowerW: cpuPackagePowerW);
         return _ec;
+    }
+
+    /// <summary>
+    /// The single overlay FAN value: mean of both retained fans, otherwise the one available fan,
+    /// otherwise unavailable. Integer arithmetic; a genuine 0 RPM is a value.
+    /// </summary>
+    internal static int? ComposeFanRpm(int? fan1Rpm, int? fan2Rpm)
+    {
+        if (fan1Rpm is int fan1 && fan2Rpm is int fan2)
+            return (fan1 + fan2) / 2;
+
+        return fan1Rpm ?? fan2Rpm;
     }
 
     /// <summary>Bounded per-field IGCL retention for GPU usage and GPU clock, independently.</summary>
@@ -190,7 +201,7 @@ internal sealed class ClawTelemetrySampler : IDisposable
             GpuClockMHz: gpu?.GpuClockMHz,
             SystemMemoryUsedBytes: usage?.SystemMemoryUsedBytes,
             GpuMemoryUsedBytes: usage?.IntelGpuMemoryUsedBytes,
-            FanRpm: ec.HudFanRpm,
+            FanRpm: ComposeFanRpm(ec.Fan1Rpm, ec.Fan2Rpm),
             BatteryPercent: power?.BatteryPercent,
             OnBattery: power?.OnBattery,
             RemainingMinutes: power?.RemainingMinutes);

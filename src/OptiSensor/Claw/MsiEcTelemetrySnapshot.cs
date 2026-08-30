@@ -9,8 +9,7 @@ internal sealed record MsiEcTelemetrySnapshot(
     int? CpuTempC,
     int? Fan1Rpm,
     int? Fan2Rpm,
-    int? HudFanRpm,
     int? CpuPackagePowerW)
 {
-    public static readonly MsiEcTelemetrySnapshot Empty = new(null, null, null, null, null);
+    public static readonly MsiEcTelemetrySnapshot Empty = new(null, null, null, null);
 }
