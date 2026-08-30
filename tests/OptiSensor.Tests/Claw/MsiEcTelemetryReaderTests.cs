@@ -53,7 +53,6 @@ public class MsiEcTelemetryReaderTests
         Assert.True(MsiEcTelemetryReader.TryDecodeFan(new byte[] { 0x00, 0x6F, 0x00, 0x6F }, out var fan1, out var fan2));
         Assert.Equal(4324, fan1);
         Assert.Equal(4324, fan2);
-        Assert.Equal(4324, MsiEcTelemetryReader.SelectHudFanRpm(fan1, fan2));
     }
 
     [Fact]
@@ -62,7 +61,6 @@ public class MsiEcTelemetryReaderTests
         Assert.True(MsiEcTelemetryReader.TryDecodeFan(new byte[] { 0x00, 0x70, 0x00, 0x72 }, out var fan1, out var fan2));
         Assert.Equal(4285, fan1);
         Assert.Equal(4210, fan2);
-        Assert.Equal(4247, MsiEcTelemetryReader.SelectHudFanRpm(fan1, fan2));
     }
 
     [Theory]
@@ -72,30 +70,6 @@ public class MsiEcTelemetryReaderTests
     public void TryDecodeFan_ShortPayloadIsUnavailable(int length)
     {
         Assert.False(MsiEcTelemetryReader.TryDecodeFan(new byte[length], out _, out _));
-    }
-
-    [Fact]
-    public void SelectHudFanRpm_BothAvailableUsesMean()
-    {
-        Assert.Equal(4247, MsiEcTelemetryReader.SelectHudFanRpm(4285, 4210));
-    }
-
-    [Fact]
-    public void SelectHudFanRpm_OnlyFan1()
-    {
-        Assert.Equal(4285, MsiEcTelemetryReader.SelectHudFanRpm(4285, null));
-    }
-
-    [Fact]
-    public void SelectHudFanRpm_OnlyFan2()
-    {
-        Assert.Equal(4210, MsiEcTelemetryReader.SelectHudFanRpm(null, 4210));
-    }
-
-    [Fact]
-    public void SelectHudFanRpm_NeitherIsUnavailable()
-    {
-        Assert.Null(MsiEcTelemetryReader.SelectHudFanRpm(null, null));
     }
 
     // ---- CPU package power (Get_Data(221), payload[0]) ----------------------
@@ -142,7 +116,6 @@ public class MsiEcTelemetryReaderTests
         Assert.Equal(44, snapshot.CpuTempC);
         Assert.Null(snapshot.Fan1Rpm);
         Assert.Null(snapshot.Fan2Rpm);
-        Assert.Null(snapshot.HudFanRpm);
         Assert.Equal(21, snapshot.CpuPackagePowerW);
     }
 
@@ -176,7 +149,6 @@ public class MsiEcTelemetryReaderTests
         Assert.Equal(52, snapshot.CpuTempC);
         Assert.Equal(4324, snapshot.Fan1Rpm);
         Assert.Equal(4363, snapshot.Fan2Rpm);
-        Assert.Equal(4343, snapshot.HudFanRpm);
         Assert.Equal(24, snapshot.CpuPackagePowerW);
     }
 

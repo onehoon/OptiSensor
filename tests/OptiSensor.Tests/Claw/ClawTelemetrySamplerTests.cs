@@ -10,7 +10,7 @@ public class ClawTelemetrySamplerTests
     {
         var usage = new WindowsUsageSnapshot(CpuUsagePercent: 36, SystemMemoryUsedBytes: 100, IntelGpuMemoryUsedBytes: 200);
         var power = new WindowsPowerSnapshot(BatteryPercent: 72, RemainingMinutes: 150, OnBattery: true);
-        var ec = new MsiEcTelemetrySnapshot(CpuTempC: 67, Fan1Rpm: 3000, Fan2Rpm: 4000, HudFanRpm: 3540, CpuPackagePowerW: 18);
+        var ec = new MsiEcTelemetrySnapshot(CpuTempC: 67, Fan1Rpm: 3000, Fan2Rpm: 4000, CpuPackagePowerW: 18);
         var gpu = new IgclGpuTelemetrySnapshot(GpuUsagePercent: 98, GpuClockMHz: 2300);
 
         var snapshot = ClawTelemetrySampler.Compose(usage, power, ec, gpu);
@@ -22,7 +22,7 @@ public class ClawTelemetrySamplerTests
         Assert.Equal(2300, snapshot.GpuClockMHz);
         Assert.Equal(100ul, snapshot.SystemMemoryUsedBytes);
         Assert.Equal(200ul, snapshot.GpuMemoryUsedBytes);
-        Assert.Equal(3540, snapshot.FanRpm); // EC's already-selected HUD fan, not Fan1/Fan2
+        Assert.Equal(3500, snapshot.FanRpm); // derived once from Fan1/Fan2 mean at composition
         Assert.Equal(72, snapshot.BatteryPercent);
         Assert.Equal(true, snapshot.OnBattery);
         Assert.Equal(150, snapshot.RemainingMinutes);
@@ -31,7 +31,7 @@ public class ClawTelemetrySamplerTests
     [Fact]
     public void Compose_UnavailableSourceOnlyRemovesItsOwnFields()
     {
-        var ec = new MsiEcTelemetrySnapshot(CpuTempC: 67, Fan1Rpm: null, Fan2Rpm: null, HudFanRpm: 3540, CpuPackagePowerW: 18);
+        var ec = new MsiEcTelemetrySnapshot(CpuTempC: 67, Fan1Rpm: 3520, Fan2Rpm: 3560, CpuPackagePowerW: 18);
 
         // IGCL + Windows usage + Windows power all unavailable this sample.
         var snapshot = ClawTelemetrySampler.Compose(usage: null, power: null, ec: ec, gpu: null);
@@ -48,7 +48,7 @@ public class ClawTelemetrySamplerTests
         // EC fields survive.
         Assert.Equal(67, snapshot.CpuTemperatureC);
         Assert.Equal(18, snapshot.CpuPackagePowerW);
-        Assert.Equal(3540, snapshot.FanRpm);
+        Assert.Equal(3540, snapshot.FanRpm); // (3520 + 3560) / 2
     }
 
     // ---- retention: not due = keep; due + transient miss = keep; due + value = replace ----
@@ -72,7 +72,7 @@ public class ClawTelemetrySamplerTests
         using var sampler = new ClawTelemetrySampler();
 
         var usage = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(50, 100, 200), null);
-        sampler.MergeEc(new MsiEcTelemetrySnapshot(67, 3000, 3100, 9999, 18));
+        sampler.MergeEc(new MsiEcTelemetrySnapshot(67, 3000, 3100, 18));
         sampler.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300));
 
         // A due Core read where every reader missed / returned null this cycle.
@@ -85,14 +85,14 @@ public class ClawTelemetrySamplerTests
         Assert.Equal(100ul, snapshot.SystemMemoryUsedBytes);
         Assert.Equal(67, snapshot.CpuTemperatureC);
         Assert.Equal(18, snapshot.CpuPackagePowerW);
-        Assert.Equal(3050, snapshot.FanRpm); // recomputed mean of retained Fan1/Fan2, not the 9999 the reader passed
+        Assert.Equal(3050, snapshot.FanRpm); // derived mean of retained Fan1/Fan2
         Assert.Equal(98, snapshot.GpuUsagePercent);
         Assert.Equal(2300, snapshot.GpuClockMHz);
 
         // A later valid read updates each metric; a genuine 0 W replaces.
-        ec = sampler.MergeEc(new MsiEcTelemetrySnapshot(70, null, null, null, 0));
+        ec = sampler.MergeEc(new MsiEcTelemetrySnapshot(70, null, null, 0));
         Assert.Equal(70, ec.CpuTempC);
-        Assert.Equal(3050, ec.HudFanRpm);        // still kept (this read had no fan value)
+        Assert.Equal(3050, ClawTelemetrySampler.ComposeFanRpm(ec.Fan1Rpm, ec.Fan2Rpm)); // fans still retained (this read had none)
         Assert.Equal(0, ec.CpuPackagePowerW);    // genuine 0 W replaces
     }
 
@@ -126,34 +126,48 @@ public class ClawTelemetrySamplerTests
     {
         using var s = new ClawTelemetrySampler();
 
-        Assert.Equal(67, s.MergeEc(new MsiEcTelemetrySnapshot(67, null, null, null, null)).CpuTempC);
+        Assert.Equal(67, s.MergeEc(new MsiEcTelemetrySnapshot(67, null, null, null)).CpuTempC);
         Assert.Equal(67, s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuTempC); // miss 1
         Assert.Equal(67, s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuTempC); // miss 2
         Assert.Null(s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuTempC);      // miss 3 -> clear
-        Assert.Equal(68, s.MergeEc(new MsiEcTelemetrySnapshot(68, null, null, null, null)).CpuTempC);
+        Assert.Equal(68, s.MergeEc(new MsiEcTelemetrySnapshot(68, null, null, null)).CpuTempC);
     }
 
     [Fact]
-    public void MergeEc_FanFieldsRetainIndependentlyAndHudFanIsRecomputed()
+    public void MergeEc_FanFieldsRetainIndependentlyAndFinalFanRpmIsDerivedAtComposition()
     {
         using var s = new ClawTelemetrySampler();
 
-        var r1 = s.MergeEc(new MsiEcTelemetrySnapshot(null, 3200, 3500, 9999, null));
+        static int? FinalFan(MsiEcTelemetrySnapshot ec) =>
+            ClawTelemetrySampler.ComposeFanRpm(ec.Fan1Rpm, ec.Fan2Rpm);
+
+        var r1 = s.MergeEc(new MsiEcTelemetrySnapshot(null, 3200, 3500, null));
         Assert.Equal(3200, r1.Fan1Rpm);
         Assert.Equal(3500, r1.Fan2Rpm);
-        Assert.Equal(3350, r1.HudFanRpm); // mean of the current pair, not the reader's 9999
+        Assert.Equal(3350, FinalFan(r1)); // mean of the current pair
 
         // Fan1 misses, Fan2 has a fresh value.
-        var r2 = s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, 9999, null));
+        var r2 = s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, null));
         Assert.Equal(3200, r2.Fan1Rpm); // retained
         Assert.Equal(3600, r2.Fan2Rpm);
-        Assert.Equal(3400, r2.HudFanRpm); // (retained 3200 + fresh 3600) / 2
+        Assert.Equal(3400, FinalFan(r2)); // (retained 3200 + fresh 3600) / 2
 
-        s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, 9999, null)); // Fan1 miss 2
-        var r4 = s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, 9999, null)); // Fan1 miss 3 -> clear
+        s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, null)); // Fan1 miss 2
+        var r4 = s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, null)); // Fan1 miss 3 -> clear
         Assert.Null(r4.Fan1Rpm);
         Assert.Equal(3600, r4.Fan2Rpm);
-        Assert.Equal(3600, r4.HudFanRpm); // Fan2 only
+        Assert.Equal(3600, FinalFan(r4)); // Fan2 only
+    }
+
+    [Theory]
+    [InlineData(3200, 3600, 3400)] // both fans -> integer mean
+    [InlineData(3200, null, 3200)] // Fan1 only
+    [InlineData(null, 3600, 3600)] // Fan2 only
+    [InlineData(null, null, null)] // neither
+    [InlineData(0, 0, 0)]          // genuine stopped-fan zero
+    public void ComposeFanRpm_SingleFanPresentationPolicy(int? fan1, int? fan2, int? expected)
+    {
+        Assert.Equal(expected, ClawTelemetrySampler.ComposeFanRpm(fan1, fan2));
     }
 
     [Fact]
@@ -161,8 +175,8 @@ public class ClawTelemetrySamplerTests
     {
         using var s = new ClawTelemetrySampler();
 
-        s.MergeEc(new MsiEcTelemetrySnapshot(null, null, null, null, 22));
-        Assert.Equal(0, s.MergeEc(new MsiEcTelemetrySnapshot(null, null, null, null, 0)).CpuPackagePowerW); // genuine 0 W
+        s.MergeEc(new MsiEcTelemetrySnapshot(null, null, null, 22));
+        Assert.Equal(0, s.MergeEc(new MsiEcTelemetrySnapshot(null, null, null, 0)).CpuPackagePowerW); // genuine 0 W
         Assert.Equal(0, s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuPackagePowerW); // retained through the miss
     }
 
