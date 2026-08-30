@@ -69,29 +69,137 @@ public class ClawTelemetrySamplerTests
     [Fact]
     public void CoreTransientUnavailable_KeepsLastSuccessfulMetrics()
     {
+        using var sampler = new ClawTelemetrySampler();
+
         var usage = ClawTelemetrySampler.MergeUsage(new WindowsUsageSnapshot(50, 100, 200), null);
-        var ec = ClawTelemetrySampler.MergeEc(new MsiEcTelemetrySnapshot(67, 3000, 3100, 3050, 18), MsiEcTelemetrySnapshot.Empty);
-        var gpu = ClawTelemetrySampler.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300), null);
+        sampler.MergeEc(new MsiEcTelemetrySnapshot(67, 3000, 3100, 9999, 18));
+        sampler.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300));
 
         // A due Core read where every reader missed / returned null this cycle.
         usage = ClawTelemetrySampler.MergeUsage(null, usage);
-        ec = ClawTelemetrySampler.MergeEc(MsiEcTelemetrySnapshot.Empty, ec);
-        gpu = ClawTelemetrySampler.MergeGpu(null, gpu);
+        var ec = sampler.MergeEc(MsiEcTelemetrySnapshot.Empty);
+        var gpu = sampler.MergeGpu(null);
 
         var snapshot = ClawTelemetrySampler.Compose(usage, power: null, ec: ec, gpu: gpu);
         Assert.Equal(50, snapshot.CpuUsagePercent);
         Assert.Equal(100ul, snapshot.SystemMemoryUsedBytes);
         Assert.Equal(67, snapshot.CpuTemperatureC);
         Assert.Equal(18, snapshot.CpuPackagePowerW);
-        Assert.Equal(3050, snapshot.FanRpm);
+        Assert.Equal(3050, snapshot.FanRpm); // recomputed mean of retained Fan1/Fan2, not the 9999 the reader passed
         Assert.Equal(98, snapshot.GpuUsagePercent);
         Assert.Equal(2300, snapshot.GpuClockMHz);
 
         // A later valid read updates each metric; a genuine 0 W replaces.
-        ec = ClawTelemetrySampler.MergeEc(new MsiEcTelemetrySnapshot(70, null, null, null, 0), ec);
+        ec = sampler.MergeEc(new MsiEcTelemetrySnapshot(70, null, null, null, 0));
         Assert.Equal(70, ec.CpuTempC);
         Assert.Equal(3050, ec.HudFanRpm);        // still kept (this read had no fan value)
         Assert.Equal(0, ec.CpuPackagePowerW);    // genuine 0 W replaces
+    }
+
+    // ---- bounded per-field retention: UpdateRetainedField ----------------
+
+    [Fact]
+    public void UpdateRetainedField_RetainsThroughTwoMissesThenClearsThenRecoversImmediately()
+    {
+        var misses = 0;
+        Assert.Equal(67, ClawTelemetrySampler.UpdateRetainedField<int>(null, 67, ref misses, 3));
+        Assert.Equal(67, ClawTelemetrySampler.UpdateRetainedField<int>(67, null, ref misses, 3)); // miss 1
+        Assert.Equal(67, ClawTelemetrySampler.UpdateRetainedField<int>(67, null, ref misses, 3)); // miss 2
+        Assert.Null(ClawTelemetrySampler.UpdateRetainedField<int>(67, null, ref misses, 3));      // miss 3 -> clear
+        Assert.Equal(0, misses);
+        Assert.Equal(68, ClawTelemetrySampler.UpdateRetainedField<int>(null, 68, ref misses, 3)); // immediate recovery
+        Assert.Equal(0, misses);
+    }
+
+    [Fact]
+    public void UpdateRetainedField_GenuineZeroIsAValueAndResetsTheMissStreak()
+    {
+        var misses = 2;
+        Assert.Equal(0, ClawTelemetrySampler.UpdateRetainedField<int>(22, 0, ref misses, 3));
+        Assert.Equal(0, misses);
+    }
+
+    // ---- EC bounded retention through the sampler -----------------------
+
+    [Fact]
+    public void MergeEc_CpuTempRetainsThroughTwoMissesThenClearsThenRecovers()
+    {
+        using var s = new ClawTelemetrySampler();
+
+        Assert.Equal(67, s.MergeEc(new MsiEcTelemetrySnapshot(67, null, null, null, null)).CpuTempC);
+        Assert.Equal(67, s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuTempC); // miss 1
+        Assert.Equal(67, s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuTempC); // miss 2
+        Assert.Null(s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuTempC);      // miss 3 -> clear
+        Assert.Equal(68, s.MergeEc(new MsiEcTelemetrySnapshot(68, null, null, null, null)).CpuTempC);
+    }
+
+    [Fact]
+    public void MergeEc_FanFieldsRetainIndependentlyAndHudFanIsRecomputed()
+    {
+        using var s = new ClawTelemetrySampler();
+
+        var r1 = s.MergeEc(new MsiEcTelemetrySnapshot(null, 3200, 3500, 9999, null));
+        Assert.Equal(3200, r1.Fan1Rpm);
+        Assert.Equal(3500, r1.Fan2Rpm);
+        Assert.Equal(3350, r1.HudFanRpm); // mean of the current pair, not the reader's 9999
+
+        // Fan1 misses, Fan2 has a fresh value.
+        var r2 = s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, 9999, null));
+        Assert.Equal(3200, r2.Fan1Rpm); // retained
+        Assert.Equal(3600, r2.Fan2Rpm);
+        Assert.Equal(3400, r2.HudFanRpm); // (retained 3200 + fresh 3600) / 2
+
+        s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, 9999, null)); // Fan1 miss 2
+        var r4 = s.MergeEc(new MsiEcTelemetrySnapshot(null, null, 3600, 9999, null)); // Fan1 miss 3 -> clear
+        Assert.Null(r4.Fan1Rpm);
+        Assert.Equal(3600, r4.Fan2Rpm);
+        Assert.Equal(3600, r4.HudFanRpm); // Fan2 only
+    }
+
+    [Fact]
+    public void MergeEc_ZeroTdpIsValidAndRetainedThroughAMiss()
+    {
+        using var s = new ClawTelemetrySampler();
+
+        s.MergeEc(new MsiEcTelemetrySnapshot(null, null, null, null, 22));
+        Assert.Equal(0, s.MergeEc(new MsiEcTelemetrySnapshot(null, null, null, null, 0)).CpuPackagePowerW); // genuine 0 W
+        Assert.Equal(0, s.MergeEc(MsiEcTelemetrySnapshot.Empty).CpuPackagePowerW); // retained through the miss
+    }
+
+    // ---- IGCL bounded retention through the sampler --------------------
+
+    [Fact]
+    public void MergeGpu_UsageAndClockRetainIndependently()
+    {
+        using var s = new ClawTelemetrySampler();
+
+        var g1 = s.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300));
+        Assert.Equal(98, g1!.GpuUsagePercent);
+        Assert.Equal(2300, g1.GpuClockMHz);
+
+        // Usage misses, clock is fresh.
+        var g2 = s.MergeGpu(new IgclGpuTelemetrySnapshot(null, 2250));
+        Assert.Equal(98, g2!.GpuUsagePercent);
+        Assert.Equal(2250, g2.GpuClockMHz);
+
+        s.MergeGpu(new IgclGpuTelemetrySnapshot(null, 2250)); // usage miss 2
+        var g4 = s.MergeGpu(new IgclGpuTelemetrySnapshot(null, 2250)); // usage miss 3 -> clear
+        Assert.Null(g4!.GpuUsagePercent);
+        Assert.Equal(2250, g4.GpuClockMHz); // clock unaffected
+
+        var g5 = s.MergeGpu(new IgclGpuTelemetrySnapshot(70, 2250));
+        Assert.Equal(70, g5!.GpuUsagePercent); // immediate recovery
+    }
+
+    [Fact]
+    public void MergeGpu_NullSampleCountsAsAMissForBothFields()
+    {
+        using var s = new ClawTelemetrySampler();
+
+        s.MergeGpu(new IgclGpuTelemetrySnapshot(98, 2300));
+        Assert.Equal(98, s.MergeGpu(null)!.GpuUsagePercent);  // miss 1
+        Assert.Equal(98, s.MergeGpu(null)!.GpuUsagePercent);  // miss 2
+        Assert.Null(s.MergeGpu(null));                        // miss 3 -> both cleared -> whole snapshot null
     }
 
     [Fact]

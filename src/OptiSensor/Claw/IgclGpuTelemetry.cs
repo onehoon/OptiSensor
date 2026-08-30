@@ -20,6 +20,10 @@ internal sealed class IgclGpuTelemetryReader : IDisposable
     private const byte TelemetryVersion = 1;
     private const uint LoadLibrarySearchSystem32 = 0x00000800;
 
+    // Consecutive ctlPowerTelemetryGetV2 failures before the provider is torn down so the normal
+    // ClawTelemetrySampler.SampleCore() !Initialized -> Initialize() path can rebuild it.
+    private const int ProviderFailureThreshold = 3;
+
     private nint _library;
     private nint _api;
     private nint _device;
@@ -27,6 +31,7 @@ internal sealed class IgclGpuTelemetryReader : IDisposable
     private TelemetryFn? _telemetry;
     private readonly IgclGpuUsageTracker _usage = new();
     private bool _initializationAttempted;
+    private int _providerFailures;
 
     public bool InitializationAttempted => _initializationAttempted;
     public bool Initialized => _library != nint.Zero;
@@ -92,8 +97,16 @@ internal sealed class IgclGpuTelemetryReader : IDisposable
         if (_telemetry(_device, ref telemetry) != CtlSuccess)
         {
             _usage.Reset();
+
+            // A provider that initialized but now keeps failing would otherwise stay Initialized
+            // forever. After a bounded streak, tear it down; the next SampleCore() re-initializes.
+            if (ShouldResetProvider(++_providerFailures, ProviderFailureThreshold))
+                Reset();
+
             return null;
         }
+
+        _providerFailures = 0;
 
         var clock = DecodeItem(telemetry.GpuCurrentClockFrequency);
         var gpuClockMHz = clock is { } c && c >= 0.0 ? clock : null;
@@ -131,7 +144,13 @@ internal sealed class IgclGpuTelemetryReader : IDisposable
         _library = nint.Zero;
 
         _initializationAttempted = false;
+        _providerFailures = 0;
     }
+
+    /// <summary>Tear the provider down once the consecutive provider-call failure streak reaches
+    /// <paramref name="threshold"/>; a threshold of 0 disables the behavior.</summary>
+    internal static bool ShouldResetProvider(int consecutiveFailures, int threshold) =>
+        threshold != 0 && consecutiveFailures >= threshold;
 
     private T? GetExport<T>(string name) where T : Delegate
     {
