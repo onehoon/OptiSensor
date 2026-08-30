@@ -126,4 +126,31 @@ public class IgclGpuTelemetryTests
     {
         Assert.Null(IgclGpuTelemetryReader.DecodeItem(new IgclGpuTelemetryReader.IgclItem { Supported = 1, Type = 99, U64 = 5 }));
     }
+
+    // ---- provider reset policy ----------------------------------------
+
+    [Theory]
+    [InlineData(1, 3, false)] // transient failure
+    [InlineData(2, 3, false)]
+    [InlineData(3, 3, true)]  // third consecutive provider failure -> reset
+    [InlineData(4, 3, true)]
+    [InlineData(3, 0, false)] // disabled
+    public void ShouldResetProvider_OnlyAtOrAboveThreshold(int consecutiveFailures, int threshold, bool expected)
+    {
+        Assert.Equal(expected, IgclGpuTelemetryReader.ShouldResetProvider(consecutiveFailures, threshold));
+    }
+
+    [Fact]
+    public void Sample_OnUninitializedReaderStaysNullWithoutTouchingLifecycle()
+    {
+        // No ControlLib.dll / Arc device on the CI host: the reader never initializes, so Sample()
+        // early-returns before the provider-failure path. Repeated calls must stay a quiet null.
+        using var reader = new IgclGpuTelemetryReader();
+
+        Assert.False(reader.Initialized);
+        Assert.Null(reader.Sample());
+        Assert.Null(reader.Sample());
+        Assert.Null(reader.Sample());
+        Assert.False(reader.Initialized);
+    }
 }

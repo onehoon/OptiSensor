@@ -8,7 +8,11 @@ namespace OptiSensor.Claw;
 /// <list type="bullet">
 ///   <item>not due -> retained values unchanged (the read simply does not run);</item>
 ///   <item>due, metric read produced a value -> that metric is replaced;</item>
-///   <item>due, metric transiently unavailable -> the last successful value for that metric is kept;</item>
+///   <item>due, metric transiently unavailable -> the last successful value for that metric is
+///   kept, but only through a bounded number of consecutive misses (EC / IGCL fields clear after
+///   3) so a stale value never lingers indefinitely;</item>
+///   <item>an IGCL provider that keeps failing is Reset() after 3 consecutive provider-call
+///   failures, so the normal <see cref="SampleCore"/> re-init path can bring it back;</item>
 ///   <item>a successful battery read replaces the whole battery snapshot, because a null
 ///   <c>RemainingMinutes</c> is meaningful after an AC/DC change and must clear an old estimate;</item>
 ///   <item>a fresh publishing session starts empty.</item>
@@ -20,6 +24,10 @@ internal sealed class ClawTelemetrySampler : IDisposable
     private static readonly ClawTelemetrySnapshot EmptySnapshot =
         new(null, null, null, null, null, null, null, null, null, null, null);
 
+    // Consecutive missing samples an EC / IGCL field survives before its stale value is cleared.
+    private const int EcTelemetryMissingThreshold = 3;
+    private const int IgclTelemetryMissingThreshold = 3;
+
     private readonly WindowsUsageTelemetryReader _windowsUsage = new();
     private readonly MsiEcTelemetryReader _msiEc = new();
     private readonly IgclGpuTelemetryReader _igclGpu = new();
@@ -29,6 +37,14 @@ internal sealed class ClawTelemetrySampler : IDisposable
     private MsiEcTelemetrySnapshot _ec = MsiEcTelemetrySnapshot.Empty;
     private IgclGpuTelemetrySnapshot? _gpu;
     private ClawTelemetrySnapshot _latest = EmptySnapshot;
+
+    // Independent consecutive-miss counters for the bounded-retention EC / IGCL fields.
+    private int _ecCpuTempMisses;
+    private int _ecFan1Misses;
+    private int _ecFan2Misses;
+    private int _ecTdpMisses;
+    private int _gpuUsageMisses;
+    private int _gpuClockMisses;
 
     /// <summary>
     /// The most recently composed snapshot, holding each source's last sampled value. Safe to
@@ -63,8 +79,8 @@ internal sealed class ClawTelemetrySampler : IDisposable
             _igclGpu.Initialize();
 
         _usage = MergeUsage(_windowsUsage.Sample(), _usage);
-        _ec = MergeEc(_msiEc.ReadSnapshot(), _ec);
-        _gpu = MergeGpu(_igclGpu.Sample(), _gpu);
+        MergeEc(_msiEc.ReadSnapshot());
+        MergeGpu(_igclGpu.Sample());
         Recompose();
     }
 
@@ -95,24 +111,65 @@ internal sealed class ClawTelemetrySampler : IDisposable
             IntelGpuMemoryUsedBytes: incoming.IntelGpuMemoryUsedBytes ?? retained?.IntelGpuMemoryUsedBytes);
     }
 
-    internal static MsiEcTelemetrySnapshot MergeEc(MsiEcTelemetrySnapshot incoming, MsiEcTelemetrySnapshot retained)
+    /// <summary>
+    /// Bounded per-field EC retention. Each source field (CPU temp, Fan 1, Fan 2, TDP) survives up
+    /// to <see cref="EcTelemetryMissingThreshold"/> - 1 consecutive misses and is then cleared; a
+    /// fresh value recovers it immediately. <c>HudFanRpm</c> is never retained on its own - it is
+    /// recomputed from the retained/updated Fan 1 + Fan 2 pair, which stay the single source of
+    /// truth. A genuine numeric 0 (stopped fan, 0 W) is a value, not a miss.
+    /// </summary>
+    internal MsiEcTelemetrySnapshot MergeEc(MsiEcTelemetrySnapshot incoming)
     {
-        return new MsiEcTelemetrySnapshot(
-            CpuTempC: incoming.CpuTempC ?? retained.CpuTempC,
-            Fan1Rpm: incoming.Fan1Rpm ?? retained.Fan1Rpm,
-            Fan2Rpm: incoming.Fan2Rpm ?? retained.Fan2Rpm,
-            HudFanRpm: incoming.HudFanRpm ?? retained.HudFanRpm,
-            CpuPackagePowerW: incoming.CpuPackagePowerW ?? retained.CpuPackagePowerW);
+        var cpuTempC = UpdateRetainedField(_ec.CpuTempC, incoming.CpuTempC, ref _ecCpuTempMisses, EcTelemetryMissingThreshold);
+        var fan1Rpm = UpdateRetainedField(_ec.Fan1Rpm, incoming.Fan1Rpm, ref _ecFan1Misses, EcTelemetryMissingThreshold);
+        var fan2Rpm = UpdateRetainedField(_ec.Fan2Rpm, incoming.Fan2Rpm, ref _ecFan2Misses, EcTelemetryMissingThreshold);
+        var cpuPackagePowerW = UpdateRetainedField(_ec.CpuPackagePowerW, incoming.CpuPackagePowerW, ref _ecTdpMisses, EcTelemetryMissingThreshold);
+
+        _ec = new MsiEcTelemetrySnapshot(
+            CpuTempC: cpuTempC,
+            Fan1Rpm: fan1Rpm,
+            Fan2Rpm: fan2Rpm,
+            HudFanRpm: MsiEcTelemetryReader.SelectHudFanRpm(fan1Rpm, fan2Rpm),
+            CpuPackagePowerW: cpuPackagePowerW);
+        return _ec;
     }
 
-    internal static IgclGpuTelemetrySnapshot? MergeGpu(IgclGpuTelemetrySnapshot? incoming, IgclGpuTelemetrySnapshot? retained)
+    /// <summary>Bounded per-field IGCL retention for GPU usage and GPU clock, independently.</summary>
+    internal IgclGpuTelemetrySnapshot? MergeGpu(IgclGpuTelemetrySnapshot? incoming)
     {
-        if (incoming is null)
+        var gpuUsagePercent = UpdateRetainedField(_gpu?.GpuUsagePercent, incoming?.GpuUsagePercent, ref _gpuUsageMisses, IgclTelemetryMissingThreshold);
+        var gpuClockMHz = UpdateRetainedField(_gpu?.GpuClockMHz, incoming?.GpuClockMHz, ref _gpuClockMisses, IgclTelemetryMissingThreshold);
+
+        _gpu = gpuUsagePercent is null && gpuClockMHz is null
+            ? null
+            : new IgclGpuTelemetrySnapshot(gpuUsagePercent, gpuClockMHz);
+        return _gpu;
+    }
+
+    /// <summary>
+    /// One field of bounded last-successful-value retention. A fresh <paramref name="incoming"/>
+    /// value replaces <paramref name="retained"/> and clears the miss streak. A miss keeps the
+    /// retained value until <paramref name="missingCount"/> reaches <paramref name="threshold"/>,
+    /// then the field is cleared and the streak reset. Once cleared, further misses do nothing.
+    /// A genuine numeric 0 is a value.
+    /// </summary>
+    internal static T? UpdateRetainedField<T>(T? retained, T? incoming, ref int missingCount, int threshold)
+        where T : struct
+    {
+        if (incoming is { } value)
+        {
+            missingCount = 0;
+            return value;
+        }
+
+        if (retained is null)
+            return null;
+
+        if (++missingCount < threshold)
             return retained;
 
-        return new IgclGpuTelemetrySnapshot(
-            GpuUsagePercent: incoming.GpuUsagePercent ?? retained?.GpuUsagePercent,
-            GpuClockMHz: incoming.GpuClockMHz ?? retained?.GpuClockMHz);
+        missingCount = 0;
+        return null;
     }
 
     private void Recompose() =>
