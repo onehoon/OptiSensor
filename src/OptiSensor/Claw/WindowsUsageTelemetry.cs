@@ -23,6 +23,14 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
     private const string SharedUsageWildcard = @"\GPU Adapter Memory(*)\Shared Usage";
     private const int MaxIntelMemoryRebindAttempts = 3;
 
+    // After the bounded rebind budget is spent, re-arm it once every this many Core samples so a
+    // VRAM path that was down at startup can still come back later (driver/device lifecycle).
+    private const int IntelMemoryRebindCooldownSamples = 30;
+
+    // Consecutive unavailable VRAM reads while both categories are bound before the counters are
+    // torn down and rebuilt (they may have gone stale after a device transition).
+    private const int IntelMemoryFailureThreshold = 3;
+
     private const uint PdhFmtDouble = 0x00000200;
     private const uint PdhFmtLarge = 0x00000400;
     private const uint ErrorSuccess = 0;
@@ -39,6 +47,8 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
     private readonly List<nint> _intelDedicatedMemoryCounters = [];
     private readonly List<nint> _intelSharedMemoryCounters = [];
     private int _intelMemoryRebindAttempts;
+    private int _intelMemoryConsecutiveFailures;
+    private int _intelMemoryRebindCooldownSamples;
 
     /// <summary>Whether the PDH query and CPU counter are open. Once true it stays true until disposed.</summary>
     public bool Initialized => _query != nint.Zero && _cpuCounter != nint.Zero;
@@ -86,10 +96,9 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
         if (_query == nint.Zero || PdhCollectQueryData(_query) != ErrorSuccess)
             return null;
 
-        if (ShouldRetryIntelGpuMemoryCounters(
+        if (NeedsIntelGpuMemoryBinding(
                 _intelDedicatedMemoryCounters.Count == 0,
-                _intelSharedMemoryCounters.Count == 0,
-                _intelMemoryRebindAttempts))
+                _intelSharedMemoryCounters.Count == 0))
         {
             TryBindIntelGpuMemoryCounters();
         }
@@ -100,12 +109,42 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
             return new WindowsUsageSnapshot(null, null, null);
         }
 
-        return new WindowsUsageSnapshot(
-            ReadCpuUsagePercent(),
-            ReadUsedPhysicalMemoryBytes(),
-            CombineGpuMemoryBytes(
-                ReadByteCounters(_intelDedicatedMemoryCounters),
-                ReadByteCounters(_intelSharedMemoryCounters)));
+        // CPU and RAM are host-backed and independent of the Intel VRAM path - a VRAM failure must
+        // never turn an otherwise valid sample into a failed one.
+        var cpu = ReadCpuUsagePercent();
+        var systemMemory = ReadUsedPhysicalMemoryBytes();
+        var intelGpuMemory = CombineGpuMemoryBytes(
+            ReadByteCounters(_intelDedicatedMemoryCounters),
+            ReadByteCounters(_intelSharedMemoryCounters));
+
+        RecoverIntelGpuMemoryCountersIfStale(intelGpuMemory is not null);
+
+        return new WindowsUsageSnapshot(cpu, systemMemory, intelGpuMemory);
+    }
+
+    /// <summary>
+    /// A valid VRAM read clears the failure streak. If both categories are bound but keep reading
+    /// unavailable, release the counters after <see cref="IntelMemoryFailureThreshold"/> misses and
+    /// reset the rebind state so the next <see cref="Sample"/> rebuilds them from scratch.
+    /// </summary>
+    private void RecoverIntelGpuMemoryCountersIfStale(bool vramValid)
+    {
+        if (vramValid)
+        {
+            _intelMemoryConsecutiveFailures = 0;
+            return;
+        }
+
+        if (_intelDedicatedMemoryCounters.Count == 0 || _intelSharedMemoryCounters.Count == 0)
+            return;
+
+        if (!ShouldReleaseIntelGpuMemoryCounters(++_intelMemoryConsecutiveFailures, IntelMemoryFailureThreshold))
+            return;
+
+        ReleaseIntelGpuMemoryCounters();
+        _intelMemoryConsecutiveFailures = 0;
+        _intelMemoryRebindAttempts = 0;
+        _intelMemoryRebindCooldownSamples = 0;
     }
 
     public void Dispose() => Reset();
@@ -139,18 +178,48 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
     {
         var dedicatedEmpty = _intelDedicatedMemoryCounters.Count == 0;
         var sharedEmpty = _intelSharedMemoryCounters.Count == 0;
+        if (!dedicatedEmpty && !sharedEmpty)
+            return true;
+
+        // Bounded budget spent: don't rebind every sample. Count cooldown samples and re-arm the
+        // retry budget once, so a transient startup failure isn't permanent for the process.
+        if (_intelMemoryRebindAttempts >= MaxIntelMemoryRebindAttempts)
+        {
+            _intelMemoryRebindCooldownSamples++;
+            if (!ShouldRearmIntelGpuMemoryCounters(
+                    _intelMemoryRebindAttempts, _intelMemoryRebindCooldownSamples,
+                    MaxIntelMemoryRebindAttempts, IntelMemoryRebindCooldownSamples))
+            {
+                return false;
+            }
+
+            _intelMemoryRebindAttempts = 0;
+            _intelMemoryRebindCooldownSamples = 0;
+        }
+
         if (!ShouldRetryIntelGpuMemoryCounters(dedicatedEmpty, sharedEmpty, _intelMemoryRebindAttempts))
-            return !dedicatedEmpty && !sharedEmpty;
+            return false;
 
         _intelMemoryRebindAttempts++;
+        ReleaseIntelGpuMemoryCounters();
+
+        var bound = AddIntelGpuMemoryCounters();
+        if (bound)
+            _intelMemoryRebindCooldownSamples = 0;
+
+        return bound;
+    }
+
+    /// <summary>Single teardown path for the Intel GPU-memory counters: remove every handle and
+    /// clear both lists so a rebind starts from a clean state.</summary>
+    private void ReleaseIntelGpuMemoryCounters()
+    {
         foreach (var counter in _intelDedicatedMemoryCounters)
             PdhRemoveCounter(counter);
         foreach (var counter in _intelSharedMemoryCounters)
             PdhRemoveCounter(counter);
         _intelDedicatedMemoryCounters.Clear();
         _intelSharedMemoryCounters.Clear();
-
-        return AddIntelGpuMemoryCounters();
     }
 
     private bool AddIntelGpuMemoryCounters()
@@ -158,8 +227,8 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
         if (FindIntelAdapterLuid() is not { } adapterLuid)
             return false;
 
-        var dedicatedPaths = ExpandCounterPaths(DedicatedUsageWildcard);
-        var sharedPaths = ExpandCounterPaths(SharedUsageWildcard);
+        var dedicatedPaths = ExpandLocalizedCounterPaths(DedicatedUsageWildcard);
+        var sharedPaths = ExpandLocalizedCounterPaths(SharedUsageWildcard);
         if (dedicatedPaths is null || sharedPaths is null)
             return false;
 
@@ -176,7 +245,9 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
             if (!IsIntelGpuMemoryCounterInstance(path, adapterLuid))
                 continue;
 
-            if (PdhAddEnglishCounterW(_query, path, nint.Zero, out var counter) == ErrorSuccess)
+            // The path is now a localized full path (see ExpandLocalizedCounterPaths), so it must be
+            // added with PdhAddCounterW, not the English-counter API.
+            if (PdhAddCounterW(_query, path, nint.Zero, out var counter) == ErrorSuccess)
                 target.Add(counter);
         }
     }
@@ -216,9 +287,25 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
         return (ulong)value.LargeValue;
     }
 
+    /// <summary>Either GPU-memory category still unbound.</summary>
+    internal static bool NeedsIntelGpuMemoryBinding(bool dedicatedEmpty, bool sharedEmpty) =>
+        dedicatedEmpty || sharedEmpty;
+
     /// <summary>ClawHUD retry gate: retry only while a category is incomplete, bounded to 3 attempts.</summary>
     internal static bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty, bool sharedEmpty, int attempts) =>
-        (dedicatedEmpty || sharedEmpty) && attempts < MaxIntelMemoryRebindAttempts;
+        NeedsIntelGpuMemoryBinding(dedicatedEmpty, sharedEmpty) && attempts < MaxIntelMemoryRebindAttempts;
+
+    /// <summary>Release already-bound counters once the consecutive read-failure streak reaches the
+    /// threshold; a threshold of 0 disables the behavior.</summary>
+    internal static bool ShouldReleaseIntelGpuMemoryCounters(int consecutiveFailures, int failureThreshold) =>
+        failureThreshold != 0 && consecutiveFailures >= failureThreshold;
+
+    /// <summary>Re-arm the rebind budget only after the retry attempts are exhausted and the cooldown
+    /// sample count has been reached.</summary>
+    internal static bool ShouldRearmIntelGpuMemoryCounters(
+        int attempts, int cooldownSamples, int maxAttempts, int cooldownThreshold) =>
+        maxAttempts != 0 && cooldownThreshold != 0 &&
+        attempts >= maxAttempts && cooldownSamples >= cooldownThreshold;
 
     /// <summary>Both categories required; overflow -&gt; unavailable; a genuine 0 + 0 -&gt; 0.</summary>
     internal static ulong? CombineGpuMemoryBytes(ulong? dedicated, ulong? shared)
@@ -305,8 +392,19 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
         _ => -1,
     };
 
-    private static List<string>? ExpandCounterPaths(string wildcardPath)
+    /// <summary>
+    /// Locale-safe wildcard expansion: the English wildcard is translated to the machine's localized
+    /// full path via a throwaway English counter (<see cref="LocalizeEnglishWildcardPath"/>), then
+    /// that localized path is expanded. Non-English Windows names the "GPU Adapter Memory" object
+    /// and its "Dedicated/Shared Usage" counters differently, so the raw English wildcard would
+    /// expand to nothing.
+    /// </summary>
+    private List<string>? ExpandLocalizedCounterPaths(string englishWildcardPath)
     {
+        var wildcardPath = LocalizeEnglishWildcardPath(englishWildcardPath);
+        if (wildcardPath is null)
+            return null;
+
         uint length = 0;
         if (PdhExpandWildCardPathW(null, wildcardPath, nint.Zero, ref length, 0) != PdhMoreData || length == 0)
             return null;
@@ -330,6 +428,49 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
         finally
         {
             Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Adds <paramref name="englishPath"/> as a throwaway English counter, reads back its localized
+    /// <c>szFullPath</c> via <c>PdhGetCounterInfoW</c>, and removes the temporary counter. Returns
+    /// <c>null</c> if any step fails. The temporary counter is always removed.
+    /// </summary>
+    private string? LocalizeEnglishWildcardPath(string englishPath)
+    {
+        if (PdhAddEnglishCounterW(_query, englishPath, nint.Zero, out var temporaryCounter) != ErrorSuccess)
+            return null;
+
+        try
+        {
+            uint size = 0;
+            if (PdhGetCounterInfoW(temporaryCounter, false, ref size, nint.Zero) != PdhMoreData ||
+                size < (uint)Marshal.SizeOf<PDH_COUNTER_INFO_HEADER>())
+            {
+                return null;
+            }
+
+            var buffer = Marshal.AllocHGlobal(checked((int)size));
+            try
+            {
+                if (PdhGetCounterInfoW(temporaryCounter, false, ref size, buffer) != ErrorSuccess)
+                    return null;
+
+                var header = Marshal.PtrToStructure<PDH_COUNTER_INFO_HEADER>(buffer);
+                var localized = header.szFullPath == nint.Zero
+                    ? null
+                    : Marshal.PtrToStringUni(header.szFullPath);
+
+                return string.IsNullOrEmpty(localized) ? null : localized;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        finally
+        {
+            PdhRemoveCounter(temporaryCounter);
         }
     }
 
@@ -388,6 +529,8 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
         _intelDedicatedMemoryCounters.Clear();
         _intelSharedMemoryCounters.Clear();
         _intelMemoryRebindAttempts = 0;
+        _intelMemoryConsecutiveFailures = 0;
+        _intelMemoryRebindCooldownSamples = 0;
     }
 
     private static bool IsValidCounter(uint cStatus) =>
@@ -431,6 +574,24 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
         [FieldOffset(0)] public uint CStatus;
         [FieldOffset(8)] public double DoubleValue;
         [FieldOffset(8)] public long LargeValue;
+    }
+
+    /// <summary>
+    /// Leading fields of <c>PDH_COUNTER_INFO</c> up to and including <c>szFullPath</c> - the only
+    /// member we read. <c>DWORD_PTR</c>/<c>LPWSTR</c> are pointer-sized (this build is x64 only).
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PDH_COUNTER_INFO_HEADER
+    {
+        public uint dwLength;
+        public uint dwType;
+        public uint CVersion;
+        public uint CStatus;
+        public int lScale;
+        public int lDefaultScale;
+        public nuint dwUserData;
+        public nuint dwQueryUserData;
+        public nint szFullPath;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -497,6 +658,12 @@ internal sealed class WindowsUsageTelemetryReader : IDisposable
 
     [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
     private static extern uint PdhAddEnglishCounterW(nint hQuery, string szFullCounterPath, nint dwUserData, out nint phCounter);
+
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
+    private static extern uint PdhAddCounterW(nint hQuery, string szFullCounterPath, nint dwUserData, out nint phCounter);
+
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
+    private static extern uint PdhGetCounterInfoW(nint hCounter, [MarshalAs(UnmanagedType.U1)] bool bRetrieveExplainText, ref uint pdwBufferSize, nint lpBuffer);
 
     [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
     private static extern uint PdhExpandWildCardPathW(string? szDataSource, string szWildCardPath, nint mszExpandedPathList, ref uint pcchPathListLength, uint dwFlags);
