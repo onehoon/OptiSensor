@@ -29,13 +29,17 @@ internal sealed class MsiEcWmiTransport : IMsiEcTransport
         return package;
     }
 
-    public bool TryRead(string method, int selector, out byte[] payload)
+    public MsiEcReadStatus Read(string method, int selector, out byte[] payload)
     {
         payload = [];
 
         ManagementObject managementObject;
         try { managementObject = new ManagementObject(Scope, Path, null); }
-        catch (Exception ex) when (IsExpectedWmiException(ex)) { return false; }
+        catch (Exception ex) when (IsExpectedWmiException(ex))
+        {
+            // The EC accessor itself cannot be created - not a per-metric problem.
+            return MsiEcReadStatus.TransportUnavailable;
+        }
 
         using (managementObject)
         {
@@ -60,25 +64,30 @@ internal sealed class MsiEcWmiTransport : IMsiEcTransport
                     input = managementObject.InvokeMethod("Get_WMI", null, null);
                     data = input?["Data"] as ManagementBaseObject;
                 }
-                catch (Exception ex) when (IsExpectedWmiException(ex)) { }
+                catch (Exception ex) when (IsExpectedWmiException(ex))
+                {
+                    // Primary template lookup already failed and the shared Get_WMI fallback
+                    // itself throws a WMI/COM/access error: the EC path is down, not this metric.
+                    return MsiEcReadStatus.TransportUnavailable;
+                }
             }
 
             using (input)
             using (data)
             {
                 if (input is null || data is null)
-                    return false;
+                    return MsiEcReadStatus.MetricUnavailable;
 
                 try
                 {
                     data["Bytes"] = BuildPackage(selector);
                     input["Data"] = data;
                 }
-                catch (Exception ex) when (IsExpectedWmiException(ex)) { return false; }
+                catch (Exception ex) when (IsExpectedWmiException(ex)) { return Classify(ex); }
 
                 ManagementBaseObject? output;
                 try { output = managementObject.InvokeMethod(method, input, null); }
-                catch (Exception ex) when (IsExpectedWmiException(ex)) { return false; }
+                catch (Exception ex) when (IsExpectedWmiException(ex)) { return Classify(ex); }
 
                 using (output)
                 {
@@ -89,13 +98,13 @@ internal sealed class MsiEcWmiTransport : IMsiEcTransport
                             bytes.Length < 1 ||
                             bytes[0] != 1)
                         {
-                            return false;
+                            return MsiEcReadStatus.MetricUnavailable;
                         }
 
                         payload = bytes[1..];
-                        return true;
+                        return MsiEcReadStatus.Success;
                     }
-                    catch (Exception ex) when (IsExpectedWmiException(ex)) { return false; }
+                    catch (Exception ex) when (IsExpectedWmiException(ex)) { return Classify(ex); }
                 }
             }
         }
@@ -103,4 +112,14 @@ internal sealed class MsiEcWmiTransport : IMsiEcTransport
 
     private static bool IsExpectedWmiException(Exception ex) =>
         ex is ManagementException or COMException or UnauthorizedAccessException;
+
+    /// <summary>
+    /// Conservative classification of an already-caught expected WMI failure that occurred after a
+    /// usable request template was obtained. Only a clearly global access denial is treated as a
+    /// shared-transport failure; anything else stays metric-local so later metrics are still tried.
+    /// </summary>
+    internal static MsiEcReadStatus Classify(Exception ex) =>
+        ex is UnauthorizedAccessException
+            ? MsiEcReadStatus.TransportUnavailable
+            : MsiEcReadStatus.MetricUnavailable;
 }

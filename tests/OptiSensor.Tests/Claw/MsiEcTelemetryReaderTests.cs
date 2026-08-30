@@ -105,9 +105,9 @@ public class MsiEcTelemetryReaderTests
         {
             Responses =
             {
-                [("Get_Temperature", 0)] = new byte[] { 0x2C },
-                // Get_Fan deliberately absent -> transport failure for that metric.
-                [("Get_Data", 221)] = new byte[] { 0x15 },
+                [("Get_Temperature", 0)] = FakeTransport.Ok(0x2C),
+                // Get_Fan deliberately absent -> metric-unavailable for that metric only.
+                [("Get_Data", 221)] = FakeTransport.Ok(0x15),
             }
         };
 
@@ -138,9 +138,9 @@ public class MsiEcTelemetryReaderTests
         {
             Responses =
             {
-                [("Get_Temperature", 0)] = new byte[] { 0x34, 0x00 },
-                [("Get_Fan", 0)] = new byte[] { 0x00, 0x6F, 0x00, 0x6E },
-                [("Get_Data", 221)] = new byte[] { 0x18 },
+                [("Get_Temperature", 0)] = FakeTransport.Ok(0x34, 0x00),
+                [("Get_Fan", 0)] = FakeTransport.Ok(0x00, 0x6F, 0x00, 0x6E),
+                [("Get_Data", 221)] = FakeTransport.Ok(0x18),
             }
         };
 
@@ -152,22 +152,110 @@ public class MsiEcTelemetryReaderTests
         Assert.Equal(24, snapshot.CpuPackagePowerW);
     }
 
+    // ---- shared WMI transport failure bounds the sample -------------------
+
+    [Fact]
+    public void ReadSnapshot_FirstReadTransportFailureStopsTheSample()
+    {
+        var transport = new FakeTransport
+        {
+            Responses = { [("Get_Temperature", 0)] = (MsiEcReadStatus.TransportUnavailable, []) },
+        };
+
+        var snapshot = new MsiEcTelemetryReader(transport).ReadSnapshot();
+
+        Assert.Equal(new[] { ("Get_Temperature", 0) }, transport.Calls);
+        Assert.Null(snapshot.CpuTempC);
+        Assert.Null(snapshot.Fan1Rpm);
+        Assert.Null(snapshot.Fan2Rpm);
+        Assert.Null(snapshot.CpuPackagePowerW);
+    }
+
+    [Fact]
+    public void ReadSnapshot_PartialTelemetrySurvivesLaterTransportFailure()
+    {
+        var transport = new FakeTransport
+        {
+            Responses =
+            {
+                [("Get_Temperature", 0)] = FakeTransport.Ok(0x43), // 67 C
+                [("Get_Fan", 0)] = (MsiEcReadStatus.TransportUnavailable, []),
+            }
+        };
+
+        var snapshot = new MsiEcTelemetryReader(transport).ReadSnapshot();
+
+        Assert.Equal(new[] { ("Get_Temperature", 0), ("Get_Fan", 0) }, transport.Calls); // Get_Data not reached
+        Assert.Equal(67, snapshot.CpuTempC);
+        Assert.Null(snapshot.Fan1Rpm);
+        Assert.Null(snapshot.Fan2Rpm);
+        Assert.Null(snapshot.CpuPackagePowerW);
+    }
+
+    [Fact]
+    public void ReadSnapshot_MetricFailureDoesNotAbortLaterReads()
+    {
+        var transport = new FakeTransport
+        {
+            Responses =
+            {
+                [("Get_Temperature", 0)] = (MsiEcReadStatus.MetricUnavailable, []),
+                [("Get_Fan", 0)] = FakeTransport.Ok(0x00, 0x6F, 0x00, 0x6E),
+                [("Get_Data", 221)] = FakeTransport.Ok(0x18),
+            }
+        };
+
+        var snapshot = new MsiEcTelemetryReader(transport).ReadSnapshot();
+
+        Assert.Equal(3, transport.Calls.Count);
+        Assert.Null(snapshot.CpuTempC);
+        Assert.Equal(4324, snapshot.Fan1Rpm);
+        Assert.Equal(4363, snapshot.Fan2Rpm);
+        Assert.Equal(24, snapshot.CpuPackagePowerW);
+    }
+
+    [Fact]
+    public void ReadSnapshot_FanMetricFailureStillAllowsTdp()
+    {
+        var transport = new FakeTransport
+        {
+            Responses =
+            {
+                [("Get_Temperature", 0)] = FakeTransport.Ok(0x34),
+                [("Get_Fan", 0)] = (MsiEcReadStatus.MetricUnavailable, []),
+                [("Get_Data", 221)] = FakeTransport.Ok(0x18),
+            }
+        };
+
+        var snapshot = new MsiEcTelemetryReader(transport).ReadSnapshot();
+
+        Assert.Equal(3, transport.Calls.Count);
+        Assert.Equal(52, snapshot.CpuTempC);
+        Assert.Null(snapshot.Fan1Rpm);
+        Assert.Null(snapshot.Fan2Rpm);
+        Assert.Equal(24, snapshot.CpuPackagePowerW);
+    }
+
     private sealed class FakeTransport : IMsiEcTransport
     {
-        public Dictionary<(string, int), byte[]> Responses { get; } = new();
+        public Dictionary<(string, int), (MsiEcReadStatus Status, byte[] Payload)> Responses { get; } = new();
         public List<(string, int)> Calls { get; } = new();
 
-        public bool TryRead(string method, int selector, out byte[] payload)
+        /// <summary>Shorthand for a successful read returning <paramref name="payload"/>.</summary>
+        public static (MsiEcReadStatus, byte[]) Ok(params byte[] payload) => (MsiEcReadStatus.Success, payload);
+
+        public MsiEcReadStatus Read(string method, int selector, out byte[] payload)
         {
             Calls.Add((method, selector));
             if (Responses.TryGetValue((method, selector), out var response))
             {
-                payload = response;
-                return true;
+                payload = response.Payload;
+                return response.Status;
             }
 
+            // Unconfigured metric: unavailable, but not evidence the whole transport is down.
             payload = [];
-            return false;
+            return MsiEcReadStatus.MetricUnavailable;
         }
     }
 }

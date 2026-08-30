@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using OptiSensor.Claw;
 using Xunit;
 
@@ -5,6 +6,22 @@ namespace OptiSensor.Tests.Claw;
 
 public class MsiEcWmiTransportTests
 {
+    [Fact]
+    public void Classify_GlobalAccessDenialIsTransportWide()
+    {
+        Assert.Equal(MsiEcReadStatus.TransportUnavailable,
+            MsiEcWmiTransport.Classify(new UnauthorizedAccessException()));
+    }
+
+    [Theory]
+    [InlineData(typeof(COMException))]
+    [InlineData(typeof(InvalidOperationException))]
+    public void Classify_AmbiguousFailuresStayMetricLocal(Type exceptionType)
+    {
+        var ex = (Exception)Activator.CreateInstance(exceptionType)!;
+        Assert.Equal(MsiEcReadStatus.MetricUnavailable, MsiEcWmiTransport.Classify(ex));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(221)]

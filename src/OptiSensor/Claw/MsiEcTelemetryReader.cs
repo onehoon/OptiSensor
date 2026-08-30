@@ -4,7 +4,9 @@ namespace OptiSensor.Claw;
 /// Reads the three hardware-validated MSI EC production metric families
 /// (<c>Get_Temperature(0)</c>, <c>Get_Fan(0)</c>, <c>Get_Data(221)</c>) and decodes them
 /// per ClawHUD's parsing contract. Each read is independent: one failed metric never
-/// invalidates the others in the same sample.
+/// invalidates the others in the same sample. The one exception is a read that reports
+/// <see cref="MsiEcReadStatus.TransportUnavailable"/> - the remaining reads would just repeat the
+/// same shared-WMI failure, so they are skipped and retried on the next Core sample.
 /// </summary>
 internal sealed class MsiEcTelemetryReader
 {
@@ -26,19 +28,30 @@ internal sealed class MsiEcTelemetryReader
         int? fan2Rpm = null;
         int? cpuPackagePowerW = null;
 
-        if (_transport.TryRead(GetTemperature, 0, out var temperature))
-            cpuTempC = DecodeCpuTempC(temperature);
+        MsiEcTelemetrySnapshot Collected() => new(cpuTempC, fan1Rpm, fan2Rpm, cpuPackagePowerW);
 
-        if (_transport.TryRead(GetFan, 0, out var fan) && TryDecodeFan(fan, out var decodedFan1, out var decodedFan2))
+        var status = _transport.Read(GetTemperature, 0, out var temperature);
+        if (status == MsiEcReadStatus.Success)
+            cpuTempC = DecodeCpuTempC(temperature);
+        else if (status == MsiEcReadStatus.TransportUnavailable)
+            return Collected();
+
+        status = _transport.Read(GetFan, 0, out var fan);
+        if (status == MsiEcReadStatus.Success && TryDecodeFan(fan, out var decodedFan1, out var decodedFan2))
         {
             fan1Rpm = decodedFan1;
             fan2Rpm = decodedFan2;
         }
+        else if (status == MsiEcReadStatus.TransportUnavailable)
+        {
+            return Collected();
+        }
 
-        if (_transport.TryRead(GetData, CpuPackagePowerSelector, out var power))
+        status = _transport.Read(GetData, CpuPackagePowerSelector, out var power);
+        if (status == MsiEcReadStatus.Success)
             cpuPackagePowerW = DecodeCpuPackagePowerW(power);
 
-        return new MsiEcTelemetrySnapshot(cpuTempC, fan1Rpm, fan2Rpm, cpuPackagePowerW);
+        return Collected();
     }
 
     /// <summary><c>Get_Temperature(0)</c> payload[0] = CPU °C. Empty payload or a 0 byte is unavailable.</summary>
