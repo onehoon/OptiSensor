@@ -37,4 +37,27 @@ public class BatteryPowerEstimatorTests
         Assert.Equal(0, estimator.SampleCount);
         Assert.False(estimator.Ready);
     }
+
+    [Fact]
+    public void ObserveBatteryPower_InvalidDcSampleAfterReadyClearsStaleEstimate()
+    {
+        var estimator = new BatteryPowerEstimator();
+        for (var seconds = 1; seconds <= 10; seconds++)
+        {
+            ClawTelemetrySampler.ObserveBatteryPower(
+                estimator, onBattery: true, batteryDischargePowerW: 40,
+                TimeSpan.FromSeconds(seconds));
+        }
+
+        Assert.True(estimator.Ready);
+        Assert.NotNull(estimator.EstimateRemainingMinutes(60_000));
+
+        ClawTelemetrySampler.ObserveBatteryPower(
+            estimator, onBattery: true, batteryDischargePowerW: null,
+            TimeSpan.FromSeconds(11));
+
+        Assert.Equal(0, estimator.SampleCount);
+        Assert.False(estimator.Ready);
+        Assert.Null(estimator.EstimateRemainingMinutes(60_000));
+    }
 }

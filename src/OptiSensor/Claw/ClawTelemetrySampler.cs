@@ -85,7 +85,7 @@ internal sealed class ClawTelemetrySampler : IDisposable
         var onBattery = _power?.OnBattery == true;
         var freshEc = _msiEc.ReadSnapshot(onBattery);
         MergeEc(freshEc);
-        _batteryPower.Observe(onBattery, freshEc.BatteryDischargePowerW,
+        ObserveBatteryPower(_batteryPower, onBattery, freshEc.BatteryDischargePowerW,
             Stopwatch.GetElapsedTime(0, Stopwatch.GetTimestamp()));
         MergeGpu(_igclGpu.Sample());
         Recompose();
@@ -204,6 +204,23 @@ internal sealed class ClawTelemetrySampler : IDisposable
 
         missingCount = 0;
         return null;
+    }
+
+    /// <summary>
+    /// The EC power average is valid only while fresh DC samples continue arriving. Once an
+    /// established DC history receives an unavailable sample, discard it rather than presenting a
+    /// remaining-time value calculated from stale discharge power.
+    /// </summary>
+    internal static void ObserveBatteryPower(BatteryPowerEstimator estimator, bool onBattery,
+        double? batteryDischargePowerW, TimeSpan now)
+    {
+        if (onBattery && estimator.SampleCount > 0 && batteryDischargePowerW is null)
+        {
+            estimator.Reset();
+            return;
+        }
+
+        estimator.Observe(onBattery, batteryDischargePowerW, now);
     }
 
     private void Recompose() =>
