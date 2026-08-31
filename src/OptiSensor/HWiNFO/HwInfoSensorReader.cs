@@ -58,11 +58,22 @@ internal sealed class HwInfoSensorReader : ISensorReader
             SensorType: ToCompatibleSensorTypeName(type),
             SensorName: name,
             Category: category,
-            Unit: reading.Unit,
+            Unit: NormalizeUnit(type, reading.Unit),
             Value: value);
     }
 
     private static string ToCompatibleSensorTypeName(SensorType type) => $"SensorType{type}";
+
+    /// <summary>
+    /// Hwinfo.SharedMemory decodes HWiNFO's fixed <c>char[]</c> fields as Latin-1, but HWiNFO
+    /// writes them in the OS ANSI code page. On non-Western Windows (CP949, CP932, ...) the degree
+    /// sign in a temperature unit comes back mojibaked (a stray two-character sequence before the
+    /// C). Temperature is always Celsius in our model, so pin the canonical unit rather than trust
+    /// the decoded string; every non-temperature unit HWiNFO reports is plain ASCII and passes
+    /// through unchanged.
+    /// </summary>
+    private static string NormalizeUnit(SensorType type, string unit) =>
+        type == SensorType.Temp ? "°C" : unit;
 
     private static OptiSensorCategory Classify(SensorType type, string sensorName, string hardwareName)
     {

@@ -56,6 +56,33 @@ public sealed class HwInfoSensorReaderTests
     }
 
     [Theory]
+    [InlineData("°C")]   // already correct
+    [InlineData("¡ÆC")] // CP949 degree sign mis-decoded as Latin-1 by Hwinfo.SharedMemory
+    [InlineData("")]          // HWiNFO reported no unit
+    public void Map_NormalizesTemperatureUnitToCanonicalCelsius(string rawUnit)
+    {
+        var reading = new SensorReading(
+            1, SensorType.Temp, "GPU Temperature", "", rawUnit, 55, 0, 100, 55,
+            new Sensor(1, 0, "GPU [#0]", ""));
+
+        Assert.Equal("°C", HwInfoSensorReader.Map(reading).Unit);
+    }
+
+    [Theory]
+    [InlineData(SensorType.Power, "W")]
+    [InlineData(SensorType.Clock, "MHz")]
+    [InlineData(SensorType.Usage, "%")]
+    [InlineData(SensorType.Other, "MB")]
+    public void Map_PassesNonTemperatureUnitsThroughUnchanged(SensorType type, string unit)
+    {
+        var reading = new SensorReading(
+            1, type, "Reading", "", unit, 1, 0, 1, 1,
+            new Sensor(1, 0, "GPU [#0]", ""));
+
+        Assert.Equal(unit, HwInfoSensorReader.Map(reading).Unit);
+    }
+
+    [Theory]
     [InlineData(SensorType.Fan, 3)]
     [InlineData(SensorType.Power, 2)]
     [InlineData(SensorType.Volt, 2)]
