@@ -6,7 +6,7 @@ namespace OptiSensor.Tests.Claw;
 public class WindowsPowerTelemetryTests
 {
     [Fact]
-    public void Decode_OnBatteryWithRemainingTime()
+    public void Decode_OnBattery_IgnoresWindowsRemainingTime()
     {
         var snapshot = WindowsPowerTelemetry.Decode(new WindowsPowerTelemetry.SYSTEM_POWER_STATUS
         {
@@ -17,7 +17,7 @@ public class WindowsPowerTelemetryTests
 
         Assert.Equal(72, snapshot.BatteryPercent);
         Assert.Equal(true, snapshot.OnBattery);
-        Assert.Equal(150, snapshot.RemainingMinutes);
+        Assert.Null(snapshot.RemainingMinutes);
     }
 
     [Fact]
@@ -46,5 +46,21 @@ public class WindowsPowerTelemetryTests
         Assert.Null(snapshot.BatteryPercent);
         Assert.Null(snapshot.OnBattery);
         Assert.Null(snapshot.RemainingMinutes);
+    }
+
+    [Fact]
+    public void WithBatteryState_UsesOnlyValidPresentBatteryCapacity()
+    {
+        var snapshot = new WindowsPowerSnapshot(72, null, true);
+        var state = new WindowsPowerTelemetry.SYSTEM_BATTERY_STATE
+        {
+            BatteryPresent = 1,
+            RemainingCapacity = 60_000,
+        };
+
+        Assert.Equal(60_000u, WindowsPowerTelemetry.WithBatteryState(snapshot, 0, state).RemainingCapacityMWh);
+        Assert.Null(WindowsPowerTelemetry.WithBatteryState(snapshot, -1, state).RemainingCapacityMWh);
+        Assert.Null(WindowsPowerTelemetry.WithBatteryState(snapshot, 0,
+            state with { RemainingCapacity = uint.MaxValue }).RemainingCapacityMWh);
     }
 }

@@ -120,7 +120,7 @@ public class MsiEcTelemetryReaderTests
     }
 
     [Fact]
-    public void ReadSnapshot_QueriesOnlyTheThreeProductionMetricFamilies()
+    public void ReadSnapshot_OnAcQueriesOnlyTheThreeProductionMetricFamilies()
     {
         var transport = new FakeTransport();
 
@@ -129,6 +129,48 @@ public class MsiEcTelemetryReaderTests
         Assert.Equal(
             new[] { ("Get_Data", 221), ("Get_Fan", 0), ("Get_Temperature", 0) },
             transport.Calls.OrderBy(call => call.Item1).ToArray());
+    }
+
+    [Fact]
+    public void ReadSnapshot_OnBatteryReadsAndDecodesBatteryPower()
+    {
+        var transport = new FakeTransport
+        {
+            Responses =
+            {
+                [("Get_Temperature", 0)] = FakeTransport.Ok(0x34),
+                [("Get_Fan", 0)] = FakeTransport.Ok(0x00, 0x6F, 0x00, 0x6E),
+                [("Get_Data", 221)] = FakeTransport.Ok(0x18),
+                [("Get_Data", 70)] = FakeTransport.Ok(0xF9),
+                [("Get_Data", 71)] = FakeTransport.Ok(0xF5),
+                [("Get_Data", 74)] = FakeTransport.Ok(0xF3),
+                [("Get_Data", 75)] = FakeTransport.Ok(0x3D),
+            },
+        };
+
+        var snapshot = new MsiEcTelemetryReader(transport).ReadSnapshot(onBattery: true);
+
+        Assert.Equal(40.710053, snapshot.BatteryDischargePowerW!.Value, precision: 5);
+        Assert.Equal(
+            new[] { ("Get_Data", 70), ("Get_Data", 71), ("Get_Data", 74), ("Get_Data", 75) },
+            transport.Calls.Where(call => call.Item1 == "Get_Data" && call.Item2 != 221).ToArray());
+    }
+
+    [Theory]
+    [InlineData(0xF9, 0xF5, 0xF3, 0x3D, 40.710053)]
+    [InlineData(0xC8, 0xFC, 0xAB, 0x3E, 13.219432)]
+    public void DecodeBatteryPowerW_DecodesSignedCurrentAndVoltage(
+        byte currentLow, byte currentHigh, byte voltageLow, byte voltageHigh, double expected)
+    {
+        Assert.Equal(expected, MsiEcTelemetryReader.DecodeBatteryPowerW(
+            currentLow, currentHigh, voltageLow, voltageHigh)!.Value, precision: 3);
+    }
+
+    [Fact]
+    public void DecodeBatteryPowerW_RejectsChargingAndZeroVoltage()
+    {
+        Assert.Null(MsiEcTelemetryReader.DecodeBatteryPowerW(0x01, 0x00, 0xF3, 0x3D));
+        Assert.Null(MsiEcTelemetryReader.DecodeBatteryPowerW(0xF9, 0xF5, 0x00, 0x00));
     }
 
     [Fact]
