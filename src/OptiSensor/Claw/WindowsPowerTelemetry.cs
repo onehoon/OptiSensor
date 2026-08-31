@@ -10,7 +10,8 @@ namespace OptiSensor.Claw;
 internal sealed record WindowsPowerSnapshot(
     int? BatteryPercent,
     int? RemainingMinutes,
-    bool? OnBattery);
+    bool? OnBattery,
+    uint? RemainingCapacityMWh = null);
 
 internal static class WindowsPowerTelemetry
 {
@@ -20,7 +21,17 @@ internal static class WindowsPowerTelemetry
     /// </summary>
     public static WindowsPowerSnapshot? Read()
     {
-        return GetSystemPowerStatus(out var status) ? Decode(status) : null;
+        if (!GetSystemPowerStatus(out var status))
+            return null;
+
+        var snapshot = Decode(status);
+        var queryStatus = CallNtPowerInformation(
+            PowerInformationLevelSystemBatteryState,
+            IntPtr.Zero,
+            0,
+            out var batteryState,
+            (uint)Marshal.SizeOf<SYSTEM_BATTERY_STATE>());
+        return WithBatteryState(snapshot, queryStatus, batteryState);
     }
 
     internal static WindowsPowerSnapshot Decode(SYSTEM_POWER_STATUS status)
@@ -33,11 +44,20 @@ internal static class WindowsPowerTelemetry
             ? null
             : status.ACLineStatus == 0;
 
-        int? remainingMinutes = status.BatteryLifeTime == uint.MaxValue
-            ? null
-            : (int)(status.BatteryLifeTime / 60);
+        // BatteryLifeTime is unknown on the supported Claw hardware and is no longer a
+        // remaining-time source. Remaining time is derived from EC discharge power instead.
+        return new WindowsPowerSnapshot(batteryPercent, null, onBattery, null);
+    }
 
-        return new WindowsPowerSnapshot(batteryPercent, remainingMinutes, onBattery);
+    internal static WindowsPowerSnapshot WithBatteryState(
+        WindowsPowerSnapshot snapshot,
+        int queryStatus,
+        SYSTEM_BATTERY_STATE batteryState)
+    {
+        return queryStatus >= 0 && batteryState.BatteryPresent != 0 &&
+            batteryState.RemainingCapacity != uint.MaxValue
+            ? snapshot with { RemainingCapacityMWh = batteryState.RemainingCapacity }
+            : snapshot;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -51,7 +71,36 @@ internal static class WindowsPowerTelemetry
         public uint BatteryFullLifeTime;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SYSTEM_BATTERY_STATE
+    {
+        public byte AcOnLine;
+        public byte BatteryPresent;
+        public byte Charging;
+        public byte Discharging;
+        public byte Spare1_0;
+        public byte Spare1_1;
+        public byte Spare1_2;
+        public byte Spare1_3;
+        public uint MaxCapacity;
+        public uint RemainingCapacity;
+        public uint Rate;
+        public uint EstimatedTime;
+        public uint DefaultAlert1;
+        public uint DefaultAlert2;
+    }
+
+    private const int PowerInformationLevelSystemBatteryState = 5;
+
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
+
+    [DllImport("powrprof.dll")]
+    private static extern int CallNtPowerInformation(
+        int informationLevel,
+        IntPtr inputBuffer,
+        uint inputBufferLength,
+        out SYSTEM_BATTERY_STATE outputBuffer,
+        uint outputBufferLength);
 }

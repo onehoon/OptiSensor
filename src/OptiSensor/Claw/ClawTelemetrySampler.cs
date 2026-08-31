@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace OptiSensor.Claw;
 
 /// <summary>
@@ -31,6 +33,7 @@ internal sealed class ClawTelemetrySampler : IDisposable
     private readonly WindowsUsageTelemetryReader _windowsUsage = new();
     private readonly MsiEcTelemetryReader _msiEc = new();
     private readonly IgclGpuTelemetryReader _igclGpu = new();
+    private readonly BatteryPowerEstimator _batteryPower = new();
 
     private WindowsUsageSnapshot? _usage;
     private WindowsPowerSnapshot? _power;
@@ -79,7 +82,11 @@ internal sealed class ClawTelemetrySampler : IDisposable
             _igclGpu.Initialize();
 
         _usage = MergeUsage(_windowsUsage.Sample(), _usage);
-        MergeEc(_msiEc.ReadSnapshot());
+        var onBattery = _power?.OnBattery == true;
+        var freshEc = _msiEc.ReadSnapshot(onBattery);
+        MergeEc(freshEc);
+        _batteryPower.Observe(onBattery, freshEc.BatteryDischargePowerW,
+            Stopwatch.GetElapsedTime(0, Stopwatch.GetTimestamp()));
         MergeGpu(_igclGpu.Sample());
         Recompose();
     }
@@ -91,7 +98,22 @@ internal sealed class ClawTelemetrySampler : IDisposable
         // semantic (fresh state after an AC/DC change) and must clear an old estimate. A failed
         // read (null) keeps the last-known battery state.
         if (WindowsPowerTelemetry.Read() is { } power)
+        {
+            if (power.OnBattery == true)
+            {
+                power = power with
+                {
+                    RemainingMinutes = _batteryPower.EstimateRemainingMinutes(
+                        power.RemainingCapacityMWh),
+                };
+            }
+            else
+            {
+                _batteryPower.Reset();
+            }
+
             _power = power;
+        }
 
         Recompose();
     }
@@ -129,7 +151,8 @@ internal sealed class ClawTelemetrySampler : IDisposable
             CpuTempC: cpuTempC,
             Fan1Rpm: fan1Rpm,
             Fan2Rpm: fan2Rpm,
-            CpuPackagePowerW: cpuPackagePowerW);
+            CpuPackagePowerW: cpuPackagePowerW,
+            BatteryDischargePowerW: incoming.BatteryDischargePowerW);
         return _ec;
     }
 
