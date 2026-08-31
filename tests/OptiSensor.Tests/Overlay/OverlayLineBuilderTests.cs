@@ -49,6 +49,39 @@ public class OverlayLineBuilderTests
         Assert.DoesNotContain("44C", line);
     }
 
+    [Theory]
+    [InlineData("{0:0}¡ÆC")] // CP949 degree sign mis-decoded as Latin-1, persisted in settings
+    [InlineData("{0:0}°C")]        // already correct
+    [InlineData("{0:0}C")]              // no degree sign at all
+    public void BuildLine_HwInfoTemperature_GarbledOrMissingDegreeIsNormalized(string savedFormat)
+    {
+        var cpuTemp = SensorFixture.CreateDetectedSensor(
+            "hwinfo/1/0/2", "SensorTypeTemp", "CPU", 44f, category: OptiSensorCategory.Cpu);
+        var snapshot = SensorFixture.CreateSnapshot(cpuTemp);
+        var group = SensorFixture.CreateGroup("g1", "", 0, true,
+            SensorFixture.CreateSelectedSensor(cpuTemp, "", savedFormat, 0));
+
+        var line = _builder.BuildLine(snapshot, new[] { group });
+
+        Assert.Equal("44°C", line);
+        Assert.DoesNotContain('¡', line);
+        Assert.DoesNotContain('Æ', line);
+    }
+
+    [Fact]
+    public void BuildLine_HwInfoNonTemperature_ValueEndingInCIsLeftAlone()
+    {
+        // A non-temperature HWiNFO reading must not be coerced to degrees just because its
+        // formatted value happens to end in "C".
+        var power = SensorFixture.CreateDetectedSensor(
+            "hwinfo/1/0/9", "SensorTypeOther", "GPU", 120f, category: OptiSensorCategory.Gpu, unit: "VDC");
+        var snapshot = SensorFixture.CreateSnapshot(power);
+        var group = SensorFixture.CreateGroup("g1", "", 0, true,
+            SensorFixture.CreateSelectedSensor(power, "", "{0:0}VDC", 0));
+
+        Assert.Equal("120VDC", _builder.BuildLine(snapshot, new[] { group }));
+    }
+
     [Fact]
     public void BuildLine_InvalidFormat_FallsBackToIntegerWithUnitInsteadOfThrowing()
     {
