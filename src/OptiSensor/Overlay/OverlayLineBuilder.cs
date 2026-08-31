@@ -145,16 +145,25 @@ internal sealed class OverlayLineBuilder
             : $"{sensor.DisplayName} {formattedValue}";
     }
 
+    private static readonly char[] Digits = "0123456789".ToCharArray();
+
     private static string NormalizeTemperatureSuffix(SelectedOverlaySensor sensor, string formattedValue)
     {
-        if (!IsTemperatureSensor(sensor))
+        if (!IsTemperatureSensor(sensor) || formattedValue.EndsWith("°C", StringComparison.Ordinal))
             return formattedValue;
 
-        return formattedValue.EndsWith("°C", StringComparison.Ordinal)
-            ? formattedValue
-            : formattedValue.EndsWith("C", StringComparison.Ordinal)
-                ? formattedValue[..^1] + "°C"
-                : formattedValue;
+        // The saved format string can carry a garbled degree sign: Hwinfo.SharedMemory mis-decodes
+        // HWiNFO's OS-ANSI char[] fields as Latin-1, so on CP949/CP932/... the degree sign arrives
+        // as stray bytes (e.g. "42¡ÆC"). Coerce any temperature output that still ends in C to a
+        // clean "<number>°C".
+        var lastDigit = formattedValue.LastIndexOfAny(Digits);
+        if (lastDigit < 0)
+            return formattedValue;
+
+        var tail = formattedValue[(lastDigit + 1)..];
+        return tail.Length > 0 && (tail[^1] is 'C' or 'c')
+            ? formattedValue[..(lastDigit + 1)] + "°C"
+            : formattedValue;
     }
 
     private static string GetDisplayUnit(SelectedOverlaySensor sensor)
@@ -164,6 +173,9 @@ internal sealed class OverlayLineBuilder
 
     private static bool IsTemperatureSensor(SelectedOverlaySensor sensor)
     {
-        return string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase);
+        // LibreHardwareMonitor exposes the bare LHM name; the HWiNFO reader exposes "SensorType" +
+        // the Hwinfo.SharedMemory enum name (SensorType.Temp -> "SensorTypeTemp").
+        return string.Equals(sensor.SensorType, "Temperature", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sensor.SensorType, "SensorTypeTemp", StringComparison.OrdinalIgnoreCase);
     }
 }
