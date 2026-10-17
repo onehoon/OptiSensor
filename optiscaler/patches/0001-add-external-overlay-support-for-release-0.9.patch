@@ -52,7 +52,7 @@ index c5ac0d6b..ecf2139f 100644
  };
  
 @@ -288,13 +289,13 @@ class Config
-     CustomOptional<bool> OverlayMenu { true };
+     CustomOptional<bool, SoftDefault> OverlayMenu { true };
      CustomOptional<int> ShortcutKey { VK_INSERT };
      CustomOptional<bool> ExtendedLimits { false };
 -    CustomOptional<bool> ShowFps { false };
