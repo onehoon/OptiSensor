@@ -151,7 +151,7 @@ internal sealed class LibreSensorReader : ISensorReader
                 SensorName: sensor.Name,
                 Category: category,
                 Unit: unit,
-                Value: sensor.Value);
+                Value: LibreSensorValueNormalizer.Normalize(sensor.SensorType, sensor.Value));
         }
     }
 
