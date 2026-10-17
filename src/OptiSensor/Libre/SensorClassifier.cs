@@ -166,7 +166,6 @@ internal static class SensorClassifier
             SensorType.Level => "%",
             SensorType.Factor => string.Empty,
             SensorType.Data => "GB",
-            SensorType.SmallData => "MB",
             SensorType.Throughput => "MB/s",
             SensorType.TimeSpan => "s",
             SensorType.Energy => "Wh",
