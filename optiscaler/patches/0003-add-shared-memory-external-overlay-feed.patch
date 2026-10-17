@@ -4,11 +4,11 @@ Date: Sat, 22 Aug 2026 22:35:33 +0900
 Subject: [PATCH] Add shared memory external overlay feed
 
 ---
- OptiScaler/OptiScaler.vcxproj           |   4 +-
+ OptiScaler/OptiScaler.vcxproj           |   2 ++
  OptiScaler/OptiScaler.vcxproj.filters   |   6 ++
  OptiScaler/misc/ExternalOverlayFeed.cpp | 135 ++++++++++++++++++++++++
  OptiScaler/misc/ExternalOverlayFeed.h   |  11 ++
- 4 files changed, 155 insertions(+), 1 deletion(-)
+ 4 files changed, 154 insertions(+)
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.cpp
  create mode 100644 OptiScaler/misc/ExternalOverlayFeed.h
 
@@ -16,15 +16,13 @@ diff --git a/OptiScaler/OptiScaler.vcxproj b/OptiScaler/OptiScaler.vcxproj
 index 960fea4d..0c300926 100644
 --- a/OptiScaler/OptiScaler.vcxproj
 +++ b/OptiScaler/OptiScaler.vcxproj
-@@ -375,7 +375,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
-     <ClInclude Include="misc\SkipSpoof.h" />
-     <ClInclude Include="shaders\Shader_Dx11.h" />
-     <ClInclude Include="spoofing\User32_Spoofing.h" />
-     <ClInclude Include="hooks\VulkanwDx12_Hooks.h" />
+@@ -370,5 +370,6 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
+     <ClInclude Include="with_dx12\dx11_with_dx12_sc.h" />
+     <ClInclude Include="misc\HiddenWindow.h" />
 +    <ClInclude Include="misc\ExternalOverlayFeed.h" />
-     <ClInclude Include="misc\IdentifyGpu.h" />
-     <ClInclude Include="inputs\FSR2_Dx11.h" />
-     <ClInclude Include="inputs\FSR2_Vk.h" />
+     <ClInclude Include="wrapped\wrapped_factory.h" />
+     <ClInclude Include="include\spdlog_sink\debug_sink.h" />
+     <ClInclude Include="inputs\FG\FSR3_Dx12_FG.h" />
 @@ -631,6 +632,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
      <ClCompile Include="menu\input\input_system_window.cpp" />
      <ClCompile Include="menu\input\input_system_windows_hooks.cpp" />
@@ -33,13 +31,6 @@ index 960fea4d..0c300926 100644
      <ClCompile Include="misc\IdentifyGpu.cpp" />
      <ClCompile Include="inputs\FSR2_Dx11.cpp" />
      <ClCompile Include="inputs\FSR2_Vk.cpp" />
-@@ -843,4 +845,4 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
-   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-   <ImportGroup Label="ExtensionTargets">
-   </ImportGroup>
--</Project>
-\ No newline at end of file
-+</Project>
 diff --git a/OptiScaler/OptiScaler.vcxproj.filters b/OptiScaler/OptiScaler.vcxproj.filters
 index acc8ee5e..3c4d623f 100644
 --- a/OptiScaler/OptiScaler.vcxproj.filters
