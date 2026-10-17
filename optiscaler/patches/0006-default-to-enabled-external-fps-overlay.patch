@@ -25,7 +25,7 @@ index 7f6536a..5076ca7 100644
 --- a/OptiScaler/Config.h
 +++ b/OptiScaler/Config.h
 @@ -330,7 +330,7 @@ class Config
-     CustomOptional<bool> OverlayMenu { true };
+     CustomOptional<bool, SoftDefault> OverlayMenu { true };
      CustomOptional<int> ShortcutKey { VK_INSERT };
      CustomOptional<bool> ExtendedLimits { false };
 -    CustomOptional<bool> ShowFps { false };
