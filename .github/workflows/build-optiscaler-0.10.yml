@@ -11,9 +11,6 @@ on:
         description: "OptiScaler branch, tag, or commit SHA to build patches against"
         required: true
         default: "master"
-  schedule:
-    # 15:00 KST (06:00 UTC) daily. Scheduled runs use the default optiscaler_ref.
-    - cron: "0 6 * * *"
 
 env:
   OPTISCALER_REPO: optiscaler/OptiScaler
