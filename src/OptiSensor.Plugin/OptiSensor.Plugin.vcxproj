@@ -46,6 +46,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="optiscaler_plugin.h" />
+    <ClInclude Include="..\OptiSensor.Native\OptiSensorNative.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="OptiSensor.cpp" />
