@@ -34,7 +34,8 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;YYJSON_DISABLE_FILE;YYJSON_DISABLE_INCR_READER;YYJSON_DISABLE_UTILS;YYJSON_DISABLE_WRITER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\third_party\yyjson;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -46,10 +47,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="optiscaler_plugin.h" />
-    <ClInclude Include="..\OptiSensor.Native\OptiSensorNative.h" />
+    <ClInclude Include="LibreBridge.h" />
+    <ClInclude Include="..\..\third_party\yyjson\yyjson.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="OptiSensor.cpp" />
+    <ClCompile Include="LibreBridge.cpp" />
+    <ClCompile Include="..\..\third_party\yyjson\yyjson.c">
+      <CompileAs>CompileAsC</CompileAs>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="LICENSE" />
