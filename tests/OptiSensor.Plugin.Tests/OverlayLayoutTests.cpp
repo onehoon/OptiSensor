@@ -1,5 +1,6 @@
 #include "OverlayLayout.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -52,8 +53,8 @@ void TestCuratedDefaults()
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/load/0", "SensorVisible_GPU_CORE", "GPU Core", "Load", "23.0 %"),
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/load/1", "SensorVisible_GPU_MEM_LOAD", "GPU Memory", "Load", "40.0 %"),
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/power/0", "SensorVisible_GPU_POWER", "GPU Package Power", "Power", "15.0 W"),
-        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/0", "SensorVisible_GPU_FAN0", "GPU Fan 1", "Fan", "0 RPM"),
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/1", "SensorVisible_GPU_FAN1", "GPU Fan 2", "Fan", "100 RPM"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/0", "SensorVisible_GPU_FAN0", "GPU Fan 1", "Fan", "0 RPM"),
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/smalldata/0", "SensorVisible_GPU_USED", "GPU Memory Used", "SmallData", "6666.0 MB"),
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/smalldata/1", "SensorVisible_GPU_TOTAL_MEM", "GPU Memory Total", "SmallData", "12000.0 MB"),
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/load/2", "SensorVisible_GPU_OTHER_MEM", "GPU Memory Free", "SmallData", "5334.0 MB"),
@@ -73,13 +74,16 @@ void TestCuratedDefaults()
     RequireOverlay(defaults[2].settingKey == "SensorVisible_CPU_PACKAGE" && defaults[2].order == 300,
             "CPU package power was not selected");
     RequireOverlay(defaults[3].settingKey == "SensorVisible_GPU_TEMP" && defaults[4].settingKey == "SensorVisible_GPU_CORE" &&
-            defaults[5].settingKey == "SensorVisible_GPU_POWER" && defaults[6].settingKey == "SensorVisible_GPU_FAN0",
-            "GPU defaults are not in temperature/load/power/fan order");
-    RequireOverlay(defaults[7].settingKey == "SensorVisible_GPU_USED" && defaults[8].settingKey == "SensorVisible_GPU_TOTAL_MEM",
+            defaults[5].settingKey == "SensorVisible_GPU_POWER" && defaults[6].settingKey == "SensorVisible_GPU_FAN0" &&
+            defaults[7].settingKey == "SensorVisible_GPU_FAN1",
+            "GPU defaults are not in temperature/load/power/all-fans order");
+    RequireOverlay(defaults[8].settingKey == "SensorVisible_GPU_USED" && defaults[9].settingKey == "SensorVisible_GPU_TOTAL_MEM",
             "VRAM defaults are not the GPU Memory Used/Total pair");
-    RequireOverlay(defaults[9].settingKey == "SensorVisible_RAM_USED" && defaults[9].groupId == "RAM" && defaults[9].order == 100 &&
-            defaults[10].settingKey == "SensorVisible_RAM_AVAILABLE" && defaults[10].groupId == "RAM" && defaults[10].order == 200,
-            "physical RAM recommendations are not Used then Available");
+    RequireOverlay(defaults[10].settingKey == "SensorVisible_RAM_USED" && defaults[10].groupId == "RAM" && defaults[10].order == 100,
+            "physical RAM recommendation is not Used-only");
+    RequireOverlay(std::none_of(defaults.begin(), defaults.end(), [](const auto& item)
+            { return item.settingKey == "SensorVisible_RAM_AVAILABLE"; }),
+            "Memory Available was automatically selected");
     RequireOverlay(OverlayLayout::GetGpuHardwareId(snapshot) == "/gpu-nvidia/0", "unexpected GPU identity selected");
     RequireOverlay(OverlayLayout::GetDefaultGroupId(snapshot.readings[13]) == "VRAM", "GPU Memory Used was not assigned to VRAM");
     RequireOverlay(OverlayLayout::GetDefaultGroupId(snapshot.readings[16]).empty(), "storage sensor was classified into a default group");
@@ -89,6 +93,9 @@ void TestCuratedDefaults()
     RequireOverlay(OverlayLayout::GetSensorGroupSettingKey(snapshot.readings[0]) == "SensorGroup_CPU_TEMP" &&
             OverlayLayout::GetSensorOrderSettingKey(snapshot.readings[0]) == "SensorOrder_CPU_TEMP",
             "per-sensor grouping keys do not reuse the sensor identity hash");
+    RequireOverlay(OverlayLayout::GetSensorFanAverageSettingKey(snapshot.readings[12]) == "SensorFanAverage_GPU_FAN0" &&
+            OverlayLayout::GetSensorFanAverageSettingKey(snapshot.readings[16]).empty(),
+            "GPU fan averaging settings are not scoped to GPU Fan sensor identities");
 }
 
 void TestDeterministicGpuAndComposedPreview()
@@ -204,11 +211,41 @@ void TestDeterministicGpuAndComposedPreview()
                    renamedPreview.find("System RAM 12.4GB/32GB") != std::string::npos,
             "renaming a built-in group changed its sensor-specific pairing behavior");
 
+    auto usedOnlyStates = states;
+    usedOnlyStates[7].selected = false;
     auto liveRam = previewSnapshot;
-    liveRam.readings[6].value = "15.0 GB";
-    liveRam.readings[7].value = "16.6 GB";
-    RequireOverlay(OverlayLayout::ComposePreview(liveRam, groups, states).find("RAM 15GB/31.6GB") != std::string::npos,
+    liveRam.readings[6].value = "17.6 GB";
+    liveRam.readings[7].value = "14.0 GB";
+    RequireOverlay(OverlayLayout::ComposePreview(liveRam, groups, states).find("RAM 17.6GB/31.6GB") != std::string::npos,
             "physical RAM total was not computed from the live Used and Available readings");
+    RequireOverlay(OverlayLayout::ComposePreview(liveRam, groups, usedOnlyStates).find("RAM 17.6GB/31.6GB") != std::string::npos,
+            "physical RAM total changed when Memory Available was hidden");
+
+    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, usedOnlyStates).find("RAM 12.4GB/32GB") != std::string::npos,
+            "physical RAM total was not composed when only Memory Used was selected");
+
+    auto missingAvailable = previewSnapshot;
+    missingAvailable.readings.erase(missingAvailable.readings.begin() + 7);
+    const std::string missingAvailablePreview = OverlayLayout::ComposePreview(missingAvailable, groups, usedOnlyStates);
+    RequireOverlay(missingAvailablePreview.find("RAM 12.4 GB") != std::string::npos &&
+                   missingAvailablePreview.find("RAM 12.4GB/") == std::string::npos,
+            "a missing physical Memory Available value was used to invent a total");
+
+    auto virtualMemoryStates = usedOnlyStates;
+    virtualMemoryStates[8].selected = true;
+    virtualMemoryStates[8].groupId = "RAM";
+    virtualMemoryStates[8].order = 200;
+    const std::string virtualMemoryPreview = OverlayLayout::ComposePreview(missingAvailable, groups, virtualMemoryStates);
+    RequireOverlay(virtualMemoryPreview.find("RAM 12.4 GB 8.0 GB") != std::string::npos &&
+                   virtualMemoryPreview.find("RAM 12.4GB/") == std::string::npos,
+            "Virtual Memory was substituted for missing physical Memory Available");
+
+    auto malformedAvailable = previewSnapshot;
+    malformedAvailable.readings[7].value = "invalid GB";
+    const std::string malformedAvailablePreview = OverlayLayout::ComposePreview(malformedAvailable, groups, usedOnlyStates);
+    RequireOverlay(malformedAvailablePreview.find("RAM 12.4 GB") != std::string::npos &&
+                   malformedAvailablePreview.find("RAM 12.4GB/") == std::string::npos,
+            "a malformed physical Memory Available value was used to invent a total");
 
     auto reversedPairStates = states;
     std::swap(reversedPairStates[3].order, reversedPairStates[4].order);
@@ -252,6 +289,64 @@ void TestDeterministicGpuAndComposedPreview()
             "missing physical RAM input was used to invent a total");
 }
 
+void TestFanAveragingComposition()
+{
+    LibreBridge::SensorSnapshot snapshot;
+    snapshot.readings = {
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/0", "SensorVisible_NVIDIA_FAN0", "GPU Fan 1", "Fan", "1200 RPM"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/1", "SensorVisible_NVIDIA_FAN1", "GPU Fan 2", "Fan", "1400 RPM"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/2", "SensorVisible_NVIDIA_FAN2", "GPU Fan 3", "Fan", "1600 RPM"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/3", "SensorVisible_NVIDIA_FAN3", "GPU Fan 4", "Fan", "N/A"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/4", "SensorVisible_NVIDIA_FAN4", "GPU Fan 5", "Fan", "invalid RPM"),
+        MakeReading("/gpu-amd/0", "/gpu-amd/0/fan/0", "SensorVisible_AMD_FAN0", "GPU Fan 1", "Fan", "900 RPM"),
+        MakeReading("/gpu-amd/0", "/gpu-amd/0/fan/1", "SensorVisible_AMD_FAN1", "GPU Fan 2", "Fan", "1101 RPM"),
+        MakeReading("/memory/dimm/0", "/memory/dimm/0/fan/0", "SensorVisible_BOARD_FAN", "Board Fan", "Fan", "3000 RPM"),
+    };
+    const std::vector<OverlayLayout::Group> groups = {{"GPU", "GPU"}, {"Other", "Other"}};
+    std::vector<OverlayLayout::SensorState> states;
+    for (std::size_t index = 0; index < snapshot.readings.size(); ++index)
+    {
+        states.push_back({snapshot.readings[index].settingKey, "GPU", static_cast<std::int32_t>((index + 1) * 100), true, true});
+    }
+    states[2].averageFan = false;
+
+    const std::string fanPreview = OverlayLayout::ComposePreview(snapshot, groups, states);
+    RequireOverlay(fanPreview ==
+            "GPU 1300RPM 1600 RPM N/A invalid RPM 1001RPM 3000 RPM",
+            "fan cohorts did not preserve fan order, invalid values, GPU roots, or motherboard readings");
+
+    auto allParticipate = states;
+    allParticipate[2].averageFan = true;
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, groups, allParticipate) ==
+            "GPU 1400RPM N/A invalid RPM 1001RPM 3000 RPM",
+            "three participating GPU fans were not collapsed to one average");
+
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, groups, allParticipate, false) ==
+            "GPU 1200 RPM 1400 RPM 1600 RPM N/A invalid RPM 900 RPM 1101 RPM 3000 RPM",
+            "disabling global fan averaging did not restore every selected raw value");
+
+    auto oneFan = allParticipate;
+    for (auto& state : oneFan) state.selected = false;
+    oneFan[0].selected = true;
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, groups, oneFan) == "GPU 1200 RPM",
+            "a single selected fan was unnecessarily reformatted as an average");
+
+    auto subset = allParticipate;
+    subset[2].selected = false;
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, groups, subset) ==
+            "GPU 1300RPM N/A invalid RPM 1001RPM 3000 RPM",
+            "an unselected fan contributed to the aggregate or disappeared from the cohort order");
+
+    auto separateGroups = allParticipate;
+    for (auto& state : separateGroups) state.selected = false;
+    separateGroups[0].selected = true;
+    separateGroups[1].selected = true;
+    separateGroups[1].groupId = "Other";
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, groups, separateGroups) ==
+            "GPU 1200 RPM | Other 1400 RPM",
+            "selected fans from different output groups were averaged together");
+}
+
 void TestPersistentOrderNormalization()
 {
     std::vector<OverlayLayout::SensorState> states = {
@@ -278,5 +373,6 @@ void RunOverlayLayoutTests()
 {
     TestCuratedDefaults();
     TestDeterministicGpuAndComposedPreview();
+    TestFanAveragingComposition();
     TestPersistentOrderNormalization();
 }

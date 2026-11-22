@@ -214,6 +214,15 @@ std::string FormatGigabytes(double value)
     return number + "GB";
 }
 
+std::optional<std::string> FormatFanAverage(double value)
+{
+    if (!std::isfinite(value) || value < 0 || value >= static_cast<double>(std::numeric_limits<long long>::max()))
+    {
+        return std::nullopt;
+    }
+    return std::to_string(std::llround(value)) + "RPM";
+}
+
 std::string DisplayValue(const LibreBridge::SensorReading& reading)
 {
     return reading.value.empty() ? "N/A" : reading.value;
@@ -288,16 +297,25 @@ std::vector<Recommendation> GetDefaultRecommendations(const LibreBridge::SensorS
             if (Contains(text, "gpu power") || Contains(text, "package") || Contains(text, "total")) return 0;
             return 1000;
         });
-        const auto* fan = BestCandidate(snapshot, gpuRoot, "Fan", [](const std::string& text)
-        {
-            if (text == "gpu fan 1" || text == "fan 1") return 0;
-            if (Contains(text, "fan")) return 1;
-            return 1000;
-        });
         if (temperature != nullptr) result.push_back({temperature->settingKey, "GPU", 100});
         if (load != nullptr) result.push_back({load->settingKey, "GPU", 200});
         if (power != nullptr) result.push_back({power->settingKey, "GPU", 300});
-        if (fan != nullptr) result.push_back({fan->settingKey, "GPU", 400});
+
+        std::vector<const LibreBridge::SensorReading*> fans;
+        for (const LibreBridge::SensorReading& reading : snapshot.readings)
+        {
+            if (reading.rootHardwareId == gpuRoot && IsType(reading, "Fan")) fans.push_back(&reading);
+        }
+        std::sort(fans.begin(), fans.end(), [](const auto* left, const auto* right)
+        {
+            const std::string leftName = Normalize(left->text);
+            const std::string rightName = Normalize(right->text);
+            return leftName == rightName ? left->settingKey < right->settingKey : leftName < rightName;
+        });
+        for (std::size_t index = 0; index < fans.size(); ++index)
+        {
+            result.push_back({fans[index]->settingKey, "GPU", static_cast<std::int32_t>(400 + index * 100)});
+        }
 
         const auto* memoryUsed = ExactSmallData(snapshot, gpuRoot, "GPU Memory Used");
         const auto* memoryTotal = ExactSmallData(snapshot, gpuRoot, "GPU Memory Total");
@@ -306,9 +324,7 @@ std::vector<Recommendation> GetDefaultRecommendations(const LibreBridge::SensorS
     }
 
     const auto* ramUsed = ExactSensor(snapshot, "/ram", "Data", "Memory Used");
-    const auto* ramAvailable = ExactSensor(snapshot, "/ram", "Data", "Memory Available");
     if (ramUsed != nullptr) result.push_back({ramUsed->settingKey, "RAM", 100});
-    if (ramAvailable != nullptr) result.push_back({ramAvailable->settingKey, "RAM", 200});
     return result;
 }
 
@@ -362,6 +378,17 @@ std::string GetGpuHardwareId(const LibreBridge::SensorSnapshot& snapshot)
         return leftPreference == rightPreference ? left < right : leftPreference < rightPreference;
     });
     return selected == gpuRoots.end() ? std::string{} : *selected;
+}
+
+std::string GetSensorFanAverageSettingKey(const LibreBridge::SensorReading& reading)
+{
+    if (!IsGpu(reading) || !IsType(reading, "Fan")) return {};
+    constexpr std::string_view prefix = "SensorVisible_";
+    if (StartsWith(reading.settingKey, prefix))
+    {
+        return "SensorFanAverage_" + reading.settingKey.substr(prefix.size());
+    }
+    return "SensorFanAverage_" + reading.settingKey;
 }
 
 std::string GetSensorGroupSettingKey(const LibreBridge::SensorReading& reading)
@@ -457,7 +484,8 @@ bool MoveSelectedSensor(std::vector<SensorState>& states, std::string_view setti
 std::string ComposePreview(
     const LibreBridge::SensorSnapshot& snapshot,
     const std::vector<Group>& groups,
-    const std::vector<SensorState>& states)
+    const std::vector<SensorState>& states,
+    bool averageGpuFanRpm)
 {
     std::unordered_map<std::string, const LibreBridge::SensorReading*> readings;
     readings.reserve(snapshot.readings.size());
@@ -524,11 +552,6 @@ std::string ComposePreview(
                 }
             }
         }
-        else if (isRamGroup)
-        {
-            pairFirst = ExactSensor(snapshot, "/ram", "Data", "Memory Used");
-            pairSecond = ExactSensor(snapshot, "/ram", "Data", "Memory Available");
-        }
         if (pairFirst != nullptr && pairSecond != nullptr)
         {
             const auto first = stateByKey.find(pairFirst->settingKey);
@@ -542,32 +565,105 @@ std::string ComposePreview(
         const bool pairInCanonicalOrder = pairSelected &&
             std::find(selected.begin(), selected.end(), firstState) <
             std::find(selected.begin(), selected.end(), secondState);
-        const auto ramUsed = pairInCanonicalOrder && isRamGroup ? ParseFormattedUnit(pairFirst->value, "GB") : std::nullopt;
-        const auto ramAvailable = pairInCanonicalOrder && isRamGroup ? ParseFormattedUnit(pairSecond->value, "GB") : std::nullopt;
-        const bool pairRam = pairInCanonicalOrder && isRamGroup && ramUsed.has_value() && ramAvailable.has_value();
         const bool pairVram = pairInCanonicalOrder && isVramGroup;
+
+        const LibreBridge::SensorReading* ramUsed = isRamGroup ? ExactSensor(snapshot, "/ram", "Data", "Memory Used") : nullptr;
+        const LibreBridge::SensorReading* ramAvailable = isRamGroup ? ExactSensor(snapshot, "/ram", "Data", "Memory Available") : nullptr;
+        const SensorState* ramUsedState = nullptr;
+        const SensorState* ramAvailableState = nullptr;
+        std::string ramPairValue;
+        bool pairRam = false;
+        if (ramUsed != nullptr)
+        {
+            const auto usedState = stateByKey.find(ramUsed->settingKey);
+            if (usedState != stateByKey.end() && usedState->second->selected && usedState->second->groupId == group.id)
+                ramUsedState = usedState->second;
+        }
+        if (ramAvailable != nullptr)
+        {
+            const auto availableState = stateByKey.find(ramAvailable->settingKey);
+            if (availableState != stateByKey.end() && availableState->second->selected && availableState->second->groupId == group.id)
+                ramAvailableState = availableState->second;
+        }
+        if (ramUsed != nullptr && ramUsedState != nullptr && ramAvailable != nullptr)
+        {
+            const auto used = ParseFormattedUnit(ramUsed->value, "GB");
+            const auto available = ParseFormattedUnit(ramAvailable->value, "GB");
+            const bool visibleAvailableIsAfterUsed = ramAvailableState == nullptr ||
+                std::find(selected.begin(), selected.end(), ramUsedState) <
+                std::find(selected.begin(), selected.end(), ramAvailableState);
+            if (used.has_value() && available.has_value() && visibleAvailableIsAfterUsed &&
+                std::isfinite(*used + *available))
+            {
+                pairRam = true;
+                ramPairValue = CompactGigabytes(ramUsed->value) + "/" + FormatGigabytes(*used + *available);
+            }
+        }
+
+        struct FanAverage
+        {
+            std::size_t count = 0;
+            double value = 0;
+            const SensorState* firstState = nullptr;
+            std::optional<std::string> text;
+        };
+        std::unordered_map<std::string, FanAverage> fanAverages;
+        if (averageGpuFanRpm)
+        {
+            for (const SensorState* state : selected)
+            {
+                const LibreBridge::SensorReading* reading = readings.at(state->settingKey);
+                if (!state->averageFan || !IsGpu(*reading) || !IsType(*reading, "Fan")) continue;
+                const auto rpm = ParseFormattedUnit(reading->value, "RPM");
+                if (!rpm.has_value()) continue;
+                FanAverage& average = fanAverages[reading->rootHardwareId];
+                if (average.count == 0)
+                {
+                    average.value = *rpm;
+                    average.firstState = state;
+                }
+                else
+                {
+                    average.value += (*rpm - average.value) / static_cast<double>(average.count + 1);
+                }
+                ++average.count;
+            }
+            for (auto& [rootHardwareId, average] : fanAverages)
+            {
+                (void)rootHardwareId;
+                if (average.count >= 2) average.text = FormatFanAverage(average.value);
+            }
+        }
 
         std::vector<std::string> values;
         bool pairAdded = false;
         for (const SensorState* state : selected)
         {
             const LibreBridge::SensorReading* reading = readings.at(state->settingKey);
-            if ((pairVram || pairRam) && (state == firstState || state == secondState))
+            if (pairVram && (state == firstState || state == secondState))
             {
                 if (!pairAdded)
                 {
-                    if (pairVram)
-                    {
-                        values.push_back(CompactMegabytes(DisplayValue(*pairFirst)) + "/" +
-                                         CompactMegabytes(DisplayValue(*pairSecond)));
-                    }
-                    else
-                    {
-                        values.push_back(CompactGigabytes(DisplayValue(*pairFirst)) + "/" +
-                                         FormatGigabytes(*ramUsed + *ramAvailable));
-                    }
+                    values.push_back(CompactMegabytes(DisplayValue(*pairFirst)) + "/" +
+                                     CompactMegabytes(DisplayValue(*pairSecond)));
                     pairAdded = true;
                 }
+                continue;
+            }
+
+            if (pairRam && state == ramUsedState)
+            {
+                values.push_back(ramPairValue);
+                continue;
+            }
+            if (pairRam && state == ramAvailableState) continue;
+
+            const auto fanAverage = fanAverages.find(reading->rootHardwareId);
+            const auto rpm = ParseFormattedUnit(reading->value, "RPM");
+            if (averageGpuFanRpm && state->averageFan && rpm.has_value() && IsGpu(*reading) && IsType(*reading, "Fan") &&
+                fanAverage != fanAverages.end() && fanAverage->second.count >= 2 && fanAverage->second.text.has_value())
+            {
+                if (state == fanAverage->second.firstState) values.push_back(*fanAverage->second.text);
                 continue;
             }
             values.push_back(DisplayValue(*reading));

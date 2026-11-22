@@ -20,7 +20,7 @@ The ASI output is `src/OptiSensor.Plugin/bin/Release/OptiSensor.asi`. Plugin CI 
 ## Packaging and release
 
 - `.github/workflows/build-optisensor-plugin.yml` is a manual `workflow_dispatch` workflow for the rolling `OptiSensor.Plugin` pre-release.
-- The release asset is `OptiSensor.zip`, containing exactly one root entry: `OptiSensor-loadlate.asi`.
+- The release asset is `OptiSensor.zip`, containing exactly one root entry: `OptiSensor.asi`.
 - Preserve the workflow's `Build-Run-ID` and `Build-SHA` metadata, updater integration, and rolling asset replacement behavior.
 - The plugin requires user-installed LibreHardwareMonitor v0.9.6, PawnIO, and LibreHardwareMonitor Remote Web Server on port 8085. The ASI does not install, start, elevate, or reconfigure either dependency.
 
