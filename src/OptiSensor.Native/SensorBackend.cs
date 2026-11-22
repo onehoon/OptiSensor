@@ -489,10 +489,10 @@ internal static unsafe class SensorWorker
 
     private static float NormalizeValue(SensorType type, float value) => type switch
     {
-        SensorType.Data => value / (1024f * 1024f * 1024f),
         SensorType.Throughput => value / (1024f * 1024f),
         _ => value
     };
+
     private static string GetUnit(SensorType type) => type.ToString() switch
     {
         "Voltage" => "V",
