@@ -8,6 +8,8 @@
 
 using namespace OptiSensorPlugin::LibreBridge;
 
+void RunOverlayLayoutTests();
+
 namespace
 {
 constexpr char Fixture[] = R"json({
@@ -267,6 +269,7 @@ int main(int argc, char** argv)
     {
         TestSchemaAndIdentity();
         TestLimitMalformedAndRetention();
+        RunOverlayLayoutTests();
         if (argc == 2 && std::string(argv[1]) == "--live")
         {
             std::string response;
