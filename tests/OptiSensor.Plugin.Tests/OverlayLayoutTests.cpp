@@ -98,6 +98,60 @@ void TestCuratedDefaults()
             "GPU fan averaging settings are not scoped to GPU Fan sensor identities");
 }
 
+void TestSparseHandheldDefaultsAndPreview()
+{
+    LibreBridge::SensorSnapshot snapshot;
+    snapshot.hasValidSnapshot = true;
+    snapshot.readings = {
+        MakeReading("/intelcpu/0", "/intelcpu/0/load/0", "SensorVisible_INTEL_CPU_TOTAL", "CPU Total", "Load", "12.0 %"),
+        MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/load/0", "SensorVisible_INTEL_D3D", "D3D", "Load", "1.0 %"),
+        MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/load/1", "SensorVisible_INTEL_D3D_3D", "D3D 3D", "Load", "1.0 %"),
+        MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/smalldata/0", "SensorVisible_INTEL_SHARED_USED", "D3D Shared Memory Used", "SmallData", "1.0 GB"),
+        MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/smalldata/1", "SensorVisible_INTEL_SHARED_FREE", "D3D Shared Memory Free", "SmallData", "7.0 GB"),
+        MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/smalldata/2", "SensorVisible_INTEL_SHARED_TOTAL", "D3D Shared Memory Total", "SmallData", "8.0 GB"),
+        MakeReading("/ram", "/ram/data/0", "SensorVisible_RAM_USED", "Memory Used", "Data", "8.0 GB"),
+        MakeReading("/ram", "/ram/data/1", "SensorVisible_RAM_AVAILABLE", "Memory Available", "Data", "24.0 GB"),
+    };
+
+    const auto recommendations = OverlayLayout::GetDefaultRecommendations(snapshot);
+    RequireOverlay(recommendations.size() == 2 &&
+                   recommendations[0].settingKey == "SensorVisible_INTEL_CPU_TOTAL" &&
+                   recommendations[0].groupId == "CPU" &&
+                   recommendations[1].settingKey == "SensorVisible_RAM_USED" &&
+                   recommendations[1].groupId == "RAM",
+            "sparse Intel sensors did not recommend only existing CPU Total and physical RAM Used readings");
+    RequireOverlay(std::none_of(recommendations.begin(), recommendations.end(), [](const auto& item)
+            { return item.groupId == "GPU" || item.groupId == "VRAM"; }),
+            "D3D shared memory or Intel GPU load was substituted for missing dedicated GPU metrics");
+
+    const std::vector<OverlayLayout::Group> groups = {
+        {"CPU", "CPU"}, {"GPU", "GPU"}, {"VRAM", "VRAM"}, {"RAM", "RAM"}
+    };
+    const std::vector<OverlayLayout::SensorState> selected = {
+        {"SensorVisible_INTEL_CPU_TOTAL", "CPU", 100, true},
+        {"SensorVisible_RAM_USED", "RAM", 100, true},
+    };
+    const std::string preview = OverlayLayout::ComposePreview(snapshot, groups, selected);
+    RequireOverlay(preview == "CPU 12.0 % | RAM 8GB/32GB",
+            "sparse CPU load and RAM Used-only preview did not render with empty GPU/VRAM groups");
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, groups, {}) == "No sensors selected",
+            "an entirely empty selection did not retain the empty-state message");
+
+    auto missingAvailable = snapshot;
+    missingAvailable.readings.erase(missingAvailable.readings.begin() + 7);
+    RequireOverlay(OverlayLayout::ComposePreview(missingAvailable, groups, selected) == "CPU 12.0 % | RAM 8.0 GB",
+            "missing Memory Available invented RAM capacity instead of showing the actual Used value");
+
+    auto unnamedGroups = groups;
+    unnamedGroups[0].name.clear();
+    const std::vector<OverlayLayout::SensorState> cpuOnly = {selected[0]};
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, unnamedGroups, cpuOnly) == "12.0 %",
+            "an empty group display name hid its selected sensor value");
+    unnamedGroups[0].name = " \t ";
+    RequireOverlay(OverlayLayout::ComposePreview(snapshot, unnamedGroups, cpuOnly).find("12.0 %") != std::string::npos,
+            "a whitespace-only group display name hid its selected sensor value");
+}
+
 void TestDeterministicGpuAndComposedPreview()
 {
     LibreBridge::SensorSnapshot snapshot;
@@ -372,6 +426,7 @@ void TestPersistentOrderNormalization()
 void RunOverlayLayoutTests()
 {
     TestCuratedDefaults();
+    TestSparseHandheldDefaultsAndPreview();
     TestDeterministicGpuAndComposedPreview();
     TestFanAveragingComposition();
     TestPersistentOrderNormalization();

@@ -206,8 +206,6 @@ void AddSensor(
     reading.text = text;
     reading.label = rootHardwareId == hardwareId ? text : hardwareName + " / " + text;
     reading.sensorType = type;
-    reading.groupDefaultExpanded = IsCpu(rootHardwareId) || IsGpu(rootHardwareId);
-
     const yyjson_val* jsonValue = yyjson_obj_get(node, "Value");
     if (yyjson_is_str(jsonValue))
     {

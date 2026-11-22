@@ -173,7 +173,7 @@ void TestSchemaAndIdentity()
     Require(temperature.identity == "/amdcpu/0|/amdcpu/0|/amdcpu/0/temperature/2", "legacy sensor identity changed");
     Require(temperature.settingKey == "SensorVisible_399732E2CE7578D0F97D7C869F057C8293A06A2EA6AE9ABCAA63096166B6F4A3", "legacy sensor setting key changed");
     Require(temperature.groupSettingKey == "GroupExpanded_0367DA87AA66D6703746BCA443F60E9F389702896701B76D0AC123FF82BAABF7", "legacy group setting key changed");
-    Require(temperature.groupDefaultExpanded, "CPU group must default expanded");
+    Require(!temperature.groupDefaultExpanded, "CPU group must default collapsed");
 
     const SensorReading& averageClock = FindSensor(snapshot, "/amdcpu/0/clock/1");
     const SensorReading& packagePower = FindSensor(snapshot, "/amdcpu/0/power/0");
@@ -196,7 +196,7 @@ void TestSchemaAndIdentity()
     Require(memory != nullptr && bus != nullptr, "duplicate GPU names were not preserved");
     Require(memory->settingKey != bus->settingKey && memory->identity != bus->identity, "duplicate GPU settings collide");
     Require(memory->identity.find("|Load|GPU Memory|") != std::string::npos, "duplicate identity lacks stable discriminator");
-    Require(memory->groupDefaultExpanded && bus->groupDefaultExpanded, "GPU group must default expanded");
+    Require(!memory->groupDefaultExpanded && !bus->groupDefaultExpanded, "GPU group must default collapsed");
 
     Require(CountSensors(snapshot, "/nvme/1/temperature/0") == 1, "NVMe sensor was not included");
     Require(CountSensors(snapshot, "/ssd/0/temperature/0") == 1, "SSD sensor was not included");
@@ -284,10 +284,77 @@ void TestIntelHardwareGroupClassification()
     Require(ParseSnapshot(fixture, snapshot), "Intel hardware fixture did not parse");
     const SensorReading& cpu = FindSensor(snapshot, "/intelcpu/0/temperature/0");
     const SensorReading& gpu = FindSensor(snapshot, "/gpu-intel-integrated/0/temperature/0");
-    Require(cpu.device == "CPU - Intel CPU" && cpu.groupDefaultExpanded,
-            "Intel CPU was not classified and expanded as CPU hardware");
-    Require(gpu.device == "GPU - Intel GPU" && gpu.groupDefaultExpanded,
-            "Intel integrated GPU was not classified and expanded as GPU hardware");
+    Require(cpu.device == "CPU - Intel CPU" && !cpu.groupDefaultExpanded,
+            "Intel CPU was not classified with a collapsed default");
+    Require(gpu.device == "GPU - Intel GPU" && !gpu.groupDefaultExpanded,
+            "Intel integrated GPU was not classified with a collapsed default");
+}
+
+void TestSparseHandheldSnapshot()
+{
+    constexpr std::string_view fixture = R"json({
+      "Children": [{
+        "Text": "MSI Claw 8 EX AI+",
+        "Children": [
+          {
+            "Text": "Intel CPU",
+            "HardwareId": "/intelcpu/0",
+            "Children": [{
+              "Text": "CPU Total",
+              "SensorId": "/intelcpu/0/load/0",
+              "Type": "Load",
+              "Value": "12.0 %"
+            }]
+          },
+          {
+            "Text": "Intel Graphics",
+            "HardwareId": "/gpu-intel-integrated/0",
+            "Children": [
+              {"Text":"D3D", "SensorId":"/gpu-intel-integrated/0/load/0", "Type":"Load", "Value":"1.0 %"},
+              {"Text":"D3D 3D", "SensorId":"/gpu-intel-integrated/0/load/1", "Type":"Load", "Value":"1.0 %"},
+              {"Text":"D3D Shared Memory Used", "SensorId":"/gpu-intel-integrated/0/smalldata/0", "Type":"SmallData", "Value":"1.0 GB"},
+              {"Text":"D3D Shared Memory Free", "SensorId":"/gpu-intel-integrated/0/smalldata/1", "Type":"SmallData", "Value":"7.0 GB"},
+              {"Text":"D3D Shared Memory Total", "SensorId":"/gpu-intel-integrated/0/smalldata/2", "Type":"SmallData", "Value":"8.0 GB"}
+            ]
+          },
+          {
+            "Text": "Generic Memory",
+            "HardwareId": "/ram",
+            "Children": [
+              {"Text":"Memory Used", "SensorId":"/ram/data/0", "Type":"Data", "Value":"8.0 GB"},
+              {"Text":"Memory Available", "SensorId":"/ram/data/1", "Type":"Data", "Value":"24.0 GB"}
+            ]
+          },
+          {
+            "Text": "Battery",
+            "HardwareId": "/battery/0",
+            "Children": [{
+              "Text": "Charge Level",
+              "SensorId": "/battery/0/load/0",
+              "Type": "Load",
+              "Value": "85.0 %"
+            }]
+          }
+        ]
+      }]
+    })json";
+
+    SensorSnapshot snapshot;
+    Require(ParseSnapshot(fixture, snapshot), "sparse Intel handheld fixture did not parse");
+    Require(snapshot.readings.size() == 9, "sparse fixture produced unexpected or fabricated readings");
+    Require(FindSensor(snapshot, "/intelcpu/0/load/0").text == "CPU Total", "Intel CPU load was not retained");
+    Require(FindSensor(snapshot, "/gpu-intel-integrated/0/load/0").text == "D3D", "Intel GPU D3D load was not retained");
+    Require(FindSensor(snapshot, "/gpu-intel-integrated/0/smalldata/2").text == "D3D Shared Memory Total",
+            "Intel GPU shared memory was not retained");
+    Require(FindSensor(snapshot, "/ram/data/0").text == "Memory Used" &&
+            FindSensor(snapshot, "/ram/data/1").text == "Memory Available",
+            "physical RAM readings were not retained");
+    Require(FindSensor(snapshot, "/battery/0/load/0").text == "Charge Level",
+            "optional battery sensor was not retained");
+    for (const SensorReading& reading : snapshot.readings)
+    {
+        Require(!reading.groupDefaultExpanded, "a hardware group did not default to collapsed");
+    }
 }
 
 std::string ReadFile(const char* path)
@@ -308,6 +375,7 @@ int main(int argc, char** argv)
         TestSchemaAndIdentity();
         TestLimitMalformedAndRetention();
         TestIntelHardwareGroupClassification();
+        TestSparseHandheldSnapshot();
         RunOverlayLayoutTests();
         if (argc == 2 && std::string(argv[1]) == "--live")
         {

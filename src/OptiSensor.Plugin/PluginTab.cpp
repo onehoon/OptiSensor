@@ -30,6 +30,7 @@ PluginRuntime* g_runtime = nullptr;
 struct TabState
 {
     std::vector<OverlayLayout::Group> groups;
+    std::unordered_map<std::string, std::array<char, 160>> groupNameEditBuffers;
     bool groupsLoaded = false;
     char newGroupName[96]{};
     const char* saveStatus = nullptr;
@@ -69,6 +70,18 @@ std::string OverlayGroupIdKey(int index)
 std::string OverlayGroupNameKey(const std::string& id)
 {
     return "OverlayGroupName_" + id;
+}
+
+std::array<char, 160>& GroupNameEditBuffer(const OverlayLayout::Group& group)
+{
+    auto [buffer, inserted] = g_tabState.groupNameEditBuffers.try_emplace(group.id);
+    if (inserted)
+    {
+        const std::size_t length = std::min(group.name.size(), buffer->second.size() - 1);
+        std::memcpy(buffer->second.data(), group.name.data(), length);
+        buffer->second[length] = '\0';
+    }
+    return buffer->second;
 }
 
 std::vector<OverlayLayout::Group> DefaultOverlayGroups()
@@ -344,9 +357,7 @@ void DrawSelectedSensors(
             if (OPTI_API_HAS(g_runtime->api, Spacing)) g_runtime->api->Spacing();
         }
         firstGroup = false;
-        std::array<char, 160> nameBuffer{};
-        const std::size_t length = std::min(group.name.size(), nameBuffer.size() - 1);
-        std::memcpy(nameBuffer.data(), group.name.data(), length);
+        std::array<char, 160>& nameBuffer = GroupNameEditBuffer(group);
         const std::string inputId = "##OverlayGroupName_" + group.id;
         if (g_runtime->api->InputText(inputId.c_str(), nameBuffer.data(), nameBuffer.size()))
         {
