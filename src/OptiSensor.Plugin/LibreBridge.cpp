@@ -97,7 +97,8 @@ bool IsGpu(std::string_view hardwareId)
 {
     return StartsWith(hardwareId, "/gpu-nvidia/") ||
         StartsWith(hardwareId, "/gpu-amd/") ||
-        StartsWith(hardwareId, "/gpu-intel/");
+        StartsWith(hardwareId, "/gpu-intel/") ||
+        StartsWith(hardwareId, "/gpu-intel-integrated/");
 }
 
 std::string GroupTitle(std::string_view hardwareId, const std::string& name)

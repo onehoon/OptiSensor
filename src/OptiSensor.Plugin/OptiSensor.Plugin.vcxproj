@@ -48,11 +48,18 @@
   <ItemGroup>
     <ClInclude Include="optiscaler_plugin.h" />
     <ClInclude Include="LibreBridge.h" />
+    <ClInclude Include="OverlayLayout.h" />
+    <ClInclude Include="PluginRuntime.h" />
+    <ClInclude Include="PluginTab.h" />
+    <ClInclude Include="UpdateChecker.h" />
     <ClInclude Include="..\..\third_party\yyjson\yyjson.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="OptiSensor.cpp" />
     <ClCompile Include="LibreBridge.cpp" />
+    <ClCompile Include="OverlayLayout.cpp" />
+    <ClCompile Include="PluginTab.cpp" />
+    <ClCompile Include="UpdateChecker.cpp" />
     <ClCompile Include="..\..\third_party\yyjson\yyjson.c">
       <CompileAs>CompileAsC</CompileAs>
     </ClCompile>

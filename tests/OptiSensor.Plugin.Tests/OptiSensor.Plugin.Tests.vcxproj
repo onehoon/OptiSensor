@@ -41,11 +41,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\OptiSensor.Plugin\LibreBridge.h" />
+    <ClInclude Include="..\..\src\OptiSensor.Plugin\OverlayLayout.h" />
     <ClInclude Include="..\..\third_party\yyjson\yyjson.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="LibreBridgeTests.cpp" />
+    <ClCompile Include="OverlayLayoutTests.cpp" />
     <ClCompile Include="..\..\src\OptiSensor.Plugin\LibreBridge.cpp" />
+    <ClCompile Include="..\..\src\OptiSensor.Plugin\OverlayLayout.cpp" />
     <ClCompile Include="..\..\third_party\yyjson\yyjson.c">
       <CompileAs>CompileAsC</CompileAs>
     </ClCompile>
