@@ -77,10 +77,9 @@ internal static unsafe class SensorWorker
     private static string _message = "Waiting for sensor discovery.";
     private static int _status = (int)SensorServiceStatus.Loading;
     private static int _stopRequested;
-    private static int _gpuMonitoringEnabled = 1;
     private static Thread? _worker;
 
-    public static int Start(int enableGpuMonitoring)
+    public static int Start()
     {
         lock (Gate)
         {
@@ -89,7 +88,6 @@ internal static unsafe class SensorWorker
                 return 1;
             }
 
-            Volatile.Write(ref _gpuMonitoringEnabled, enableGpuMonitoring != 0 ? 1 : 0);
             _stopRequested = 0;
             _snapshot = [];
             _totalSensorCount = 0;
@@ -200,7 +198,7 @@ internal static unsafe class SensorWorker
                 IsBatteryEnabled = true,
                 IsControllerEnabled = true,
                 IsCpuEnabled = true,
-                IsGpuEnabled = Volatile.Read(ref _gpuMonitoringEnabled) != 0,
+                IsGpuEnabled = true,
                 IsMemoryEnabled = true,
                 IsMotherboardEnabled = true,
                 IsNetworkEnabled = false,
@@ -556,11 +554,11 @@ internal static unsafe class SensorWorker
 internal static unsafe class NativeExports
 {
     [UnmanagedCallersOnly(EntryPoint = "OptiSensor_Start", CallConvs = [typeof(CallConvCdecl)])]
-    public static int Start(int enableGpuMonitoring)
+    public static int Start()
     {
         try
         {
-            return SensorWorker.Start(enableGpuMonitoring);
+            return SensorWorker.Start();
         }
         catch
         {
