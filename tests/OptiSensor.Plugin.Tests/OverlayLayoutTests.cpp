@@ -97,20 +97,44 @@ void TestDeterministicGpuAndComposedPreview()
     snapshot.readings = {
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/temperature/0", "SensorVisible_NVIDIA_TEMP", "GPU Core", "Temperature", "40.0 °C"),
         MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/load/0", "SensorVisible_NVIDIA_LOAD", "GPU Core", "Load", "20.0 %"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/power/0", "SensorVisible_NVIDIA_POWER", "GPU Package Power", "Power", "30.0 W"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/fan/0", "SensorVisible_NVIDIA_FAN", "GPU Fan 1", "Fan", "800 RPM"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/smalldata/0", "SensorVisible_NVIDIA_USED", "GPU Memory Used", "SmallData", "6000 MB"),
+        MakeReading("/gpu-nvidia/0", "/gpu-nvidia/0/smalldata/1", "SensorVisible_NVIDIA_TOTAL", "GPU Memory Total", "SmallData", "12000 MB"),
         MakeReading("/gpu-amd/0", "/gpu-amd/0/temperature/0", "SensorVisible_AMD_TEMP", "GPU Core", "Temperature", "38.0 °C"),
         MakeReading("/gpu-amd/0", "/gpu-amd/0/load/0", "SensorVisible_AMD_LOAD", "GPU Core", "Load", "23.0 %"),
         MakeReading("/gpu-amd/0", "/gpu-amd/0/power/0", "SensorVisible_AMD_POWER", "GPU Package Power", "Power", "15 W"),
+        MakeReading("/gpu-amd/0", "/gpu-amd/0/fan/0", "SensorVisible_AMD_FAN", "GPU Fan 1", "Fan", "900 RPM"),
         MakeReading("/gpu-amd/0", "/gpu-amd/0/smalldata/0", "SensorVisible_AMD_USED", "GPU Memory Used", "SmallData", "6666.0 MB"),
         MakeReading("/gpu-amd/0", "/gpu-amd/0/smalldata/1", "SensorVisible_AMD_TOTAL", "GPU Memory Total", "SmallData", "12000.0 MB"),
+        MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/temperature/0", "SensorVisible_INTEL_GPU_TEMP", "GPU Core", "Temperature", "45.0 °C"),
+        MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/smalldata/0", "SensorVisible_INTEL_GPU_USED", "GPU Memory Used", "SmallData", "1000 MB"),
+        MakeReading("/intelcpu/0", "/intelcpu/0/temperature/0", "SensorVisible_INTELCPU_TEMP", "CPU Package", "Temperature", "55.0 °C"),
+        MakeReading("/intelcpu/0", "/intelcpu/0/load/0", "SensorVisible_INTELCPU_LOAD", "CPU Total", "Load", "10.0 %"),
+        MakeReading("/intelcpu/0", "/intelcpu/0/power/0", "SensorVisible_INTELCPU_POWER", "Package", "Power", "40.0 W"),
     };
 
-    RequireOverlay(OverlayLayout::GetGpuHardwareId(snapshot) == "/gpu-amd/0", "GPU choice was not deterministic by hardware ID");
+    RequireOverlay(OverlayLayout::GetGpuHardwareId(snapshot) == "/gpu-nvidia/0", "hybrid GPU preference did not choose the NVIDIA adapter");
     const auto defaults = OverlayLayout::GetDefaultRecommendations(snapshot);
-    RequireOverlay(defaults.size() == 5, "default GPU metrics came from more than one hardware ID");
+    RequireOverlay(defaults.size() == 9, "Intel CPU or preferred NVIDIA GPU recommendations were missing");
+    std::size_t gpuRecommendationCount = 0;
     for (const auto& item : defaults)
     {
-        RequireOverlay(item.settingKey.find("AMD") != std::string::npos, "GPU metrics were mixed between adapters");
+        if (item.groupId == "CPU")
+        {
+            RequireOverlay(item.settingKey.find("INTELCPU") != std::string::npos, "Intel CPU sensors were not selected into CPU");
+        }
+        else
+        {
+            ++gpuRecommendationCount;
+            RequireOverlay(item.settingKey.find("NVIDIA") != std::string::npos, "GPU and VRAM defaults were mixed between adapters");
+        }
     }
+    RequireOverlay(gpuRecommendationCount == 6, "expected NVIDIA GPU and VRAM readings from the same adapter");
+    RequireOverlay(OverlayLayout::GetDefaultGroupId(snapshot.readings[12]) == "GPU" &&
+                   OverlayLayout::GetDefaultGroupId(snapshot.readings[13]) == "VRAM" &&
+                   OverlayLayout::GetDefaultGroupId(snapshot.readings[14]) == "CPU",
+            "Intel integrated GPU or Intel CPU sensors were not classified into their default groups");
 
     LibreBridge::SensorSnapshot previewSnapshot;
     previewSnapshot.readings = {

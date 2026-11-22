@@ -5,6 +5,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 using namespace OptiSensorPlugin::LibreBridge;
 
@@ -252,6 +253,43 @@ void TestLimitMalformedAndRetention()
     Require(!recovered.unavailable && FindSensor(recovered, "/amdcpu/0/temperature/2").value == formattedTemperature, "valid snapshot did not recover immediately");
 }
 
+void TestIntelHardwareGroupClassification()
+{
+    constexpr std::string_view fixture = R"json({
+      "Children": [
+        {
+          "Text": "Intel CPU",
+          "HardwareId": "/intelcpu/0",
+          "Children": [{
+            "Text": "CPU Package",
+            "SensorId": "/intelcpu/0/temperature/0",
+            "Type": "Temperature",
+            "Value": "55.0 °C"
+          }]
+        },
+        {
+          "Text": "Intel GPU",
+          "HardwareId": "/gpu-intel-integrated/0",
+          "Children": [{
+            "Text": "GPU Core",
+            "SensorId": "/gpu-intel-integrated/0/temperature/0",
+            "Type": "Temperature",
+            "Value": "45.0 °C"
+          }]
+        }
+      ]
+    })json";
+
+    SensorSnapshot snapshot;
+    Require(ParseSnapshot(fixture, snapshot), "Intel hardware fixture did not parse");
+    const SensorReading& cpu = FindSensor(snapshot, "/intelcpu/0/temperature/0");
+    const SensorReading& gpu = FindSensor(snapshot, "/gpu-intel-integrated/0/temperature/0");
+    Require(cpu.device == "CPU - Intel CPU" && cpu.groupDefaultExpanded,
+            "Intel CPU was not classified and expanded as CPU hardware");
+    Require(gpu.device == "GPU - Intel GPU" && gpu.groupDefaultExpanded,
+            "Intel integrated GPU was not classified and expanded as GPU hardware");
+}
+
 std::string ReadFile(const char* path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -269,6 +307,7 @@ int main(int argc, char** argv)
     {
         TestSchemaAndIdentity();
         TestLimitMalformedAndRetention();
+        TestIntelHardwareGroupClassification();
         RunOverlayLayoutTests();
         if (argc == 2 && std::string(argv[1]) == "--live")
         {

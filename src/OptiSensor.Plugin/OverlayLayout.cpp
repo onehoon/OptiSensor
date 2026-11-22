@@ -45,14 +45,17 @@ bool StartsWith(std::string_view value, std::string_view prefix)
 
 bool IsCpu(const LibreBridge::SensorReading& reading)
 {
-    return StartsWith(reading.rootHardwareId, "/amdcpu/") || StartsWith(reading.rootHardwareId, "/cpu/");
+    return StartsWith(reading.rootHardwareId, "/amdcpu/") ||
+        StartsWith(reading.rootHardwareId, "/intelcpu/") ||
+        StartsWith(reading.rootHardwareId, "/cpu/");
 }
 
 bool IsGpu(const LibreBridge::SensorReading& reading)
 {
     return StartsWith(reading.rootHardwareId, "/gpu-nvidia/") ||
         StartsWith(reading.rootHardwareId, "/gpu-amd/") ||
-        StartsWith(reading.rootHardwareId, "/gpu-intel/");
+        StartsWith(reading.rootHardwareId, "/gpu-intel/") ||
+        StartsWith(reading.rootHardwareId, "/gpu-intel-integrated/");
 }
 
 bool IsType(const LibreBridge::SensorReading& reading, std::string_view type)
@@ -336,7 +339,23 @@ std::string GetGpuHardwareId(const LibreBridge::SensorSnapshot& snapshot)
             gpuRoots.insert(reading.rootHardwareId);
         }
     }
-    return gpuRoots.empty() ? std::string{} : *std::min_element(gpuRoots.begin(), gpuRoots.end());
+    if (gpuRoots.empty()) return {};
+
+    const auto preference = [](std::string_view hardwareId)
+    {
+        if (StartsWith(hardwareId, "/gpu-nvidia/")) return 0;
+        if (StartsWith(hardwareId, "/gpu-amd/")) return 1;
+        if (StartsWith(hardwareId, "/gpu-intel/")) return 2;
+        if (StartsWith(hardwareId, "/gpu-intel-integrated/")) return 3;
+        return 4;
+    };
+    const auto selected = std::min_element(gpuRoots.begin(), gpuRoots.end(), [&preference](const std::string& left, const std::string& right)
+    {
+        const int leftPreference = preference(left);
+        const int rightPreference = preference(right);
+        return leftPreference == rightPreference ? left < right : leftPreference < rightPreference;
+    });
+    return selected == gpuRoots.end() ? std::string{} : *selected;
 }
 
 std::string GetSensorGroupSettingKey(const LibreBridge::SensorReading& reading)
