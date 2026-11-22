@@ -49,7 +49,7 @@ typedef struct OptiSensorSnapshotInfo
 extern "C" {
 #endif
 
-int32_t __cdecl OptiSensor_Start(int32_t enableGpuMonitoring);
+int32_t __cdecl OptiSensor_Start(void);
 int32_t __cdecl OptiSensor_GetSnapshot(
     OptiSensorReading* readings,
     int32_t capacity,

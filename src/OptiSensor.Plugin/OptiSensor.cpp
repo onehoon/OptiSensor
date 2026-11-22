@@ -35,7 +35,7 @@ const OptiPluginApi* g_api = nullptr;
 OptiPlugin* g_plugin = nullptr;
 const char* g_saveStatus = nullptr;
 
-using StartFn = int32_t(__cdecl*)(int32_t);
+using StartFn = int32_t(__cdecl*)();
 using GetSnapshotFn = int32_t(__cdecl*)(OptiSensorReading*, int32_t, OptiSensorSnapshotInfo*);
 using StopFn = int32_t(__cdecl*)();
 
@@ -50,7 +50,15 @@ ULONGLONG g_lastSnapshotRead = 0;
 std::string g_backendError;
 std::string g_snapshotError;
 std::atomic<bool> g_backendInitFinished{false};
-std::atomic<bool> g_updateAvailable{false};
+enum class UpdateStatus : std::uint8_t
+{
+    Checking,
+    UpToDate,
+    UpdateAvailable,
+    Unavailable,
+    LocalBuild
+};
+std::atomic<UpdateStatus> g_updateStatus{UpdateStatus::Checking};
 
 struct WinHttpHandle
 {
@@ -311,20 +319,27 @@ bool IsNewerRunId(std::uint64_t remoteRunId, std::uint64_t localRunId)
     return localRunId != 0 && remoteRunId > localRunId;
 }
 
-bool IsUpdateAvailable()
+UpdateStatus CheckUpdateStatus()
 {
     if (kBuildRunId == 0)
     {
-        return false;
+        return UpdateStatus::LocalBuild;
     }
 
     std::string response;
     std::string releaseBody;
     std::uint64_t remoteRunId = 0;
-    return ReadReleaseResponse(response) &&
-        ExtractReleaseBody(response, releaseBody) &&
-        ParseReleaseRunId(releaseBody, remoteRunId) &&
-        IsNewerRunId(remoteRunId, kBuildRunId);
+    if (!ReadReleaseResponse(response) ||
+        !ExtractReleaseBody(response, releaseBody) ||
+        !ParseReleaseRunId(releaseBody, remoteRunId))
+    {
+        // The optional network check must never interrupt the game.
+        return UpdateStatus::Unavailable;
+    }
+
+    return IsNewerRunId(remoteRunId, kBuildRunId)
+        ? UpdateStatus::UpdateAvailable
+        : UpdateStatus::UpToDate;
 }
 
 bool IsWineOrProton()
@@ -390,7 +405,7 @@ std::wstring GetPluginDirectory()
     return result;
 }
 
-void InitializeBackend(bool enableGpuMonitoring)
+void InitializeBackend()
 {
     const std::wstring pluginDirectory = GetPluginDirectory();
     if (pluginDirectory.empty())
@@ -416,7 +431,7 @@ void InitializeBackend(bool enableGpuMonitoring)
         return;
     }
 
-    const int32_t result = g_start(enableGpuMonitoring ? 1 : 0);
+    const int32_t result = g_start();
     if (result < 0)
     {
         SetBackendUnavailable();
@@ -430,8 +445,7 @@ DWORD WINAPI InitializeBackendWorker(LPVOID)
 {
     try
     {
-        const bool enableGpuMonitoring = g_api->GetBool(g_plugin, "EnableGpuMonitoring", true);
-        InitializeBackend(enableGpuMonitoring);
+        InitializeBackend();
     }
     catch (...)
     {
@@ -441,14 +455,12 @@ DWORD WINAPI InitializeBackendWorker(LPVOID)
     g_backendInitFinished.store(true, std::memory_order_release);
     try
     {
-        if (IsUpdateAvailable())
-        {
-            g_updateAvailable.store(true, std::memory_order_release);
-        }
+        g_updateStatus.store(CheckUpdateStatus(), std::memory_order_release);
     }
     catch (...)
     {
         // Update checks are optional and must not affect sensor initialization or polling.
+        g_updateStatus.store(UpdateStatus::Unavailable, std::memory_order_release);
     }
     return 0;
 }
@@ -565,9 +577,17 @@ void DrawHardwareGroups()
 
 void DrawTab(void*)
 {
-    g_api->Section("OptiSensor");
-    if (g_updateAvailable.load(std::memory_order_acquire))
+    g_api->Section("Plugin update");
+    const UpdateStatus updateStatus = g_updateStatus.load(std::memory_order_acquire);
+    switch (updateStatus)
     {
+    case UpdateStatus::Checking:
+        g_api->Text("Checking for updates...");
+        break;
+    case UpdateStatus::UpToDate:
+        g_api->Text("Up to date");
+        break;
+    case UpdateStatus::UpdateAvailable:
         if (OPTI_API_HAS(g_api, TextColored))
         {
             g_api->TextColored(1.0f, 0.72f, 0.20f, 1.0f, "Update Available");
@@ -577,15 +597,33 @@ void DrawTab(void*)
             g_api->Text("Update Available");
         }
         g_api->Text("https://github.com/onehoon/OptiSensor/releases/tag/OptiSensor.Plugin");
+        break;
+    case UpdateStatus::LocalBuild:
+        g_api->Text("Local build");
+        break;
+    case UpdateStatus::Unavailable:
+        // Silently ignore an optional network failure.
+        break;
     }
 
-    bool enableGpuMonitoring = g_api->GetBool(g_plugin, "EnableGpuMonitoring", true);
-    if (g_api->Checkbox("Enable GPU monitoring", &enableGpuMonitoring))
+    char buildLabel[96]{};
+    if (kBuildRunId == 0)
     {
-        g_api->SetBool(g_plugin, "EnableGpuMonitoring", enableGpuMonitoring);
-        g_saveStatus = nullptr;
+        std::snprintf(buildLabel, sizeof(buildLabel), "Build: local");
     }
-    g_api->Text("Save settings to keep selections. Restart the game to apply GPU monitoring changes.");
+    else
+    {
+        std::snprintf(buildLabel, sizeof(buildLabel), "Build: %llu (%.8s)",
+                      static_cast<unsigned long long>(kBuildRunId), kBuildSha);
+    }
+    if (OPTI_API_HAS(g_api, TextDisabled))
+    {
+        g_api->TextDisabled(buildLabel);
+    }
+    else
+    {
+        g_api->Text(buildLabel);
+    }
 
     if (!g_backendInitFinished.load(std::memory_order_acquire))
     {
