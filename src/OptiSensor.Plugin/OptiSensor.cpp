@@ -8,11 +8,13 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
 #include "optiscaler_plugin.h"
-#include "../OptiSensor.Native/OptiSensorNative.h"
+#include "LibreBridge.h"
 
 #if __has_include("OptiSensorBuildInfo.generated.h")
 #include "OptiSensorBuildInfo.generated.h"
@@ -25,31 +27,21 @@
 
 extern "C" __declspec(dllexport) bool OptiPluginInit(const OptiPluginApi* api, OptiPlugin* plugin);
 
+namespace LibreBridge = OptiSensorPlugin::LibreBridge;
+
 namespace
 {
 constexpr std::uint64_t kBuildRunId = OPTISENSOR_BUILD_RUN_ID;
 constexpr char kBuildSha[] = OPTISENSOR_BUILD_SHA;
 constexpr std::size_t kMaxUpdateResponseBytes = 64 * 1024;
+constexpr ULONGLONG kLibrePollIntervalMs = 1500;
+constexpr ULONGLONG kTabActiveWindowMs = 3000;
 
 const OptiPluginApi* g_api = nullptr;
 OptiPlugin* g_plugin = nullptr;
 const char* g_saveStatus = nullptr;
-
-using StartFn = int32_t(__cdecl*)();
-using GetSnapshotFn = int32_t(__cdecl*)(OptiSensorReading*, int32_t, OptiSensorSnapshotInfo*);
-using StopFn = int32_t(__cdecl*)();
-
-HMODULE g_sensorModule = nullptr;
-StartFn g_start = nullptr;
-GetSnapshotFn g_getSnapshot = nullptr;
-StopFn g_stop = nullptr;
-std::array<OptiSensorReading, OPTISENSOR_MAX_READINGS> g_readings{};
-OptiSensorSnapshotInfo g_snapshotInfo{};
-int32_t g_readingCount = 0;
-ULONGLONG g_lastSnapshotRead = 0;
-std::string g_backendError;
-std::string g_snapshotError;
-std::atomic<bool> g_backendInitFinished{false};
+std::atomic<std::uint64_t> g_lastTabVisit{0};
+std::atomic<std::shared_ptr<const LibreBridge::SensorSnapshot>> g_sensorSnapshot;
 enum class UpdateStatus : std::uint8_t
 {
     Checking,
@@ -370,131 +362,90 @@ void Log(OptiLogLevel level, const char* message)
     }
 }
 
-void SetBackendUnavailable()
+DWORD WINAPI SensorPollingWorker(LPVOID)
 {
-    g_backendError = "Sensor monitoring unavailable.";
+    std::optional<LibreBridge::SensorSnapshot> lastGood;
+    std::uint32_t failedPollCount = 0;
+    ULONGLONG nextPoll = 0;
+    bool updateCheckComplete = false;
+
+    for (;;)
+    {
+        const ULONGLONG now = GetTickCount64();
+        const std::uint64_t lastTabVisit = g_lastTabVisit.load(std::memory_order_acquire);
+        const bool tabActive = lastTabVisit != 0 && now - lastTabVisit <= kTabActiveWindowMs;
+        bool pollAttempted = false;
+        if (!tabActive)
+        {
+            nextPoll = 0;
+        }
+        else if (nextPoll == 0 || now >= nextPoll)
+        {
+            try
+            {
+                std::string response;
+                LibreBridge::SensorSnapshot parsed;
+                pollAttempted = true;
+                if (LibreBridge::ReadLocalResponse(response) && LibreBridge::ParseSnapshot(response, parsed))
+                {
+                    failedPollCount = 0;
+                    lastGood = std::move(parsed);
+                    g_sensorSnapshot.store(
+                        std::make_shared<const LibreBridge::SensorSnapshot>(*lastGood),
+                        std::memory_order_release);
+                }
+                else
+                {
+                    failedPollCount = std::min<std::uint32_t>(failedPollCount + 1, 3);
+                    const auto* previous = lastGood.has_value() ? &*lastGood : nullptr;
+                    g_sensorSnapshot.store(
+                        std::make_shared<const LibreBridge::SensorSnapshot>(
+                            LibreBridge::MakeFailedPollSnapshot(previous, failedPollCount)),
+                        std::memory_order_release);
+                }
+            }
+            catch (...)
+            {
+                failedPollCount = std::min<std::uint32_t>(failedPollCount + 1, 3);
+                try
+                {
+                    const auto* previous = lastGood.has_value() ? &*lastGood : nullptr;
+                    g_sensorSnapshot.store(
+                        std::make_shared<const LibreBridge::SensorSnapshot>(
+                            LibreBridge::MakeFailedPollSnapshot(previous, failedPollCount)),
+                        std::memory_order_release);
+                }
+                catch (...)
+                {
+                }
+            }
+            nextPoll = GetTickCount64() + kLibrePollIntervalMs;
+        }
+
+        if (!updateCheckComplete && (pollAttempted || !tabActive))
+        {
+            updateCheckComplete = true;
+            try
+            {
+                g_updateStatus.store(CheckUpdateStatus(), std::memory_order_release);
+            }
+            catch (...)
+            {
+                g_updateStatus.store(UpdateStatus::Unavailable, std::memory_order_release);
+            }
+            if (tabActive)
+            {
+                nextPoll = GetTickCount64() + kLibrePollIntervalMs;
+            }
+        }
+
+        Sleep(tabActive ? 200 : 1000);
+    }
 }
 
-std::wstring GetPluginDirectory()
+void DrawSensor(const LibreBridge::SensorReading& reading)
 {
-    HMODULE pluginModule = nullptr;
-    const auto pluginAddress = reinterpret_cast<LPCWSTR>(&OptiPluginInit);
-    if (!GetModuleHandleExW(
-            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            pluginAddress,
-            &pluginModule))
-    {
-        return {};
-    }
-
-    std::array<wchar_t, 32768> path{};
-    const DWORD length = GetModuleFileNameW(pluginModule, path.data(), static_cast<DWORD>(path.size()));
-    if (length == 0 || length >= path.size())
-    {
-        return {};
-    }
-
-    std::wstring result(path.data(), length);
-    const size_t separator = result.find_last_of(L"\\/");
-    if (separator == std::wstring::npos)
-    {
-        return {};
-    }
-
-    result.resize(separator + 1);
-    return result;
-}
-
-void InitializeBackend()
-{
-    const std::wstring pluginDirectory = GetPluginDirectory();
-    if (pluginDirectory.empty())
-    {
-        SetBackendUnavailable();
-        return;
-    }
-
-    const std::wstring helperPath = pluginDirectory + L"OptiSensor.dll";
-    g_sensorModule = LoadLibraryW(helperPath.c_str());
-    if (g_sensorModule == nullptr)
-    {
-        SetBackendUnavailable();
-        return;
-    }
-
-    g_start = reinterpret_cast<StartFn>(GetProcAddress(g_sensorModule, "OptiSensor_Start"));
-    g_getSnapshot = reinterpret_cast<GetSnapshotFn>(GetProcAddress(g_sensorModule, "OptiSensor_GetSnapshot"));
-    g_stop = reinterpret_cast<StopFn>(GetProcAddress(g_sensorModule, "OptiSensor_Stop"));
-    if (g_start == nullptr || g_getSnapshot == nullptr || g_stop == nullptr)
-    {
-        SetBackendUnavailable();
-        return;
-    }
-
-    const int32_t result = g_start();
-    if (result < 0)
-    {
-        SetBackendUnavailable();
-        return;
-    }
-
-    g_backendError.clear();
-}
-
-DWORD WINAPI InitializeBackendWorker(LPVOID)
-{
-    try
-    {
-        InitializeBackend();
-    }
-    catch (...)
-    {
-        SetBackendUnavailable();
-    }
-
-    g_backendInitFinished.store(true, std::memory_order_release);
-    try
-    {
-        g_updateStatus.store(CheckUpdateStatus(), std::memory_order_release);
-    }
-    catch (...)
-    {
-        // Update checks are optional and must not affect sensor initialization or polling.
-        g_updateStatus.store(UpdateStatus::Unavailable, std::memory_order_release);
-    }
-    return 0;
-}
-
-void RefreshSnapshot()
-{
-    if (g_getSnapshot == nullptr)
-    {
-        return;
-    }
-
-    const ULONGLONG now = GetTickCount64();
-    if (now - g_lastSnapshotRead < 500)
-    {
-        return;
-    }
-
-    g_lastSnapshotRead = now;
-    const int32_t result = g_getSnapshot(
-        g_readings.data(), static_cast<int32_t>(g_readings.size()), &g_snapshotInfo);
-    if (result < 0)
-    {
-        g_readingCount = 0;
-        g_snapshotError = "Sensor monitoring unavailable.";
-        return;
-    }
-
-    g_snapshotError.clear();
-    g_readingCount = std::min(result, static_cast<int32_t>(g_readings.size()));
-}
-
-void DrawSensor(const OptiSensorReading& reading)
-{
-    bool visible = g_api->GetBool(g_plugin, reading.settingKey, true);
+    bool visible = g_api->GetBool(g_plugin, reading.settingKey.c_str(), true);
     std::string checkboxLabel = reading.label;
     checkboxLabel += " (";
     checkboxLabel += reading.sensorType;
@@ -503,55 +454,39 @@ void DrawSensor(const OptiSensorReading& reading)
 
     if (g_api->Checkbox(checkboxLabel.c_str(), &visible))
     {
-        g_api->SetBool(g_plugin, reading.settingKey, visible);
+        g_api->SetBool(g_plugin, reading.settingKey.c_str(), visible);
         g_saveStatus = nullptr;
     }
 
     g_api->SameLine();
-    char value[64]{};
-    if (reading.available != 0)
-    {
-        if (reading.unit[0] == '\0')
-        {
-            std::snprintf(value, sizeof(value), "%.1f", reading.value);
-        }
-        else
-        {
-            std::snprintf(value, sizeof(value), "%.1f %s", reading.value, reading.unit);
-        }
-    }
-    else
-    {
-        std::snprintf(value, sizeof(value), "N/A");
-    }
-    g_api->Text(value);
+    g_api->Text(reading.value.c_str());
 }
 
-void DrawHardwareGroups()
+void DrawHardwareGroups(const LibreBridge::SensorSnapshot& snapshot)
 {
     g_api->Section("Hardware sensors");
-    if (g_readingCount == 0)
+    if (snapshot.readings.empty())
     {
         g_api->Text("No detected sensors");
         return;
     }
 
-    int32_t first = 0;
-    while (first < g_readingCount)
+    std::size_t first = 0;
+    while (first < snapshot.readings.size())
     {
-        const OptiSensorReading& group = g_readings[static_cast<size_t>(first)];
-        int32_t end = first + 1;
-        while (end < g_readingCount &&
-               std::strcmp(g_readings[static_cast<size_t>(end)].groupSettingKey, group.groupSettingKey) == 0)
+        const LibreBridge::SensorReading& group = snapshot.readings[first];
+        std::size_t end = first + 1;
+        while (end < snapshot.readings.size() &&
+               snapshot.readings[end].groupSettingKey == group.groupSettingKey)
         {
             ++end;
         }
 
-        bool expanded = g_api->GetBool(g_plugin, group.groupSettingKey, group.groupDefaultExpanded != 0);
+        bool expanded = g_api->GetBool(g_plugin, group.groupSettingKey.c_str(), group.groupDefaultExpanded);
         std::string header = expanded ? "[-] " : "[+] ";
         header += group.device;
         header += " [";
-        header.append(group.groupSettingKey + (sizeof("GroupExpanded_") - 1), 8);
+        header.append(group.groupSettingKey.data() + (sizeof("GroupExpanded_") - 1), 8);
         header += "] (";
         header += std::to_string(end - first);
         header += " sensors)##";
@@ -559,15 +494,15 @@ void DrawHardwareGroups()
         if (g_api->Button(header.c_str()))
         {
             expanded = !expanded;
-            g_api->SetBool(g_plugin, group.groupSettingKey, expanded);
+            g_api->SetBool(g_plugin, group.groupSettingKey.c_str(), expanded);
             g_saveStatus = nullptr;
         }
 
         if (expanded)
         {
-            for (int32_t index = first; index < end; ++index)
+            for (std::size_t index = first; index < end; ++index)
             {
-                DrawSensor(g_readings[static_cast<size_t>(index)]);
+                DrawSensor(snapshot.readings[index]);
             }
         }
 
@@ -577,6 +512,7 @@ void DrawHardwareGroups()
 
 void DrawTab(void*)
 {
+    g_lastTabVisit.store(GetTickCount64(), std::memory_order_release);
     g_api->Section("Plugin update");
     const UpdateStatus updateStatus = g_updateStatus.load(std::memory_order_acquire);
     switch (updateStatus)
@@ -625,49 +561,31 @@ void DrawTab(void*)
         g_api->Text(buildLabel);
     }
 
-    if (!g_backendInitFinished.load(std::memory_order_acquire))
+    const auto snapshot = g_sensorSnapshot.load(std::memory_order_acquire);
+    if (snapshot == nullptr || !snapshot->hasValidSnapshot)
     {
-        g_api->Text("Starting sensor backend...");
+        g_api->Text("LibreHardwareMonitor web server unavailable");
     }
     else
     {
-        if (!g_backendError.empty())
+        if (snapshot->unavailable)
         {
-            g_api->Text("Sensor monitoring unavailable.");
+            g_api->Text("LibreHardwareMonitor web server unavailable");
+        }
+        else if (!snapshot->readings.empty())
+        {
+            if (snapshot->totalSensorCount > snapshot->readings.size())
+            {
+                const std::string countMessage = "Showing " + std::to_string(snapshot->readings.size()) +
+                    " / " + std::to_string(snapshot->totalSensorCount) + " sensors; snapshot limit reached.";
+                g_api->Text(countMessage.c_str());
+            }
+            DrawHardwareGroups(*snapshot);
         }
         else
         {
-            RefreshSnapshot();
-            if (!g_snapshotError.empty())
-            {
-                g_api->Text("Sensor monitoring unavailable.");
-            }
-            else if (g_snapshotInfo.status == OptiSensor_StatusLoading)
-            {
-                g_api->Text("Discovering sensors...");
-            }
-            else if (g_snapshotInfo.status == OptiSensor_StatusError || g_snapshotInfo.status == OptiSensor_StatusStopped)
-            {
-                g_api->Text("Sensor monitoring unavailable.");
-            }
-            else if (g_snapshotInfo.message[0] != '\0')
-            {
-                g_api->Text(g_snapshotInfo.message);
-            }
-
-            bool snapshotReady = g_snapshotError.empty() &&
-                g_snapshotInfo.status == OptiSensor_StatusReady;
-            if (snapshotReady && g_snapshotInfo.totalCount > g_readingCount)
-            {
-                char countMessage[96]{};
-                std::snprintf(countMessage, sizeof(countMessage), "Showing %d / %d sensors; snapshot limit reached.",
-                              g_readingCount, g_snapshotInfo.totalCount);
-                g_api->Text(countMessage);
-            }
-            if (snapshotReady)
-            {
-                DrawHardwareGroups();
-            }
+            g_api->Section("Hardware sensors");
+            g_api->Text("No detected sensors");
         }
     }
 
@@ -724,17 +642,25 @@ extern "C" __declspec(dllexport) bool OptiPluginInit(const OptiPluginApi* api, O
         return false;
     }
 
-    g_backendInitFinished.store(false, std::memory_order_relaxed);
-    // OptiPluginInit may run under DllMain's loader lock; defer nested LoadLibrary and Native AOT startup.
-    HANDLE initThread = CreateThread(nullptr, 0, InitializeBackendWorker, nullptr, 0, nullptr);
-    if (initThread != nullptr)
+    // Keep all polling, parsing, and the optional update request away from the render thread.
+    HANDLE sensorThread = CreateThread(nullptr, 0, SensorPollingWorker, nullptr, 0, nullptr);
+    if (sensorThread != nullptr)
     {
-        CloseHandle(initThread);
+        CloseHandle(sensorThread);
     }
     else
     {
-        SetBackendUnavailable();
-        g_backendInitFinished.store(true, std::memory_order_release);
+        try
+        {
+            g_sensorSnapshot.store(
+                std::make_shared<const LibreBridge::SensorSnapshot>(
+                    LibreBridge::MakeFailedPollSnapshot(nullptr, 1)),
+                std::memory_order_release);
+        }
+        catch (...)
+        {
+        }
+        g_updateStatus.store(UpdateStatus::Unavailable, std::memory_order_release);
     }
 
     const std::string buildInfo = "OptiSensor plugin initialized (Build-Run-ID " +

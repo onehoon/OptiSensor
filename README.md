@@ -75,6 +75,22 @@ available only in the Claw edition.
 Install `OptiSensor-win-Setup.exe` (Velopack `win` channel). It installs per-user under LocalAppData
 and updates in place.
 
+### OptiScaler ASI plugin
+
+The optional OptiScaler plugin reads formatted sensors from a user-managed LibreHardwareMonitor
+0.9.6 web server. It does not install or start LibreHardwareMonitor or PawnIO.
+
+1. Download and run [LibreHardwareMonitor 0.9.6](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/tag/v0.9.6).
+2. If LibreHardwareMonitor requests it for your hardware, install/configure PawnIO through LibreHardwareMonitor.
+3. In LibreHardwareMonitor, open **Remote Web Server** and select **Run**. Verify
+   [http://127.0.0.1:8085/data.json](http://127.0.0.1:8085/data.json) opens and shows sensor data.
+4. Place `OptiSensor-loadlate.asi` in the OptiScaler plugins folder and set `LoadAsiPlugins=true` in
+   `OptiScaler.ini`.
+
+Keep LibreHardwareMonitor running while using the plugin. If its web server is unavailable, the tab
+shows unavailable readings without interrupting the game. LibreHardwareMonitor may expose its server
+on more than the loopback interface; review its remote access settings and Windows Firewall rules.
+
 ## Claw Edition
 
 The Claw edition is a distinct implementation of OptiSensor for MSI Claw handhelds. It samples

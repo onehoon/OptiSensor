@@ -1,0 +1,51 @@
+name: OptiSensor plugin CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test-plugin:
+    name: Build Release x64 ASI and parser tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build and run bridge tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          msbuild .\tests\OptiSensor.Plugin.Tests\OptiSensor.Plugin.Tests.vcxproj /m /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw "OptiSensor plugin bridge tests failed to build." }
+          & .\tests\OptiSensor.Plugin.Tests\bin\Release\OptiSensor.Plugin.Tests.exe
+          if ($LASTEXITCODE -ne 0) { throw "OptiSensor plugin bridge tests failed." }
+
+      - name: Build Release x64 ASI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          msbuild .\src\OptiSensor.Plugin\OptiSensor.Plugin.vcxproj /m /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw "OptiSensor ASI build failed." }
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = (& $vswhere -latest -products '*' -property installationPath).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $vsInstall) { throw "Could not locate the Visual Studio installation." }
+          $dumpbin = Get-ChildItem (Join-Path $vsInstall "VC\Tools\MSVC") -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName -like "*\bin\Hostx64\x64\dumpbin.exe" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { throw "Could not locate x64 dumpbin.exe." }
+
+          $asi = (Resolve-Path ".\src\OptiSensor.Plugin\bin\Release\OptiSensor.asi").Path
+          $exports = (& $dumpbin /nologo /exports $asi | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $exports -notmatch '\bOptiPluginInit\b') {
+            throw "OptiSensor.asi does not export OptiPluginInit."
+          }
