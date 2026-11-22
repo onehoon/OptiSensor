@@ -15,7 +15,7 @@ OptiSensor is a Windows x64 hardware-monitoring plugin for the OptiScaler V10 Pl
 1. Install and run LibreHardwareMonitor v0.9.6 with PawnIO installed.
 2. Enable **Remote Web Server** in LibreHardwareMonitor and verify that [http://127.0.0.1:8085/data.json](http://127.0.0.1:8085/data.json) returns sensor data.
 3. Download `OptiSensor.zip` from the [OptiSensor.Plugin rolling pre-release](https://github.com/onehoon/OptiSensor/releases/tag/OptiSensor.Plugin).
-4. Extract `OptiSensor-loadlate.asi` into OptiScaler's plugins folder.
+4. Extract `OptiSensor.asi` into OptiScaler's plugins folder.
 5. Set `LoadAsiPlugins=true` in `OptiScaler.ini`.
 
 Keep LibreHardwareMonitor running while using OptiSensor. The plugin reads the loopback endpoint. It never installs, starts, elevates, or reconfigures LibreHardwareMonitor or PawnIO. Review LibreHardwareMonitor remote access settings and Windows Firewall rules because its web server may listen beyond loopback.
