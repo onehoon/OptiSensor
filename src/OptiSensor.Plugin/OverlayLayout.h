@@ -47,6 +47,5 @@ bool MoveSelectedSensor(std::vector<SensorState>& states, std::string_view setti
 std::string ComposePreview(
     const LibreBridge::SensorSnapshot& snapshot,
     const std::vector<Group>& groups,
-    const std::vector<SensorState>& states,
-    const std::string& gpuHardwareId);
+    const std::vector<SensorState>& states);
 }

@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace OptiSensorPlugin;
@@ -109,7 +110,9 @@ void TestDeterministicGpuAndComposedPreview()
         MakeReading("/gpu-amd/0", "/gpu-amd/0/smalldata/1", "SensorVisible_AMD_TOTAL", "GPU Memory Total", "SmallData", "12000.0 MB"),
         MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/temperature/0", "SensorVisible_INTEL_GPU_TEMP", "GPU Core", "Temperature", "45.0 °C"),
         MakeReading("/gpu-intel-integrated/0", "/gpu-intel-integrated/0/smalldata/0", "SensorVisible_INTEL_GPU_USED", "GPU Memory Used", "SmallData", "1000 MB"),
-        MakeReading("/intelcpu/0", "/intelcpu/0/temperature/0", "SensorVisible_INTELCPU_TEMP", "CPU Package", "Temperature", "55.0 °C"),
+        MakeReading("/intelcpu/0", "/intelcpu/0/temperature/0", "SensorVisible_INTELCPU_PACKAGE_TEMP", "CPU Package", "Temperature", "55.0 °C"),
+        MakeReading("/intelcpu/0", "/intelcpu/0/temperature/1", "SensorVisible_INTELCPU_PCORE_TEMP", "P-Core #0", "Temperature", "61.0 °C"),
+        MakeReading("/intelcpu/0", "/intelcpu/0/temperature/2", "SensorVisible_INTELCPU_TJMAX_DISTANCE", "Distance to TjMax", "Temperature", "40.0 °C"),
         MakeReading("/intelcpu/0", "/intelcpu/0/load/0", "SensorVisible_INTELCPU_LOAD", "CPU Total", "Load", "10.0 %"),
         MakeReading("/intelcpu/0", "/intelcpu/0/power/0", "SensorVisible_INTELCPU_POWER", "Package", "Power", "40.0 W"),
     };
@@ -117,6 +120,9 @@ void TestDeterministicGpuAndComposedPreview()
     RequireOverlay(OverlayLayout::GetGpuHardwareId(snapshot) == "/gpu-nvidia/0", "hybrid GPU preference did not choose the NVIDIA adapter");
     const auto defaults = OverlayLayout::GetDefaultRecommendations(snapshot);
     RequireOverlay(defaults.size() == 9, "Intel CPU or preferred NVIDIA GPU recommendations were missing");
+    RequireOverlay(defaults[0].groupId == "CPU" &&
+                   defaults[0].settingKey == "SensorVisible_INTELCPU_PACKAGE_TEMP",
+            "Intel CPU Package was not preferred over P-core and Distance to TjMax temperatures");
     std::size_t gpuRecommendationCount = 0;
     for (const auto& item : defaults)
     {
@@ -147,6 +153,8 @@ void TestDeterministicGpuAndComposedPreview()
         MakeReading("/ram", "/ram/data/0", "SensorVisible_RAM_USED", "Memory Used", "Data", "12.4 GB"),
         MakeReading("/ram", "/ram/data/1", "SensorVisible_RAM_AVAILABLE", "Memory Available", "Data", "19.6 GB"),
         MakeReading("/vram", "/vram/data/0", "SensorVisible_VIRTUAL_MEMORY_USED", "Memory Used", "Data", "8.0 GB"),
+        MakeReading("/gpu-amd/0", "/gpu-amd/0/smalldata/0", "SensorVisible_AMD_VRAM_USED", "GPU Memory Used", "SmallData", "4444.0 MB"),
+        MakeReading("/gpu-amd/0", "/gpu-amd/0/smalldata/1", "SensorVisible_AMD_VRAM_TOTAL", "GPU Memory Total", "SmallData", "23333.0 MB"),
     };
     const std::vector<OverlayLayout::Group> groups = {
         {"CPU", "CPU"}, {"GPU", "GPU"}, {"VRAM", "VRAM"}, {"RAM", "RAM"},
@@ -162,17 +170,36 @@ void TestDeterministicGpuAndComposedPreview()
         {"SensorVisible_RAM_USED", "RAM", 100, true},
         {"SensorVisible_RAM_AVAILABLE", "RAM", 200, true},
         {"SensorVisible_VIRTUAL_MEMORY_USED", "Ungrouped", 300, false},
+        {"SensorVisible_AMD_VRAM_USED", "VRAM", 300, false},
+        {"SensorVisible_AMD_VRAM_TOTAL", "VRAM", 400, false},
     };
-    const std::string preview = OverlayLayout::ComposePreview(previewSnapshot, groups, states, "/gpu-nvidia/0");
+    const std::string preview = OverlayLayout::ComposePreview(previewSnapshot, groups, states);
     RequireOverlay(preview == "CPU 55°C 8% | GPU 0RPM | VRAM 6666MB/12000MB | RAM 12.4GB/32GB",
             "preview composition, default group order, separator, or VRAM formatting changed");
-    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, {}, "/gpu-nvidia/0") == "No sensors selected",
+    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, {}) == "No sensors selected",
             "empty selection did not produce the empty-state text");
+
+    auto amdVramStates = states;
+    amdVramStates[3].selected = false;
+    amdVramStates[4].selected = false;
+    amdVramStates[9].selected = true;
+    amdVramStates[10].selected = true;
+    amdVramStates[9].order = 100;
+    amdVramStates[10].order = 200;
+    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, amdVramStates).find("VRAM 4444MB/23333MB") != std::string::npos,
+            "selected VRAM readings from the nonpreferred GPU were not paired");
+
+    auto crossAdapterVramStates = states;
+    crossAdapterVramStates[4].selected = false;
+    crossAdapterVramStates[10].selected = true;
+    const std::string crossAdapterPreview = OverlayLayout::ComposePreview(previewSnapshot, groups, crossAdapterVramStates);
+    RequireOverlay(crossAdapterPreview.find("VRAM 6666.0 MB 23333.0 MB") != std::string::npos,
+            "VRAM readings from different GPU roots were incorrectly paired");
 
     auto renamedGroups = groups;
     renamedGroups[2].name = "Graphics Memory";
     renamedGroups[3].name = "System RAM";
-    const std::string renamedPreview = OverlayLayout::ComposePreview(previewSnapshot, renamedGroups, states, "/gpu-nvidia/0");
+    const std::string renamedPreview = OverlayLayout::ComposePreview(previewSnapshot, renamedGroups, states);
     RequireOverlay(renamedPreview.find("Graphics Memory 6666MB/12000MB") != std::string::npos &&
                    renamedPreview.find("System RAM 12.4GB/32GB") != std::string::npos,
             "renaming a built-in group changed its sensor-specific pairing behavior");
@@ -180,8 +207,16 @@ void TestDeterministicGpuAndComposedPreview()
     auto liveRam = previewSnapshot;
     liveRam.readings[6].value = "15.0 GB";
     liveRam.readings[7].value = "16.6 GB";
-    RequireOverlay(OverlayLayout::ComposePreview(liveRam, groups, states, "/gpu-nvidia/0").find("RAM 15GB/31.6GB") != std::string::npos,
+    RequireOverlay(OverlayLayout::ComposePreview(liveRam, groups, states).find("RAM 15GB/31.6GB") != std::string::npos,
             "physical RAM total was not computed from the live Used and Available readings");
+
+    auto reversedPairStates = states;
+    std::swap(reversedPairStates[3].order, reversedPairStates[4].order);
+    std::swap(reversedPairStates[6].order, reversedPairStates[7].order);
+    const std::string reversedPairs = OverlayLayout::ComposePreview(previewSnapshot, groups, reversedPairStates);
+    RequireOverlay(reversedPairs.find("VRAM 12000.0 MB 6666.0 MB") != std::string::npos &&
+                   reversedPairs.find("RAM 19.6 GB 12.4 GB") != std::string::npos,
+            "reversing a paired sensor order did not change the preview to match the editor");
 
     auto editedGroups = groups;
     editedGroups[0].name = "Processor";
@@ -192,26 +227,26 @@ void TestDeterministicGpuAndComposedPreview()
     editedStates[2].selected = false;
     editedStates[5].selected = true;
     editedStates[5].groupId = "Custom_1";
-    const std::string edited = OverlayLayout::ComposePreview(previewSnapshot, editedGroups, editedStates, "/gpu-nvidia/0");
+    const std::string edited = OverlayLayout::ComposePreview(previewSnapshot, editedGroups, editedStates);
     RequireOverlay(edited == "VRAM 6666MB/12000MB | RAM 12.4GB/32GB | Games 55°C 36°C",
             "group rename or membership did not immediately affect the preview");
 
     auto missingStates = states;
     missingStates[4].selected = false;
-    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, missingStates, "/gpu-nvidia/0") ==
+    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, missingStates) ==
                 "CPU 55°C 8% | GPU 0RPM | VRAM 6666.0 MB | RAM 12.4GB/32GB",
             "single selected VRAM reading was paired with a fictitious total");
     previewSnapshot.readings[4].value = "N/A";
-    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, states, "/gpu-nvidia/0").find("VRAM 6666MB/N/A") != std::string::npos,
+    RequireOverlay(OverlayLayout::ComposePreview(previewSnapshot, groups, states).find("VRAM 6666MB/N/A") != std::string::npos,
             "unavailable VRAM total was not represented as N/A");
     previewSnapshot.readings[6].value = "N/A";
-    const std::string ramUnavailable = OverlayLayout::ComposePreview(previewSnapshot, groups, states, "/gpu-nvidia/0");
+    const std::string ramUnavailable = OverlayLayout::ComposePreview(previewSnapshot, groups, states);
     RequireOverlay(ramUnavailable.find("RAM N/A 19.6 GB") != std::string::npos,
             "unavailable physical RAM input was used to invent a total");
 
     auto ramMissing = previewSnapshot;
     ramMissing.readings.erase(ramMissing.readings.begin() + 7);
-    const std::string missingRamPreview = OverlayLayout::ComposePreview(ramMissing, groups, states, "/gpu-nvidia/0");
+    const std::string missingRamPreview = OverlayLayout::ComposePreview(ramMissing, groups, states);
     RequireOverlay(missingRamPreview.find("RAM N/A") != std::string::npos &&
                    missingRamPreview.find("RAM N/A/") == std::string::npos,
             "missing physical RAM input was used to invent a total");

@@ -576,8 +576,7 @@ void Draw(void* userData)
     const std::string preview = OverlayLayout::ComposePreview(
         *previewSnapshot,
         g_tabState.groups,
-        states,
-        OverlayLayout::GetGpuHardwareId(*previewSnapshot));
+        states);
     g_runtime->api->Section("Overlay Preview");
     g_runtime->api->Text(preview.c_str());
 

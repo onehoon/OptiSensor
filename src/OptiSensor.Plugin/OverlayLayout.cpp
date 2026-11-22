@@ -237,9 +237,15 @@ std::vector<Recommendation> GetDefaultRecommendations(const LibreBridge::SensorS
         cpuRoot = *std::min_element(cpuRoots.begin(), cpuRoots.end());
         const auto* temperature = BestCandidate(snapshot, cpuRoot, "Temperature", [](const std::string& text)
         {
-            if (Contains(text, "hotspot") || Contains(text, "hot spot") || Contains(text, "junction")) return 1000;
+            if (Contains(text, "distance") || Contains(text, "tjmax") || Contains(text, "hotspot") ||
+                Contains(text, "hot spot") || Contains(text, "junction")) return 1000;
             if (Contains(text, "core tctl tdie") || Contains(text, "tctl tdie")) return 0;
-            return 1;
+            if (text == "cpu package") return 1;
+            if (text == "package") return 2;
+            if (text == "core average" || text == "cores average") return 3;
+            if (text == "core max") return 4;
+            if (Contains(text, "core")) return 5;
+            return 6;
         });
         const auto* load = BestCandidate(snapshot, cpuRoot, "Load", [](const std::string& text)
         {
@@ -451,8 +457,7 @@ bool MoveSelectedSensor(std::vector<SensorState>& states, std::string_view setti
 std::string ComposePreview(
     const LibreBridge::SensorSnapshot& snapshot,
     const std::vector<Group>& groups,
-    const std::vector<SensorState>& states,
-    const std::string& gpuHardwareId)
+    const std::vector<SensorState>& states)
 {
     std::unordered_map<std::string, const LibreBridge::SensorReading*> readings;
     readings.reserve(snapshot.readings.size());
@@ -491,12 +496,33 @@ std::string ComposePreview(
         const LibreBridge::SensorReading* pairSecond = nullptr;
         const SensorState* firstState = nullptr;
         const SensorState* secondState = nullptr;
-        const bool isVramGroup = group.id == "VRAM" && !gpuHardwareId.empty();
+        const bool isVramGroup = group.id == "VRAM";
         const bool isRamGroup = group.id == "RAM";
         if (isVramGroup)
         {
-            pairFirst = ExactSmallData(snapshot, gpuHardwareId, "GPU Memory Used");
-            pairSecond = ExactSmallData(snapshot, gpuHardwareId, "GPU Memory Total");
+            for (const SensorState* candidate : selected)
+            {
+                const LibreBridge::SensorReading* used = readings.at(candidate->settingKey);
+                if (!IsGpu(*used) || !IsType(*used, "SmallData") || Normalize(used->text) != "gpu memory used")
+                {
+                    continue;
+                }
+
+                const auto totalState = std::find_if(selected.begin(), selected.end(), [&](const SensorState* row)
+                {
+                    const LibreBridge::SensorReading* total = readings.at(row->settingKey);
+                    return total->rootHardwareId == used->rootHardwareId && IsType(*total, "SmallData") &&
+                        Normalize(total->text) == "gpu memory total";
+                });
+                if (totalState != selected.end())
+                {
+                    pairFirst = used;
+                    pairSecond = readings.at((*totalState)->settingKey);
+                    firstState = candidate;
+                    secondState = *totalState;
+                    break;
+                }
+            }
         }
         else if (isRamGroup)
         {
@@ -513,10 +539,13 @@ std::string ComposePreview(
                 secondState = second->second;
         }
         const bool pairSelected = firstState != nullptr && secondState != nullptr;
-        const auto ramUsed = pairSelected && isRamGroup ? ParseFormattedUnit(pairFirst->value, "GB") : std::nullopt;
-        const auto ramAvailable = pairSelected && isRamGroup ? ParseFormattedUnit(pairSecond->value, "GB") : std::nullopt;
-        const bool pairRam = pairSelected && isRamGroup && ramUsed.has_value() && ramAvailable.has_value();
-        const bool pairVram = pairSelected && isVramGroup;
+        const bool pairInCanonicalOrder = pairSelected &&
+            std::find(selected.begin(), selected.end(), firstState) <
+            std::find(selected.begin(), selected.end(), secondState);
+        const auto ramUsed = pairInCanonicalOrder && isRamGroup ? ParseFormattedUnit(pairFirst->value, "GB") : std::nullopt;
+        const auto ramAvailable = pairInCanonicalOrder && isRamGroup ? ParseFormattedUnit(pairSecond->value, "GB") : std::nullopt;
+        const bool pairRam = pairInCanonicalOrder && isRamGroup && ramUsed.has_value() && ramAvailable.has_value();
+        const bool pairVram = pairInCanonicalOrder && isVramGroup;
 
         std::vector<std::string> values;
         bool pairAdded = false;
