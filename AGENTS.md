@@ -2,22 +2,28 @@
 
 ## Branch policy
 
-- `main` is the default branch for OptiSensor application source work: branch off `origin/main` and open PRs against `main` unless the user explicitly asks for another branch. This branch has no `optiscaler/patches` and no OptiScaler build workflow — only `src/OptiSensor` and `build-optisensor-only.yml`.
-- OptiScaler patch-stack work belongs on the relevant `release/0.9` or `release/0.10` branch instead. Those branches carry no `src/OptiSensor` app source — only `optiscaler/patches`, their packaging docs, and OptiScaler build workflows.
-- `backup/pre-split` is a frozen backup of the pre-split combined history (app + patches together). Do not develop on it; it is kept only as a fallback reference.
-- Do not copy `src/OptiSensor` changes into a `release/0.x` branch, or `optiscaler/patches` changes into `main`, unless the user explicitly asks for it.
-- When the user requests a change on a branch other than the one implied above, cherry-pick the relevant commit(s) onto that branch instead of re-targeting the PR or rebasing work onto it.
+- `main` is the only ongoing development branch. Pull requests target `main`; feature and work-order branches are temporary and are removed after merge once their required archive and CI checks are verified.
+- Do not restore the retired Desktop, MSI Claw, or patched OptiScaler editions in the active source tree.
 
-## Default local build
+## Build and test
 
-When the user asks to build OptiSensor without specifying another format, produce the following output:
+Use Visual Studio MSBuild with the v143 C++ toolset and a Windows SDK. Build and run the native bridge/layout tests, then build the Release x64 ASI:
 
-- Use the `Release` configuration.
-- Use `dotnet publish`, not only `dotnet build`.
-- Target `win-x64`.
-- Produce a runnable Windows executable at `artifacts/release/OptiSensor.exe`.
-- Use a framework-dependent publish: `--self-contained false`.
-- Bundle application dependencies into one executable: `-p:PublishSingleFile=true`.
-- Do not generate PDB files: `-p:DebugType=None -p:DebugSymbols=false`.
-- Do not create a ZIP or any other archive.
-- In the completion report, provide the EXE path and state whether the publish succeeded.
+```powershell
+msbuild .\tests\OptiSensor.Plugin.Tests\OptiSensor.Plugin.Tests.vcxproj /m /p:Configuration=Release /p:Platform=x64
+& .\tests\OptiSensor.Plugin.Tests\bin\Release\OptiSensor.Plugin.Tests.exe
+msbuild .\src\OptiSensor.Plugin\OptiSensor.Plugin.vcxproj /m /p:Configuration=Release /p:Platform=x64
+```
+
+The ASI output is `src/OptiSensor.Plugin/bin/Release/OptiSensor.asi`. Plugin CI runs the same native tests and build, then verifies that the ASI exports `OptiPluginInit`.
+
+## Packaging and release
+
+- `.github/workflows/build-optisensor-plugin.yml` is a manual `workflow_dispatch` workflow for the rolling `OptiSensor.Plugin` pre-release.
+- The release asset is `OptiSensor.zip`, containing exactly one root entry: `OptiSensor-loadlate.asi`.
+- Preserve the workflow's `Build-Run-ID` and `Build-SHA` metadata, updater integration, and rolling asset replacement behavior.
+- The plugin requires user-installed LibreHardwareMonitor v0.9.6, PawnIO, and LibreHardwareMonitor Remote Web Server on port 8085. The ASI does not install, start, elevate, or reconfigure either dependency.
+
+## Scope
+
+Keep plugin source, the OptiScaler SDK API, persisted setting keys, INI behavior, and UI stable during repository cleanup. Do not reintroduce .NET application builds, Velopack packaging, scheduled publishing, or OptiScaler patch-stack workflows.

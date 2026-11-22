@@ -156,9 +156,9 @@ jobs:
           Build-Run-ID: $env:BUILD_RUN_ID
           Build-SHA: $env:BUILD_SHA
 
-          Windows 11 x64 OptiScaler plugin. Extract OptiSensor-loadlate.asi to the OptiScaler plugins folder and enable LoadAsiPlugins.
-          Requires user-managed LibreHardwareMonitor v0.9.6 with Remote Web Server running at http://127.0.0.1:8085/data.json. Optional PawnIO setup is managed by LibreHardwareMonitor.
-          The ASI reads only the loopback endpoint. Review LibreHardwareMonitor remote access settings and Windows Firewall rules because its web server may listen beyond loopback.
+          Windows x64 OptiScaler plugin. Extract OptiSensor-loadlate.asi to the OptiScaler plugins folder and enable LoadAsiPlugins.
+          Requires user-installed LibreHardwareMonitor v0.9.6, PawnIO, and its Remote Web Server enabled on port 8085. Verify http://127.0.0.1:8085/data.json returns sensor data.
+          The ASI reads only the loopback endpoint and never installs, starts, elevates, or reconfigures LibreHardwareMonitor or PawnIO. Review remote access settings and Windows Firewall rules because the web server may listen beyond loopback.
           Source: https://github.com/onehoon/OptiSensor
           Plugin license: https://github.com/onehoon/OptiSensor/blob/main/src/OptiSensor.Plugin/LICENSE
           Includes yyjson 0.13.0, MIT license (Copyright 2020 YaoYuan): https://github.com/onehoon/OptiSensor/blob/main/third_party/yyjson/LICENSE
