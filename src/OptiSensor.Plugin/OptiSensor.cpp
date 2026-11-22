@@ -355,10 +355,9 @@ void Log(OptiLogLevel level, const char* message)
     }
 }
 
-void SetBackendError(const std::string& message)
+void SetBackendUnavailable()
 {
-    g_backendError = message;
-    Log(OptiLog_Error, g_backendError.c_str());
+    g_backendError = "Sensor monitoring unavailable.";
 }
 
 std::wstring GetPluginDirectory()
@@ -396,7 +395,7 @@ void InitializeBackend(bool enableGpuMonitoring)
     const std::wstring pluginDirectory = GetPluginDirectory();
     if (pluginDirectory.empty())
     {
-        SetBackendError("Could not determine the OptiSensor.asi directory");
+        SetBackendUnavailable();
         return;
     }
 
@@ -404,8 +403,7 @@ void InitializeBackend(bool enableGpuMonitoring)
     g_sensorModule = LoadLibraryW(helperPath.c_str());
     if (g_sensorModule == nullptr)
     {
-        const DWORD error = GetLastError();
-        SetBackendError("Could not load adjacent OptiSensor.dll (Win32 error " + std::to_string(error) + ")");
+        SetBackendUnavailable();
         return;
     }
 
@@ -414,19 +412,18 @@ void InitializeBackend(bool enableGpuMonitoring)
     g_stop = reinterpret_cast<StopFn>(GetProcAddress(g_sensorModule, "OptiSensor_Stop"));
     if (g_start == nullptr || g_getSnapshot == nullptr || g_stop == nullptr)
     {
-        SetBackendError("OptiSensor.dll is missing one or more required C ABI exports");
+        SetBackendUnavailable();
         return;
     }
 
     const int32_t result = g_start(enableGpuMonitoring ? 1 : 0);
     if (result < 0)
     {
-        SetBackendError("LibreHardwareMonitor worker could not be started");
+        SetBackendUnavailable();
         return;
     }
 
     g_backendError.clear();
-    Log(OptiLog_Info, "LibreHardwareMonitor sensor worker started");
 }
 
 DWORD WINAPI InitializeBackendWorker(LPVOID)
@@ -438,7 +435,7 @@ DWORD WINAPI InitializeBackendWorker(LPVOID)
     }
     catch (...)
     {
-        SetBackendError("Unexpected failure while initializing the sensor backend");
+        SetBackendUnavailable();
     }
 
     g_backendInitFinished.store(true, std::memory_order_release);
@@ -475,7 +472,7 @@ void RefreshSnapshot()
     if (result < 0)
     {
         g_readingCount = 0;
-        g_snapshotError = "Reading the cached sensor snapshot failed";
+        g_snapshotError = "Sensor monitoring unavailable.";
         return;
     }
 
@@ -596,36 +593,44 @@ void DrawTab(void*)
     }
     else
     {
-        RefreshSnapshot();
         if (!g_backendError.empty())
         {
-            g_api->Text(g_backendError.c_str());
+            g_api->Text("Sensor monitoring unavailable.");
         }
-        else if (!g_snapshotError.empty())
+        else
         {
-            g_api->Text(g_snapshotError.c_str());
-        }
-        else if (g_snapshotInfo.status == OptiSensor_StatusLoading)
-        {
-            g_api->Text("Discovering sensors...");
-        }
-        else if (g_snapshotInfo.status == OptiSensor_StatusError || g_snapshotInfo.status == OptiSensor_StatusStopped)
-        {
-            g_api->Text(g_snapshotInfo.message);
-        }
-        else if (g_snapshotInfo.message[0] != '\0')
-        {
-            g_api->Text(g_snapshotInfo.message);
-        }
+            RefreshSnapshot();
+            if (!g_snapshotError.empty())
+            {
+                g_api->Text("Sensor monitoring unavailable.");
+            }
+            else if (g_snapshotInfo.status == OptiSensor_StatusLoading)
+            {
+                g_api->Text("Discovering sensors...");
+            }
+            else if (g_snapshotInfo.status == OptiSensor_StatusError || g_snapshotInfo.status == OptiSensor_StatusStopped)
+            {
+                g_api->Text("Sensor monitoring unavailable.");
+            }
+            else if (g_snapshotInfo.message[0] != '\0')
+            {
+                g_api->Text(g_snapshotInfo.message);
+            }
 
-        if (g_snapshotInfo.totalCount > g_readingCount)
-        {
-            char countMessage[96]{};
-            std::snprintf(countMessage, sizeof(countMessage), "Showing %d / %d sensors; snapshot limit reached.",
-                          g_readingCount, g_snapshotInfo.totalCount);
-            g_api->Text(countMessage);
+            bool snapshotReady = g_snapshotError.empty() &&
+                g_snapshotInfo.status == OptiSensor_StatusReady;
+            if (snapshotReady && g_snapshotInfo.totalCount > g_readingCount)
+            {
+                char countMessage[96]{};
+                std::snprintf(countMessage, sizeof(countMessage), "Showing %d / %d sensors; snapshot limit reached.",
+                              g_readingCount, g_snapshotInfo.totalCount);
+                g_api->Text(countMessage);
+            }
+            if (snapshotReady)
+            {
+                DrawHardwareGroups();
+            }
         }
-        DrawHardwareGroups();
     }
 
     if (g_api->Button("Save"))
@@ -690,8 +695,7 @@ extern "C" __declspec(dllexport) bool OptiPluginInit(const OptiPluginApi* api, O
     }
     else
     {
-        const DWORD error = GetLastError();
-        SetBackendError("Failed to schedule sensor backend initialization (Win32 error " + std::to_string(error) + ")");
+        SetBackendUnavailable();
         g_backendInitFinished.store(true, std::memory_order_release);
     }
 

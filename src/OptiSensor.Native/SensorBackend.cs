@@ -106,11 +106,11 @@ internal static unsafe class SensorWorker
                 _worker.Start();
                 return 0;
             }
-            catch (Exception exception)
+            catch
             {
                 _worker = null;
                 _status = (int)SensorServiceStatus.Error;
-                _message = Describe(exception);
+                _message = "Sensor monitoring unavailable.";
                 return -1;
             }
         }
@@ -191,87 +191,64 @@ internal static unsafe class SensorWorker
     {
         Computer? computer = null;
         long lastSlowHardwareUpdate = 0;
+        var retainedValues = new Dictionary<string, SensorValueRetention>(StringComparer.Ordinal);
 
         try
         {
+            computer = new Computer
+            {
+                IsBatteryEnabled = true,
+                IsControllerEnabled = true,
+                IsCpuEnabled = true,
+                IsGpuEnabled = Volatile.Read(ref _gpuMonitoringEnabled) != 0,
+                IsMemoryEnabled = true,
+                IsMotherboardEnabled = true,
+                IsNetworkEnabled = false,
+                IsPowerMonitorEnabled = true,
+                IsPsuEnabled = true,
+                IsStorageEnabled = false
+            };
+            computer.Open();
+            lastSlowHardwareUpdate = Environment.TickCount64 - SlowHardwareUpdateMilliseconds;
+
             while (Volatile.Read(ref _stopRequested) == 0)
             {
-                try
+                long now = Environment.TickCount64;
+                bool updateSlowHardware = now - lastSlowHardwareUpdate >= SlowHardwareUpdateMilliseconds;
+                if (updateSlowHardware)
                 {
-                    if (computer is null)
-                    {
-                        Publish([], 0, SensorServiceStatus.Loading, "Opening LibreHardwareMonitor.");
-                        computer = new Computer
-                        {
-                            IsBatteryEnabled = true,
-                            IsControllerEnabled = true,
-                            IsCpuEnabled = true,
-                            IsGpuEnabled = Volatile.Read(ref _gpuMonitoringEnabled) != 0,
-                            IsMemoryEnabled = true,
-                            IsMotherboardEnabled = true,
-                            IsNetworkEnabled = false,
-                            IsPowerMonitorEnabled = true,
-                            IsPsuEnabled = true,
-                            IsStorageEnabled = false
-                        };
-                        computer.Open();
-                        lastSlowHardwareUpdate = Environment.TickCount64 - SlowHardwareUpdateMilliseconds;
-                    }
-
-                    long now = Environment.TickCount64;
-                    bool updateSlowHardware = now - lastSlowHardwareUpdate >= SlowHardwareUpdateMilliseconds;
-                    if (updateSlowHardware)
-                    {
-                        lastSlowHardwareUpdate = now;
-                    }
-
-                    var failedHardware = new HashSet<IHardware>(ReferenceEqualityComparer.Instance);
-                    foreach (IHardware root in computer.Hardware)
-                    {
-                        HardwareType rootType = root.HardwareType;
-                        if (IsExcludedHardware(rootType))
-                        {
-                            continue;
-                        }
-
-                        bool fastHardware = rootType == HardwareType.Cpu || IsGpu(rootType);
-                        if (!fastHardware && !updateSlowHardware)
-                        {
-                            continue;
-                        }
-
-                        UpdateTree(root, failedHardware);
-                    }
-
-                    bool partialFailure = failedHardware.Count > 0;
-                    SensorReading[] readings = Collect(computer, failedHardware, ref partialFailure, out int totalSensorCount);
-                    string message = partialFailure
-                        ? "Some hardware did not update; other available sensor readings remain active."
-                        : string.Empty;
-                    if (totalSensorCount > readings.Length)
-                    {
-                        message = string.IsNullOrEmpty(message)
-                            ? "Sensor snapshot limit reached."
-                            : string.Concat(message, " Sensor snapshot limit reached.");
-                    }
-                    Publish(readings, totalSensorCount, SensorServiceStatus.Ready, message);
-                }
-                catch (Exception exception)
-                {
-                    Publish([], 0, SensorServiceStatus.Error, Describe(exception));
-                    try
-                    {
-                        computer?.Close();
-                    }
-                    catch
-                    {
-                    }
-                    computer = null;
-                    lastSlowHardwareUpdate = 0;
+                    lastSlowHardwareUpdate = now;
                 }
 
+                var attemptedHardware = new HashSet<IHardware>(ReferenceEqualityComparer.Instance);
+                var failedHardware = new HashSet<IHardware>(ReferenceEqualityComparer.Instance);
+                foreach (IHardware root in computer.Hardware)
+                {
+                    HardwareType rootType = root.HardwareType;
+                    if (IsExcludedHardware(rootType))
+                    {
+                        continue;
+                    }
+
+                    bool fastHardware = rootType == HardwareType.Cpu || IsGpu(rootType);
+                    if (!fastHardware && !updateSlowHardware)
+                    {
+                        continue;
+                    }
+
+                    UpdateTree(root, attemptedHardware, failedHardware);
+                }
+
+                SensorReading[] readings = Collect(
+                    computer, attemptedHardware, failedHardware, retainedValues, out int totalSensorCount);
+                string message = totalSensorCount > readings.Length ? "Sensor snapshot limit reached." : string.Empty;
+                Publish(readings, totalSensorCount, SensorServiceStatus.Ready, message);
                 Thread.Sleep(1000);
             }
+        }
+        catch
+        {
+            Publish([], 0, SensorServiceStatus.Error, "Sensor monitoring unavailable.");
         }
         finally
         {
@@ -286,21 +263,28 @@ internal static unsafe class SensorWorker
             lock (Gate)
             {
                 _worker = null;
-                _snapshot = [];
-                _totalSensorCount = 0;
-                _status = (int)SensorServiceStatus.Stopped;
-                _message = "Sensor polling stopped.";
+                if (Volatile.Read(ref _stopRequested) != 0)
+                {
+                    _snapshot = [];
+                    _totalSensorCount = 0;
+                    _status = (int)SensorServiceStatus.Stopped;
+                    _message = "Sensor polling stopped.";
+                }
             }
         }
     }
 
-    private static void UpdateTree(IHardware hardware, HashSet<IHardware> failedHardware)
+    private static void UpdateTree(
+        IHardware hardware,
+        HashSet<IHardware> attemptedHardware,
+        HashSet<IHardware> failedHardware)
     {
         if (IsExcludedHardware(hardware.HardwareType))
         {
             return;
         }
 
+        attemptedHardware.Add(hardware);
         try
         {
             hardware.Update();
@@ -314,19 +298,19 @@ internal static unsafe class SensorWorker
         {
             foreach (IHardware child in hardware.SubHardware)
             {
-                UpdateTree(child, failedHardware);
+                UpdateTree(child, attemptedHardware, failedHardware);
             }
         }
         catch
         {
-            failedHardware.Add(hardware);
         }
     }
 
     private static SensorReading[] Collect(
         Computer computer,
+        HashSet<IHardware> attemptedHardware,
         HashSet<IHardware> failedHardware,
-        ref bool partialFailure,
+        Dictionary<string, SensorValueRetention> retainedValues,
         out int totalSensorCount)
     {
         var candidates = new List<SensorCandidate>();
@@ -337,7 +321,7 @@ internal static unsafe class SensorWorker
 
         foreach (IHardware root in roots)
         {
-            candidates.AddRange(GetCandidates(root, ref partialFailure));
+            candidates.AddRange(GetCandidates(root));
         }
 
         candidates.Sort(static (left, right) =>
@@ -361,11 +345,10 @@ internal static unsafe class SensorWorker
         {
             try
             {
-                readings.Add(CreateReading(candidate, ref partialFailure));
+                readings.Add(CreateReading(candidate, attemptedHardware, failedHardware, retainedValues));
             }
             catch
             {
-                partialFailure = true;
             }
         }
 
@@ -375,11 +358,11 @@ internal static unsafe class SensorWorker
             : readings.GetRange(0, MaxReadings).ToArray();
     }
 
-    private static List<SensorCandidate> GetCandidates(IHardware root, ref bool partialFailure)
+    private static List<SensorCandidate> GetCandidates(IHardware root)
     {
         var candidates = new List<SensorCandidate>();
         var nodes = new List<IHardware>();
-        AddHardwareTree(root, nodes, ref partialFailure);
+        AddHardwareTree(root, nodes);
         foreach (IHardware hardware in nodes)
         {
             try
@@ -391,7 +374,6 @@ internal static unsafe class SensorWorker
             }
             catch
             {
-                partialFailure = true;
             }
         }
 
@@ -400,8 +382,7 @@ internal static unsafe class SensorWorker
 
     private static void AddHardwareTree(
         IHardware hardware,
-        List<IHardware> nodes,
-        ref bool partialFailure)
+        List<IHardware> nodes)
     {
         if (IsExcludedHardware(hardware.HardwareType))
         {
@@ -413,16 +394,19 @@ internal static unsafe class SensorWorker
         {
             foreach (IHardware child in hardware.SubHardware)
             {
-                AddHardwareTree(child, nodes, ref partialFailure);
+                AddHardwareTree(child, nodes);
             }
         }
         catch
         {
-            partialFailure = true;
         }
     }
 
-    private static SensorReading CreateReading(SensorCandidate candidate, ref bool partialFailure)
+    private static SensorReading CreateReading(
+        SensorCandidate candidate,
+        HashSet<IHardware> attemptedHardware,
+        HashSet<IHardware> failedHardware,
+        Dictionary<string, SensorValueRetention> retainedValues)
     {
         string rootIdentity = candidate.Root.Identifier.ToString();
         string hardwareIdentity = candidate.Hardware.Identifier.ToString();
@@ -432,19 +416,29 @@ internal static unsafe class SensorWorker
             ? candidate.Sensor.Name
             : string.Concat(candidate.Hardware.Name, " / ", candidate.Sensor.Name);
         SensorType sensorType = candidate.Sensor.SensorType;
-        float? sensorValue;
-        try
+        if (!retainedValues.TryGetValue(identity, out SensorValueRetention? retention))
         {
-            sensorValue = candidate.Sensor.Value;
-        }
-        catch
-        {
-            sensorValue = null;
-            partialFailure = true;
+            retention = new SensorValueRetention();
+            retainedValues.Add(identity, retention);
         }
 
-        bool available = sensorValue.HasValue && float.IsFinite(sensorValue.Value);
-        float displayValue = available ? NormalizeValue(sensorType, sensorValue!.Value) : 0.0f;
+        bool pollAttempted = attemptedHardware.Contains(candidate.Hardware);
+        bool updateSucceeded = pollAttempted && !failedHardware.Contains(candidate.Hardware);
+        float? sensorValue = null;
+        if (updateSucceeded)
+        {
+            try
+            {
+                sensorValue = candidate.Sensor.Value;
+            }
+            catch
+            {
+            }
+        }
+        retention.RecordPollResult(pollAttempted, updateSucceeded, sensorValue);
+
+        bool available = retention.LastValidValue.HasValue;
+        float displayValue = available ? NormalizeValue(sensorType, retention.LastValidValue!.Value) : 0.0f;
         string groupSettingKey = CreateSettingKey("GroupExpanded_", rootIdentity);
         return new SensorReading
         {
@@ -557,10 +551,6 @@ internal static unsafe class SensorWorker
         output[bytesUsed] = 0;
     }
 
-    private static string Describe(Exception exception) =>
-        string.IsNullOrWhiteSpace(exception.Message)
-            ? exception.GetType().Name
-            : string.Concat(exception.GetType().Name, ": ", exception.Message);
 }
 
 internal static unsafe class NativeExports

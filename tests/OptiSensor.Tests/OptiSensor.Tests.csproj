@@ -25,4 +25,8 @@
     <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\src\OptiSensor.Native\SensorValueRetention.cs" Link="Libre\SensorValueRetention.cs" />
+  </ItemGroup>
+
 </Project>
