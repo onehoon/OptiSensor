@@ -444,12 +444,13 @@ internal static unsafe class SensorWorker
         }
 
         bool available = sensorValue.HasValue && float.IsFinite(sensorValue.Value);
+        float displayValue = available ? NormalizeValue(sensorType, sensorValue!.Value) : 0.0f;
         string groupSettingKey = CreateSettingKey("GroupExpanded_", rootIdentity);
         return new SensorReading
         {
             GroupDefaultExpanded = GetGroupDefaultExpanded(candidate.Root.HardwareType),
             Available = available ? 1 : 0,
-            Value = available ? sensorValue!.Value : 0.0f,
+            Value = displayValue,
             Identifier = identity,
             GroupIdentifier = rootIdentity,
             Device = GetGroupTitle(candidate.Root),
@@ -486,12 +487,19 @@ internal static unsafe class SensorWorker
             ? (int)SensorGroupDefault.Expanded
             : (int)SensorGroupDefault.Collapsed;
 
+    private static float NormalizeValue(SensorType type, float value) => type switch
+    {
+        SensorType.Data => value / (1024f * 1024f * 1024f),
+        SensorType.Throughput => value / (1024f * 1024f),
+        _ => value
+    };
     private static string GetUnit(SensorType type) => type.ToString() switch
     {
         "Voltage" => "V",
         "Current" => "A",
         "Power" => "W",
-        "Clock" or "Frequency" => "MHz",
+        "Clock" => "MHz",
+        "Frequency" => "Hz",
         "Temperature" => "\u00B0C",
         "Load" or "Control" or "Level" or "Humidity" => "%",
         "Fan" => "RPM",
@@ -501,7 +509,7 @@ internal static unsafe class SensorWorker
         "SmallData" => "MB",
         "Throughput" => "MB/s",
         "TimeSpan" => "s",
-        "Timing" => "ms",
+        "Timing" => "ns",
         "Energy" => "mWh",
         "Noise" => "dB(A)",
         "Conductivity" => "\u00B5S/cm",
