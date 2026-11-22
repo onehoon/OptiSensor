@@ -568,10 +568,18 @@ bool DrawInfoCard(const LibreBridge::SensorSnapshot* snapshot)
         }
     }
 
-    const bool connected = snapshot != nullptr && snapshot->hasValidSnapshot && !snapshot->unavailable;
+    const bool connecting = snapshot == nullptr;
+    const bool connected = !connecting && snapshot->hasValidSnapshot && !snapshot->unavailable;
     g_runtime->api->Text("Libre HW Monitor:");
     g_runtime->api->SameLine();
-    if (connected && OPTI_API_HAS(g_runtime->api, TextColored))
+    if (connecting)
+    {
+        if (OPTI_API_HAS(g_runtime->api, TextDisabled))
+            g_runtime->api->TextDisabled("Connecting...");
+        else
+            g_runtime->api->Text("Connecting...");
+    }
+    else if (connected && OPTI_API_HAS(g_runtime->api, TextColored))
     {
         g_runtime->api->TextColored(0.20f, 0.82f, 0.36f, 1.0f, "OK");
     }
@@ -583,7 +591,7 @@ bool DrawInfoCard(const LibreBridge::SensorSnapshot* snapshot)
     {
         g_runtime->api->Text(connected ? "OK" : "Not connected");
     }
-    if (!connected)
+    if (!connecting && !connected)
     {
         if (OPTI_API_HAS(g_runtime->api, TextDisabled))
             g_runtime->api->TextDisabled("Install/run LibreHardwareMonitor + PawnIO. Enable Web Server (8085).");

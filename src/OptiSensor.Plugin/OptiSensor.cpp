@@ -29,8 +29,8 @@ namespace
 {
 constexpr std::uint64_t kBuildRunId = OPTISENSOR_BUILD_RUN_ID;
 constexpr char kBuildSha[] = OPTISENSOR_BUILD_SHA;
-constexpr ULONGLONG kLibrePollIntervalMs = 1500;
-constexpr ULONGLONG kTabActiveWindowMs = 3000;
+constexpr DWORD kLibrePollIntervalMs = 1500;
+constexpr DWORD kLibreStartupDelayMs = 2000;
 
 OptiSensorPlugin::PluginRuntime g_runtime{};
 
@@ -62,6 +62,25 @@ void Log(OptiLogLevel level, const char* message)
     }
 }
 
+DWORD WINAPI UpdateCheckWorker(LPVOID parameter)
+{
+    auto* runtime = static_cast<OptiSensorPlugin::PluginRuntime*>(parameter);
+    if (runtime == nullptr)
+    {
+        return 0;
+    }
+
+    try
+    {
+        runtime->updateStatus.store(UpdateChecker::CheckStatus(runtime->buildRunId), std::memory_order_release);
+    }
+    catch (...)
+    {
+        runtime->updateStatus.store(UpdateChecker::Status::Unavailable, std::memory_order_release);
+    }
+    return 0;
+}
+
 DWORD WINAPI SensorPollingWorker(LPVOID parameter)
 {
     auto* runtime = static_cast<OptiSensorPlugin::PluginRuntime*>(parameter);
@@ -70,82 +89,67 @@ DWORD WINAPI SensorPollingWorker(LPVOID parameter)
         return 0;
     }
 
+    Sleep(kLibreStartupDelayMs);
+
     std::optional<LibreBridge::SensorSnapshot> lastGood;
     std::uint32_t failedPollCount = 0;
-    ULONGLONG nextPoll = 0;
-    bool updateCheckComplete = false;
+    bool updateCheckAttempted = false;
 
     for (;;)
     {
-        const ULONGLONG now = GetTickCount64();
-        const std::uint64_t lastTabVisit = runtime->lastTabVisit.load(std::memory_order_acquire);
-        const bool tabActive = lastTabVisit != 0 && now - lastTabVisit <= kTabActiveWindowMs;
-        bool pollAttempted = false;
-        if (!tabActive)
+        try
         {
-            nextPoll = 0;
-        }
-        else if (nextPoll == 0 || now >= nextPoll)
-        {
-            try
+            std::string response;
+            LibreBridge::SensorSnapshot parsed;
+            if (LibreBridge::ReadLocalResponse(response) && LibreBridge::ParseSnapshot(response, parsed))
             {
-                std::string response;
-                LibreBridge::SensorSnapshot parsed;
-                pollAttempted = true;
-                if (LibreBridge::ReadLocalResponse(response) && LibreBridge::ParseSnapshot(response, parsed))
-                {
-                    failedPollCount = 0;
-                    lastGood = std::move(parsed);
-                    runtime->sensorSnapshot.store(
-                        std::make_shared<const LibreBridge::SensorSnapshot>(*lastGood),
-                        std::memory_order_release);
-                }
-                else
-                {
-                    failedPollCount = std::min<std::uint32_t>(failedPollCount + 1, 3);
-                    const auto* previous = lastGood.has_value() ? &*lastGood : nullptr;
-                    runtime->sensorSnapshot.store(
-                        std::make_shared<const LibreBridge::SensorSnapshot>(
-                            LibreBridge::MakeFailedPollSnapshot(previous, failedPollCount)),
-                        std::memory_order_release);
-                }
+                failedPollCount = 0;
+                lastGood = std::move(parsed);
+                runtime->sensorSnapshot.store(
+                    std::make_shared<const LibreBridge::SensorSnapshot>(*lastGood),
+                    std::memory_order_release);
             }
-            catch (...)
+            else
             {
                 failedPollCount = std::min<std::uint32_t>(failedPollCount + 1, 3);
-                try
-                {
-                    const auto* previous = lastGood.has_value() ? &*lastGood : nullptr;
-                    runtime->sensorSnapshot.store(
-                        std::make_shared<const LibreBridge::SensorSnapshot>(
-                            LibreBridge::MakeFailedPollSnapshot(previous, failedPollCount)),
-                        std::memory_order_release);
-                }
-                catch (...)
-                {
-                }
+                const auto* previous = lastGood.has_value() ? &*lastGood : nullptr;
+                runtime->sensorSnapshot.store(
+                    std::make_shared<const LibreBridge::SensorSnapshot>(
+                        LibreBridge::MakeFailedPollSnapshot(previous, failedPollCount)),
+                    std::memory_order_release);
             }
-            nextPoll = GetTickCount64() + kLibrePollIntervalMs;
         }
-
-        if (!updateCheckComplete && (pollAttempted || !tabActive))
+        catch (...)
         {
-            updateCheckComplete = true;
             try
             {
-                runtime->updateStatus.store(UpdateChecker::CheckStatus(runtime->buildRunId), std::memory_order_release);
+                failedPollCount = std::min<std::uint32_t>(failedPollCount + 1, 3);
+                const auto* previous = lastGood.has_value() ? &*lastGood : nullptr;
+                runtime->sensorSnapshot.store(
+                    std::make_shared<const LibreBridge::SensorSnapshot>(
+                        LibreBridge::MakeFailedPollSnapshot(previous, failedPollCount)),
+                    std::memory_order_release);
             }
             catch (...)
+            {
+            }
+        }
+
+        if (!updateCheckAttempted && runtime->lastTabVisit.load(std::memory_order_acquire) != 0)
+        {
+            updateCheckAttempted = true;
+            HANDLE updateThread = CreateThread(nullptr, 0, UpdateCheckWorker, runtime, 0, nullptr);
+            if (updateThread != nullptr)
+            {
+                CloseHandle(updateThread);
+            }
+            else
             {
                 runtime->updateStatus.store(UpdateChecker::Status::Unavailable, std::memory_order_release);
             }
-            if (tabActive)
-            {
-                nextPoll = GetTickCount64() + kLibrePollIntervalMs;
-            }
         }
 
-        Sleep(tabActive ? 200 : 1000);
+        Sleep(kLibrePollIntervalMs);
     }
 }
 }
