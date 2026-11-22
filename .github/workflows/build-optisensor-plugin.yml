@@ -1,0 +1,191 @@
+name: Build OptiSensor plugin release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: optisensor-plugin-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish rolling plugin release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Record checked-out build identity
+        id: build-info
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $sha = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sha -notmatch '^[0-9a-f]{40}$') {
+            throw "Could not determine the checked-out full Git SHA."
+          }
+
+          $runId = [UInt64]::Parse($env:GITHUB_RUN_ID, [Globalization.CultureInfo]::InvariantCulture)
+          $header = @"
+          #pragma once
+          #define OPTISENSOR_BUILD_RUN_ID ${runId}ULL
+          #define OPTISENSOR_BUILD_SHA "$sha"
+          "@
+          Set-Content -Path ".\src\OptiSensor.Plugin\OptiSensorBuildInfo.generated.h" -Value $header -Encoding utf8NoBOM
+          "run_id=$runId" >> $env:GITHUB_OUTPUT
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          Write-Host "Building checked-out main $sha in workflow run $runId."
+
+      - name: Build Native AOT sensor DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          dotnet publish .\src\OptiSensor.Native\OptiSensor.Native.csproj -c Release -r win-x64 -o .\.artifacts\plugin\native
+          if ($LASTEXITCODE -ne 0) { throw "Native AOT publish failed." }
+
+      - name: Build OptiSensor ASI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          msbuild .\src\OptiSensor.Plugin\OptiSensor.Plugin.vcxproj /m /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { throw "OptiSensor plugin build failed." }
+
+      - name: Validate exports and package exact ZIP contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $asi = (Resolve-Path ".\src\OptiSensor.Plugin\bin\Release\OptiSensor.asi").Path
+          $dll = (Resolve-Path ".\.artifacts\plugin\native\OptiSensor.dll").Path
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = (& $vswhere -latest -products '*' -property installationPath).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $vsInstall) { throw "Could not locate the Visual Studio installation." }
+          $dumpbin = Get-ChildItem (Join-Path $vsInstall "VC\Tools\MSVC") -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName -like "*\bin\Hostx64\x64\dumpbin.exe" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { throw "Could not locate x64 dumpbin.exe." }
+
+          $asiExports = (& $dumpbin /nologo /exports $asi | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $asiExports -notmatch '\bOptiPluginInit\b') {
+            throw "OptiSensor.asi does not export OptiPluginInit."
+          }
+          $nativeExports = (& $dumpbin /nologo /exports $dll | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw "Could not inspect Native AOT exports." }
+          foreach ($name in @("OptiSensor_Start", "OptiSensor_GetSnapshot", "OptiSensor_Stop")) {
+            if ($nativeExports -notmatch "\b$name\b") { throw "OptiSensor.dll is missing export $name." }
+          }
+
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = (Join-Path (Resolve-Path ".\.artifacts\plugin").Path "OptiSensor.zip")
+          if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
+          $archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $asi, "OptiSensor-loadlate.asi", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $dll, "OptiSensor.dll", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+          }
+          finally { $archive.Dispose() }
+
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $entries = @($archive.Entries | ForEach-Object FullName | Sort-Object)
+            $expected = @("OptiSensor-loadlate.asi", "OptiSensor.dll" | Sort-Object)
+            if ($entries.Count -ne 2 -or (Compare-Object $expected $entries)) {
+              throw "OptiSensor.zip must contain exactly the two required root entries."
+            }
+          }
+          finally { $archive.Dispose() }
+
+          Write-Host "Validated exports and ZIP entries: $($entries -join ', ')"
+
+      - name: Upload asset and publish rolling pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ steps.build-info.outputs.run_id }}
+          BUILD_SHA: ${{ steps.build-info.outputs.sha }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "OptiSensor.Plugin"
+          $releaseEndpoint = "repos/onehoon/OptiSensor/releases/tags/$tag"
+          $releaseJson = $null
+          $releaseExists = $false
+          try {
+            $releaseJson = gh api $releaseEndpoint 2>$null
+            $releaseExists = $LASTEXITCODE -eq 0
+          }
+          catch {
+            $releaseExists = $false
+          }
+          $releaseId = $null
+
+          if ($releaseExists) {
+            $releaseId = ($releaseJson | ConvertFrom-Json).id
+          }
+          else {
+            $draftPath = Join-Path $env:RUNNER_TEMP "optisensor-release-draft.json"
+            $draftPayload = @{
+              tag_name = $tag
+              name = "OptiSensor Plugin"
+              body = ""
+              draft = $true
+              prerelease = $true
+            } | ConvertTo-Json
+            [System.IO.File]::WriteAllText($draftPath, $draftPayload, [System.Text.UTF8Encoding]::new($false))
+            $releaseJson = gh api "repos/onehoon/OptiSensor/releases" --method POST --input $draftPath
+            if ($LASTEXITCODE -ne 0) { throw "Could not create the draft rolling release." }
+            $releaseId = ($releaseJson | ConvertFrom-Json).id
+          }
+
+          gh release upload $tag .\.artifacts\plugin\OptiSensor.zip --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload OptiSensor.zip." }
+
+          $assetIds = @(gh api "repos/onehoon/OptiSensor/releases/$releaseId/assets" --jq '.[] | select(.name != "OptiSensor.zip") | .id')
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify release assets." }
+          foreach ($assetId in $assetIds) {
+            if ($assetId) {
+              gh api "repos/onehoon/OptiSensor/releases/assets/$assetId" --method DELETE
+              if ($LASTEXITCODE -ne 0) { throw "Could not remove a stale release asset." }
+            }
+          }
+
+          $assetNames = @(gh api "repos/onehoon/OptiSensor/releases/$releaseId/assets" --jq '.[].name')
+          if ($LASTEXITCODE -ne 0 -or $assetNames.Count -ne 1 -or $assetNames[0] -ne "OptiSensor.zip") {
+            throw "The rolling release does not contain exactly OptiSensor.zip."
+          }
+
+          $notes = @"
+          Build-Run-ID: $env:BUILD_RUN_ID
+          Build-SHA: $env:BUILD_SHA
+
+          Windows 11 x64 OptiScaler plugin. Extract both files to the OptiScaler plugins folder and enable LoadAsiPlugins.
+          Source: https://github.com/onehoon/OptiSensor
+          Plugin license: https://github.com/onehoon/OptiSensor/blob/main/src/OptiSensor.Plugin/LICENSE
+          Dependency notices: https://github.com/onehoon/OptiSensor/blob/main/src/OptiSensor.Native/THIRD-PARTY-NOTICES.md
+          "@
+          $payloadPath = Join-Path $env:RUNNER_TEMP "optisensor-release.json"
+          $payload = @{
+            name = "OptiSensor Plugin"
+            body = $notes.Trim()
+            draft = $false
+            prerelease = $true
+          } | ConvertTo-Json
+          [System.IO.File]::WriteAllText($payloadPath, $payload, [System.Text.UTF8Encoding]::new($false))
+
+          gh api "repos/onehoon/OptiSensor/releases/$releaseId" --method PATCH --input $payloadPath
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish the updated rolling pre-release metadata." }
