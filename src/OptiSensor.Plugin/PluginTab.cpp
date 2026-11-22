@@ -51,6 +51,11 @@ bool HasOverlaySettingsApi()
         OPTI_API_HAS(g_runtime->api, SetInt) && OPTI_API_HAS(g_runtime->api, SetString);
 }
 
+bool HasBoolSettingsApi()
+{
+    return OPTI_API_HAS(g_runtime->api, GetBool) && OPTI_API_HAS(g_runtime->api, SetBool);
+}
+
 bool HasOverlayEditorApi()
 {
     return HasOverlaySettingsApi() && OPTI_API_HAS(g_runtime->api, InputText) && OPTI_API_HAS(g_runtime->api, Combo);
@@ -210,6 +215,9 @@ std::vector<OverlayLayout::SensorState> ReadSensorStates(
         const auto recommendedSensor = recommended.find(reading.settingKey);
         const bool firstUseRecommended = recommendedSensor != recommended.end();
         state.selected = g_runtime->api->GetBool(g_runtime->plugin, reading.settingKey.c_str(), firstUseRecommended);
+        const std::string fanAverageKey = OverlayLayout::GetSensorFanAverageSettingKey(reading);
+        if (!fanAverageKey.empty())
+            state.averageFan = g_runtime->api->GetBool(g_runtime->plugin, fanAverageKey.c_str(), true);
         state.order = ReadSensorOrder(reading);
 
         std::string storedGroup;
@@ -324,11 +332,18 @@ void DrawSelectedSensors(
     g_runtime->api->InputText("##OptiSensorNewGroup", g_tabState.newGroupName, sizeof(g_tabState.newGroupName));
     g_runtime->api->SameLine();
     if (g_runtime->api->Button("Add Group")) AddOverlayGroup();
+    if (OPTI_API_HAS(g_runtime->api, Separator)) g_runtime->api->Separator();
+    if (OPTI_API_HAS(g_runtime->api, Spacing)) g_runtime->api->Spacing();
 
+    bool firstGroup = true;
     for (OverlayLayout::Group& group : g_tabState.groups)
     {
-        g_runtime->api->Text("Group:");
-        g_runtime->api->SameLine();
+        if (!firstGroup)
+        {
+            if (OPTI_API_HAS(g_runtime->api, Separator)) g_runtime->api->Separator();
+            if (OPTI_API_HAS(g_runtime->api, Spacing)) g_runtime->api->Spacing();
+        }
+        firstGroup = false;
         std::array<char, 160> nameBuffer{};
         const std::size_t length = std::min(group.name.size(), nameBuffer.size() - 1);
         std::memcpy(nameBuffer.data(), group.name.data(), length);
@@ -363,28 +378,7 @@ void DrawSelectedSensors(
                 });
                 if (reading != snapshot->readings.end())
                 {
-                    const std::string label = reading->label + "  " + reading->value;
-                    g_runtime->api->Text(label.c_str());
-                    g_runtime->api->SameLine();
                     const std::string identity = state.settingKey;
-                    const std::string up = "Up##OverlayUp_" + identity;
-                    const std::string down = "Down##OverlayDown_" + identity;
-                    if (g_runtime->api->Button(up.c_str()) &&
-                        OverlayLayout::MoveSelectedSensor(states, identity, -1))
-                    {
-                        SaveGroupSensorOrders(*snapshot, states, group.id);
-                        g_tabState.saveStatus = nullptr;
-                        return;
-                    }
-                    g_runtime->api->SameLine();
-                    if (g_runtime->api->Button(down.c_str()) &&
-                        OverlayLayout::MoveSelectedSensor(states, identity, 1))
-                    {
-                        SaveGroupSensorOrders(*snapshot, states, group.id);
-                        g_tabState.saveStatus = nullptr;
-                        return;
-                    }
-                    g_runtime->api->SameLine();
                     std::vector<const char*> groupNames;
                     groupNames.reserve(g_tabState.groups.size());
                     std::int32_t selectedGroup = 0;
@@ -393,7 +387,7 @@ void DrawSelectedSensors(
                         groupNames.push_back(g_tabState.groups[groupIndex].name.c_str());
                         if (g_tabState.groups[groupIndex].id == state.groupId) selectedGroup = static_cast<std::int32_t>(groupIndex);
                     }
-                    const std::string comboId = "Group##OverlayMove_" + identity;
+                    const std::string comboId = "##OverlayMove_" + identity;
                     if (g_runtime->api->Combo(comboId.c_str(), &selectedGroup, groupNames.data(),
                                      static_cast<std::int32_t>(groupNames.size()), nullptr) &&
                         selectedGroup >= 0 && static_cast<std::size_t>(selectedGroup) < g_tabState.groups.size())
@@ -408,6 +402,40 @@ void DrawSelectedSensors(
                             SaveSensorOrder(*reading, state.order);
                             g_tabState.saveStatus = nullptr;
                             return;
+                        }
+                    }
+
+                    g_runtime->api->SameLine();
+                    const std::string up = "Up##OverlayUp_" + identity;
+                    if (g_runtime->api->Button(up.c_str()) &&
+                        OverlayLayout::MoveSelectedSensor(states, identity, -1))
+                    {
+                        SaveGroupSensorOrders(*snapshot, states, group.id);
+                        g_tabState.saveStatus = nullptr;
+                        return;
+                    }
+                    g_runtime->api->SameLine();
+                    const std::string down = "Down##OverlayDown_" + identity;
+                    if (g_runtime->api->Button(down.c_str()) &&
+                        OverlayLayout::MoveSelectedSensor(states, identity, 1))
+                    {
+                        SaveGroupSensorOrders(*snapshot, states, group.id);
+                        g_tabState.saveStatus = nullptr;
+                        return;
+                    }
+                    g_runtime->api->SameLine();
+                    const std::string label = reading->label + "  " + reading->value;
+                    g_runtime->api->Text(label.c_str());
+
+                    const std::string fanAverageKey = OverlayLayout::GetSensorFanAverageSettingKey(*reading);
+                    if (!fanAverageKey.empty() && OPTI_API_HAS(g_runtime->api, Checkbox) && HasBoolSettingsApi())
+                    {
+                        g_runtime->api->SameLine();
+                        const std::string averageLabel = "Average##" + fanAverageKey;
+                        if (g_runtime->api->Checkbox(averageLabel.c_str(), &state.averageFan))
+                        {
+                            g_runtime->api->SetBool(g_runtime->plugin, fanAverageKey.c_str(), state.averageFan);
+                            g_tabState.saveStatus = nullptr;
                         }
                     }
                 }
@@ -486,7 +514,7 @@ void DrawHardwareGroups(
     }
 }
 
-void DrawInfoCard(const LibreBridge::SensorSnapshot* snapshot)
+bool DrawInfoCard(const LibreBridge::SensorSnapshot* snapshot)
 {
     g_runtime->api->Section("OptiSensor Info");
     std::string buildIdentity;
@@ -551,6 +579,21 @@ void DrawInfoCard(const LibreBridge::SensorSnapshot* snapshot)
         else
             g_runtime->api->Text("Install/run LibreHardwareMonitor + PawnIO. Enable Web Server (8085).");
     }
+
+    if (OPTI_API_HAS(g_runtime->api, Separator)) g_runtime->api->Separator();
+    g_runtime->api->Text("Options");
+    bool averageGpuFanRpm = true;
+    if (HasBoolSettingsApi())
+    {
+        averageGpuFanRpm = g_runtime->api->GetBool(g_runtime->plugin, "AverageGpuFanRpm", true);
+        if (OPTI_API_HAS(g_runtime->api, Checkbox) &&
+            g_runtime->api->Checkbox("Average GPU Fan RPM", &averageGpuFanRpm))
+        {
+            g_runtime->api->SetBool(g_runtime->plugin, "AverageGpuFanRpm", averageGpuFanRpm);
+            g_tabState.saveStatus = nullptr;
+        }
+    }
+    return averageGpuFanRpm;
 }
 
 }
@@ -562,7 +605,7 @@ void Draw(void* userData)
     g_runtime = runtime;
     g_runtime->lastTabVisit.store(GetTickCount64(), std::memory_order_release);
     const auto snapshot = g_runtime->sensorSnapshot.load(std::memory_order_acquire);
-    DrawInfoCard(snapshot.get());
+    const bool averageGpuFanRpm = DrawInfoCard(snapshot.get());
 
     std::vector<OverlayLayout::Recommendation> recommendations;
     std::vector<OverlayLayout::SensorState> states = ReadSensorStates(snapshot.get(), recommendations);
@@ -576,7 +619,8 @@ void Draw(void* userData)
     const std::string preview = OverlayLayout::ComposePreview(
         *previewSnapshot,
         g_tabState.groups,
-        states);
+        states,
+        averageGpuFanRpm);
     g_runtime->api->Section("Overlay Preview");
     g_runtime->api->Text(preview.c_str());
 

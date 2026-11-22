@@ -24,6 +24,7 @@ struct SensorState
     std::string groupId;
     std::int32_t order = MissingSensorOrder;
     bool selected = false;
+    bool averageFan = true;
 };
 
 struct Recommendation
@@ -36,6 +37,7 @@ struct Recommendation
 std::vector<Recommendation> GetDefaultRecommendations(const LibreBridge::SensorSnapshot& snapshot);
 std::string GetDefaultGroupId(const LibreBridge::SensorReading& reading);
 std::string GetGpuHardwareId(const LibreBridge::SensorSnapshot& snapshot);
+std::string GetSensorFanAverageSettingKey(const LibreBridge::SensorReading& reading);
 std::string GetSensorGroupSettingKey(const LibreBridge::SensorReading& reading);
 std::string GetSensorOrderSettingKey(const LibreBridge::SensorReading& reading);
 std::int32_t NextSensorOrder(
@@ -47,5 +49,6 @@ bool MoveSelectedSensor(std::vector<SensorState>& states, std::string_view setti
 std::string ComposePreview(
     const LibreBridge::SensorSnapshot& snapshot,
     const std::vector<Group>& groups,
-    const std::vector<SensorState>& states);
+    const std::vector<SensorState>& states,
+    bool averageGpuFanRpm = true);
 }

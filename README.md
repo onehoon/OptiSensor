@@ -38,7 +38,7 @@ msbuild .\tests\OptiSensor.Plugin.Tests\OptiSensor.Plugin.Tests.vcxproj /m /p:Co
 msbuild .\src\OptiSensor.Plugin\OptiSensor.Plugin.vcxproj /m /p:Configuration=Release /p:Platform=x64
 ```
 
-The ASI output is `src/OptiSensor.Plugin/bin/Release/OptiSensor.asi`. [Plugin CI](https://github.com/onehoon/OptiSensor/blob/main/.github/workflows/optisensor-plugin-ci.yml) builds and tests the native projects and verifies the `OptiPluginInit` export. The [rolling release workflow](https://github.com/onehoon/OptiSensor/blob/main/.github/workflows/build-optisensor-plugin.yml) is started manually and publishes one `OptiSensor.zip` asset containing `OptiSensor-loadlate.asi`.
+The ASI output is `src/OptiSensor.Plugin/bin/Release/OptiSensor.asi`. [Plugin CI](https://github.com/onehoon/OptiSensor/blob/main/.github/workflows/optisensor-plugin-ci.yml) builds and tests the native projects and verifies the `OptiPluginInit` export. The [rolling release workflow](https://github.com/onehoon/OptiSensor/blob/main/.github/workflows/build-optisensor-plugin.yml) is started manually and publishes one `OptiSensor.zip` asset containing `OptiSensor.asi`.
 
 ## Legacy history
 
@@ -48,8 +48,6 @@ The Desktop, MSI Claw, and patched OptiScaler editions are discontinued. Their s
 - [Legacy MSI Claw](https://github.com/onehoon/OptiSensor/tree/archive/legacy-claw)
 - [OptiScaler 0.9 edition](https://github.com/onehoon/OptiSensor/tree/archive/optiscaler-0.9)
 - [OptiScaler 0.10 edition](https://github.com/onehoon/OptiSensor/tree/archive/optiscaler-0.10)
-
-Historical v0.1.x releases and the `optiscaler-sensor-latest` release remain available with their existing assets for legacy users.
 
 ## License
 

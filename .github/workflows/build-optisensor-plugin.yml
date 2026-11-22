@@ -81,15 +81,15 @@ jobs:
           $archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
           try {
             [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-              $archive, $asi, "OptiSensor-loadlate.asi", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+              $archive, $asi, "OptiSensor.asi", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
           }
           finally { $archive.Dispose() }
 
           $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
           try {
             $entries = @($archive.Entries | ForEach-Object FullName)
-            if ($entries.Count -ne 1 -or $entries[0] -ne "OptiSensor-loadlate.asi") {
-              throw "OptiSensor.zip must contain exactly one root entry: OptiSensor-loadlate.asi."
+            if ($entries.Count -ne 1 -or $entries[0] -ne "OptiSensor.asi") {
+              throw "OptiSensor.zip must contain exactly one root entry: OptiSensor.asi."
             }
           }
           finally { $archive.Dispose() }
@@ -156,7 +156,7 @@ jobs:
           Build-Run-ID: $env:BUILD_RUN_ID
           Build-SHA: $env:BUILD_SHA
 
-          Windows x64 OptiScaler plugin. Extract OptiSensor-loadlate.asi to the OptiScaler plugins folder and enable LoadAsiPlugins.
+          Windows x64 OptiScaler plugin. Extract OptiSensor.asi to the OptiScaler plugins folder and enable LoadAsiPlugins.
           Requires user-installed LibreHardwareMonitor v0.9.6, PawnIO, and its Remote Web Server enabled on port 8085. Verify http://127.0.0.1:8085/data.json returns sensor data.
           The ASI reads only the loopback endpoint and never installs, starts, elevates, or reconfigures LibreHardwareMonitor or PawnIO. Review remote access settings and Windows Firewall rules because the web server may listen beyond loopback.
           Source: https://github.com/onehoon/OptiSensor
