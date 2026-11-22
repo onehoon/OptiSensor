@@ -6,6 +6,7 @@
 #include <atomic>
 #include <charconv>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <string>
 #include <string_view>
@@ -482,33 +483,13 @@ void RefreshSnapshot()
     g_readingCount = std::min(result, static_cast<int32_t>(g_readings.size()));
 }
 
-const char* UnitFor(int32_t kind)
-{
-    switch (kind)
-    {
-    case OptiSensor_CpuUsage:
-    case OptiSensor_GpuUsage:
-        return "%";
-    case OptiSensor_CpuTemperature:
-    case OptiSensor_GpuTemperature:
-        return "\xC2\xB0" "C";
-    case OptiSensor_GpuPower:
-        return "W";
-    case OptiSensor_FanRpm:
-        return "RPM";
-    default:
-        return "";
-    }
-}
-
 void DrawSensor(const OptiSensorReading& reading)
 {
-    const bool defaultVisible = true;
-    bool visible = g_api->GetBool(g_plugin, reading.settingKey, defaultVisible);
-    std::string checkboxLabel = reading.device;
-    checkboxLabel += " / ";
-    checkboxLabel += reading.label;
-    checkboxLabel += "##";
+    bool visible = g_api->GetBool(g_plugin, reading.settingKey, true);
+    std::string checkboxLabel = reading.label;
+    checkboxLabel += " (";
+    checkboxLabel += reading.sensorType;
+    checkboxLabel += ")##";
     checkboxLabel += reading.settingKey;
 
     if (g_api->Checkbox(checkboxLabel.c_str(), &visible))
@@ -521,7 +502,14 @@ void DrawSensor(const OptiSensorReading& reading)
     char value[64]{};
     if (reading.available != 0)
     {
-        std::snprintf(value, sizeof(value), "%.1f %s", reading.value, UnitFor(reading.kind));
+        if (reading.unit[0] == '\0')
+        {
+            std::snprintf(value, sizeof(value), "%.1f", reading.value);
+        }
+        else
+        {
+            std::snprintf(value, sizeof(value), "%.1f %s", reading.value, reading.unit);
+        }
     }
     else
     {
@@ -530,25 +518,51 @@ void DrawSensor(const OptiSensorReading& reading)
     g_api->Text(value);
 }
 
-void DrawGroup(const char* title, int32_t firstKind, int32_t lastKind)
+void DrawHardwareGroups()
 {
-    g_api->Section(title);
-    int32_t rendered = 0;
-    for (int32_t index = 0; index < g_readingCount; ++index)
-    {
-        const OptiSensorReading& reading = g_readings[static_cast<size_t>(index)];
-        if (reading.kind < firstKind || reading.kind > lastKind)
-        {
-            continue;
-        }
-
-        DrawSensor(reading);
-        ++rendered;
-    }
-
-    if (rendered == 0)
+    g_api->Section("Hardware sensors");
+    if (g_readingCount == 0)
     {
         g_api->Text("No detected sensors");
+        return;
+    }
+
+    int32_t first = 0;
+    while (first < g_readingCount)
+    {
+        const OptiSensorReading& group = g_readings[static_cast<size_t>(first)];
+        int32_t end = first + 1;
+        while (end < g_readingCount &&
+               std::strcmp(g_readings[static_cast<size_t>(end)].groupSettingKey, group.groupSettingKey) == 0)
+        {
+            ++end;
+        }
+
+        bool expanded = g_api->GetBool(g_plugin, group.groupSettingKey, group.groupDefaultExpanded != 0);
+        std::string header = expanded ? "[-] " : "[+] ";
+        header += group.device;
+        header += " [";
+        header.append(group.groupSettingKey + (sizeof("GroupExpanded_") - 1), 8);
+        header += "] (";
+        header += std::to_string(end - first);
+        header += " sensors)##";
+        header += group.groupSettingKey;
+        if (g_api->Button(header.c_str()))
+        {
+            expanded = !expanded;
+            g_api->SetBool(g_plugin, group.groupSettingKey, expanded);
+            g_saveStatus = nullptr;
+        }
+
+        if (expanded)
+        {
+            for (int32_t index = first; index < end; ++index)
+            {
+                DrawSensor(g_readings[static_cast<size_t>(index)]);
+            }
+        }
+
+        first = end;
     }
 }
 
@@ -574,7 +588,7 @@ void DrawTab(void*)
         g_api->SetBool(g_plugin, "EnableGpuMonitoring", enableGpuMonitoring);
         g_saveStatus = nullptr;
     }
-    g_api->Text("Save settings and restart the game to apply this setting.");
+    g_api->Text("Save settings to keep selections. Restart the game to apply GPU monitoring changes.");
 
     if (!g_backendInitFinished.load(std::memory_order_acquire))
     {
@@ -604,9 +618,14 @@ void DrawTab(void*)
             g_api->Text(g_snapshotInfo.message);
         }
 
-        DrawGroup("CPU", OptiSensor_CpuUsage, OptiSensor_CpuTemperature);
-        DrawGroup("GPU", OptiSensor_GpuUsage, OptiSensor_GpuPower);
-        DrawGroup("FAN", OptiSensor_FanRpm, OptiSensor_FanRpm);
+        if (g_snapshotInfo.totalCount > g_readingCount)
+        {
+            char countMessage[96]{};
+            std::snprintf(countMessage, sizeof(countMessage), "Showing %d / %d sensors; snapshot limit reached.",
+                          g_readingCount, g_snapshotInfo.totalCount);
+            g_api->Text(countMessage);
+        }
+        DrawHardwareGroups();
     }
 
     if (g_api->Button("Save"))
@@ -654,7 +673,7 @@ extern "C" __declspec(dllexport) bool OptiPluginInit(const OptiPluginApi* api, O
         return false;
     }
 
-    if (!api->RegisterTab(plugin, "OptiSensor", "CPU, GPU, and fan sensors", DrawTab, nullptr))
+    if (!api->RegisterTab(plugin, "OptiSensor", "All detected hardware sensors", DrawTab, nullptr))
     {
         Log(OptiLog_Error, "Failed to register the OptiSensor tab");
         g_api = nullptr;

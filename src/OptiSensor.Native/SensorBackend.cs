@@ -6,14 +6,10 @@ using LibreHardwareMonitor.Hardware;
 
 namespace OptiSensor.Native;
 
-internal enum SensorMetricKind
+internal enum SensorGroupDefault
 {
-    CpuUsage = 1,
-    CpuTemperature = 2,
-    GpuUsage = 3,
-    GpuTemperature = 4,
-    GpuPower = 5,
-    FanRpm = 6
+    Collapsed = 0,
+    Expanded = 1
 }
 
 internal enum SensorServiceStatus
@@ -27,13 +23,17 @@ internal enum SensorServiceStatus
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 internal unsafe struct OptiSensorReadingAbi
 {
-    public int Kind;
+    public int GroupDefaultExpanded;
     public int Available;
     public float Value;
     public fixed byte Identifier[256];
+    public fixed byte GroupIdentifier[256];
     public fixed byte Device[128];
     public fixed byte Label[128];
+    public fixed byte SensorType[32];
+    public fixed byte Unit[32];
     public fixed byte SettingKey[80];
+    public fixed byte GroupSettingKey[80];
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -47,26 +47,33 @@ internal unsafe struct OptiSensorSnapshotInfoAbi
 
 internal sealed class SensorReading
 {
-    public required int Kind { get; init; }
+    public required int GroupDefaultExpanded { get; init; }
     public required int Available { get; init; }
     public required float Value { get; init; }
     public required string Identifier { get; init; }
+    public required string GroupIdentifier { get; init; }
     public required string Device { get; init; }
     public required string Label { get; init; }
+    public required string SensorType { get; init; }
+    public required string Unit { get; init; }
     public required string SettingKey { get; init; }
+    public required string GroupSettingKey { get; init; }
 }
 
-internal readonly struct SensorCandidate(IHardware hardware, ISensor sensor)
+internal readonly struct SensorCandidate(IHardware root, IHardware hardware, ISensor sensor)
 {
+    public IHardware Root { get; } = root;
     public IHardware Hardware { get; } = hardware;
     public ISensor Sensor { get; } = sensor;
 }
 
 internal static unsafe class SensorWorker
 {
-    private const int MaxReadings = 128;
+    private const int MaxReadings = 512;
+    private const int SlowHardwareUpdateMilliseconds = 5000;
     private static readonly object Gate = new();
     private static SensorReading[] _snapshot = [];
+    private static int _totalSensorCount;
     private static string _message = "Waiting for sensor discovery.";
     private static int _status = (int)SensorServiceStatus.Loading;
     private static int _stopRequested;
@@ -85,6 +92,7 @@ internal static unsafe class SensorWorker
             Volatile.Write(ref _gpuMonitoringEnabled, enableGpuMonitoring != 0 ? 1 : 0);
             _stopRequested = 0;
             _snapshot = [];
+            _totalSensorCount = 0;
             _status = (int)SensorServiceStatus.Loading;
             _message = "Opening LibreHardwareMonitor.";
 
@@ -139,9 +147,11 @@ internal static unsafe class SensorWorker
             SensorReading[] snapshot;
             string message;
             int status;
+            int totalSensorCount;
             lock (Gate)
             {
                 snapshot = _snapshot;
+                totalSensorCount = _totalSensorCount;
                 message = _message;
                 status = _status;
             }
@@ -149,20 +159,24 @@ internal static unsafe class SensorWorker
             int count = Math.Min(snapshot.Length, capacity);
             info->Status = status;
             info->Count = count;
-            info->TotalCount = snapshot.Length;
+            info->TotalCount = totalSensorCount;
             CopyUtf8(message, info->Message, 256);
 
             for (int index = 0; index < count; index++)
             {
                 SensorReading source = snapshot[index];
                 OptiSensorReadingAbi* target = &destination[index];
-                target->Kind = source.Kind;
+                target->GroupDefaultExpanded = source.GroupDefaultExpanded;
                 target->Available = source.Available;
                 target->Value = source.Value;
                 CopyUtf8(source.Identifier, target->Identifier, 256);
+                CopyUtf8(source.GroupIdentifier, target->GroupIdentifier, 256);
                 CopyUtf8(source.Device, target->Device, 128);
                 CopyUtf8(source.Label, target->Label, 128);
+                CopyUtf8(source.SensorType, target->SensorType, 32);
+                CopyUtf8(source.Unit, target->Unit, 32);
                 CopyUtf8(source.SettingKey, target->SettingKey, 80);
+                CopyUtf8(source.GroupSettingKey, target->GroupSettingKey, 80);
             }
 
             return count;
@@ -176,7 +190,7 @@ internal static unsafe class SensorWorker
     private static void WorkerLoop()
     {
         Computer? computer = null;
-        long lastMotherboardUpdate = 0;
+        long lastSlowHardwareUpdate = 0;
 
         try
         {
@@ -186,39 +200,42 @@ internal static unsafe class SensorWorker
                 {
                     if (computer is null)
                     {
-                        Publish([], SensorServiceStatus.Loading, "Opening LibreHardwareMonitor.");
+                        Publish([], 0, SensorServiceStatus.Loading, "Opening LibreHardwareMonitor.");
                         computer = new Computer
                         {
-                            IsBatteryEnabled = false,
-                            IsControllerEnabled = false,
+                            IsBatteryEnabled = true,
+                            IsControllerEnabled = true,
                             IsCpuEnabled = true,
                             IsGpuEnabled = Volatile.Read(ref _gpuMonitoringEnabled) != 0,
-                            IsMemoryEnabled = false,
+                            IsMemoryEnabled = true,
                             IsMotherboardEnabled = true,
                             IsNetworkEnabled = false,
-                            IsPowerMonitorEnabled = false,
-                            IsPsuEnabled = false,
+                            IsPowerMonitorEnabled = true,
+                            IsPsuEnabled = true,
                             IsStorageEnabled = false
                         };
                         computer.Open();
-                        lastMotherboardUpdate = Environment.TickCount64 - 5000;
+                        lastSlowHardwareUpdate = Environment.TickCount64 - SlowHardwareUpdateMilliseconds;
                     }
 
                     long now = Environment.TickCount64;
-                    bool updateMotherboard = now - lastMotherboardUpdate >= 5000;
-                    if (updateMotherboard)
+                    bool updateSlowHardware = now - lastSlowHardwareUpdate >= SlowHardwareUpdateMilliseconds;
+                    if (updateSlowHardware)
                     {
-                        lastMotherboardUpdate = now;
+                        lastSlowHardwareUpdate = now;
                     }
 
                     var failedHardware = new HashSet<IHardware>(ReferenceEqualityComparer.Instance);
                     foreach (IHardware root in computer.Hardware)
                     {
                         HardwareType rootType = root.HardwareType;
-                        bool cpu = rootType == HardwareType.Cpu;
-                        bool gpu = IsGpu(rootType);
-                        bool fanSource = cpu || gpu || rootType is HardwareType.Motherboard or HardwareType.SuperIO;
-                        if (!fanSource || (rootType is HardwareType.Motherboard or HardwareType.SuperIO) && !updateMotherboard)
+                        if (IsExcludedHardware(rootType))
+                        {
+                            continue;
+                        }
+
+                        bool fastHardware = rootType == HardwareType.Cpu || IsGpu(rootType);
+                        if (!fastHardware && !updateSlowHardware)
                         {
                             continue;
                         }
@@ -227,15 +244,21 @@ internal static unsafe class SensorWorker
                     }
 
                     bool partialFailure = failedHardware.Count > 0;
-                    SensorReading[] readings = Collect(computer, failedHardware, ref partialFailure);
+                    SensorReading[] readings = Collect(computer, failedHardware, ref partialFailure, out int totalSensorCount);
                     string message = partialFailure
                         ? "Some hardware did not update; other available sensor readings remain active."
                         : string.Empty;
-                    Publish(readings, SensorServiceStatus.Ready, message);
+                    if (totalSensorCount > readings.Length)
+                    {
+                        message = string.IsNullOrEmpty(message)
+                            ? "Sensor snapshot limit reached."
+                            : string.Concat(message, " Sensor snapshot limit reached.");
+                    }
+                    Publish(readings, totalSensorCount, SensorServiceStatus.Ready, message);
                 }
                 catch (Exception exception)
                 {
-                    Publish([], SensorServiceStatus.Error, Describe(exception));
+                    Publish([], 0, SensorServiceStatus.Error, Describe(exception));
                     try
                     {
                         computer?.Close();
@@ -244,7 +267,7 @@ internal static unsafe class SensorWorker
                     {
                     }
                     computer = null;
-                    lastMotherboardUpdate = 0;
+                    lastSlowHardwareUpdate = 0;
                 }
 
                 Thread.Sleep(1000);
@@ -263,6 +286,8 @@ internal static unsafe class SensorWorker
             lock (Gate)
             {
                 _worker = null;
+                _snapshot = [];
+                _totalSensorCount = 0;
                 _status = (int)SensorServiceStatus.Stopped;
                 _message = "Sensor polling stopped.";
             }
@@ -271,6 +296,11 @@ internal static unsafe class SensorWorker
 
     private static void UpdateTree(IHardware hardware, HashSet<IHardware> failedHardware)
     {
+        if (IsExcludedHardware(hardware.HardwareType))
+        {
+            return;
+        }
+
         try
         {
             hardware.Update();
@@ -296,72 +326,67 @@ internal static unsafe class SensorWorker
     private static SensorReading[] Collect(
         Computer computer,
         HashSet<IHardware> failedHardware,
-        ref bool partialFailure)
+        ref bool partialFailure,
+        out int totalSensorCount)
     {
-        var readings = new List<SensorReading>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var candidates = new List<SensorCandidate>();
+        IHardware[] roots = computer.Hardware
+            .Where(root => !IsExcludedHardware(root.HardwareType))
+            .OrderBy(root => root.Identifier.ToString(), StringComparer.Ordinal)
+            .ToArray();
 
-        foreach (IHardware root in computer.Hardware)
+        foreach (IHardware root in roots)
         {
-            HardwareType rootType = root.HardwareType;
-            bool cpu = rootType == HardwareType.Cpu;
-            bool gpu = IsGpu(rootType);
-            bool fanSource = cpu || gpu || rootType is HardwareType.Motherboard or HardwareType.SuperIO;
-            if (!fanSource)
+            candidates.AddRange(GetCandidates(root, ref partialFailure));
+        }
+
+        candidates.Sort(static (left, right) =>
+        {
+            int groupOrder = StringComparer.Ordinal.Compare(
+                left.Root.Identifier.ToString(), right.Root.Identifier.ToString());
+            if (groupOrder != 0)
             {
-                continue;
+                return groupOrder;
             }
 
-            List<SensorCandidate> candidates = GetCandidates(root, failedHardware, ref partialFailure);
-            if (cpu)
-            {
-                AddSelected(readings, seen, root, candidates, SensorType.Load,
-                    SensorMetricKind.CpuUsage, ["Total", "CPU"], ["Core", "Thread", "Memory"], allowFallback: false);
-                AddSelected(readings, seen, root, candidates, SensorType.Temperature,
-                    SensorMetricKind.CpuTemperature, ["Package", "Tctl", "Tdie", "CPU"], ["Core #", "CCD"], allowFallback: false);
-            }
-            else if (gpu)
-            {
-                AddSelected(readings, seen, root, candidates, SensorType.Load,
-                    SensorMetricKind.GpuUsage, ["GPU Core", "Core", "GPU", "3D"], ["Memory"], allowFallback: true);
-                AddSelected(readings, seen, root, candidates, SensorType.Temperature,
-                    SensorMetricKind.GpuTemperature, ["GPU Core", "Core", "GPU"], ["Memory"], allowFallback: true);
-                AddSelected(readings, seen, root, candidates, SensorType.Power,
-                    SensorMetricKind.GpuPower, ["Board", "Total", "GPU", "Core"], ["Memory"], allowFallback: true);
-            }
+            int hardwareOrder = StringComparer.Ordinal.Compare(
+                left.Hardware.Identifier.ToString(), right.Hardware.Identifier.ToString());
+            return hardwareOrder != 0
+                ? hardwareOrder
+                : StringComparer.Ordinal.Compare(left.Sensor.Identifier.ToString(), right.Sensor.Identifier.ToString());
+        });
 
-            foreach (SensorCandidate candidate in candidates)
+        var readings = new List<SensorReading>(Math.Min(candidates.Count, MaxReadings));
+        foreach (SensorCandidate candidate in candidates)
+        {
+            try
             {
-                if (candidate.Sensor.SensorType == SensorType.Fan)
-                {
-                    AddReading(readings, seen, root, candidate, SensorMetricKind.FanRpm);
-                }
+                readings.Add(CreateReading(candidate, ref partialFailure));
+            }
+            catch
+            {
+                partialFailure = true;
             }
         }
 
-        return readings.ToArray();
+        totalSensorCount = readings.Count;
+        return readings.Count <= MaxReadings
+            ? readings.ToArray()
+            : readings.GetRange(0, MaxReadings).ToArray();
     }
 
-    private static List<SensorCandidate> GetCandidates(
-        IHardware root,
-        HashSet<IHardware> failedHardware,
-        ref bool partialFailure)
+    private static List<SensorCandidate> GetCandidates(IHardware root, ref bool partialFailure)
     {
         var candidates = new List<SensorCandidate>();
         var nodes = new List<IHardware>();
-        AddHardwareTree(root, nodes, failedHardware, ref partialFailure);
+        AddHardwareTree(root, nodes, ref partialFailure);
         foreach (IHardware hardware in nodes)
         {
-            if (failedHardware.Contains(hardware))
-            {
-                continue;
-            }
-
             try
             {
                 foreach (ISensor sensor in hardware.Sensors)
                 {
-                    candidates.Add(new SensorCandidate(hardware, sensor));
+                    candidates.Add(new SensorCandidate(root, hardware, sensor));
                 }
             }
             catch
@@ -370,160 +395,135 @@ internal static unsafe class SensorWorker
             }
         }
 
-        candidates.Sort(static (left, right) =>
-        {
-            int hardwareOrder = StringComparer.Ordinal.Compare(
-                left.Hardware.Identifier.ToString(), right.Hardware.Identifier.ToString());
-            return hardwareOrder != 0
-                ? hardwareOrder
-                : StringComparer.Ordinal.Compare(left.Sensor.Identifier.ToString(), right.Sensor.Identifier.ToString());
-        });
         return candidates;
     }
 
     private static void AddHardwareTree(
         IHardware hardware,
         List<IHardware> nodes,
-        HashSet<IHardware> failedHardware,
         ref bool partialFailure)
     {
+        if (IsExcludedHardware(hardware.HardwareType))
+        {
+            return;
+        }
+
         nodes.Add(hardware);
         try
         {
             foreach (IHardware child in hardware.SubHardware)
             {
-                AddHardwareTree(child, nodes, failedHardware, ref partialFailure);
+                AddHardwareTree(child, nodes, ref partialFailure);
             }
         }
         catch
         {
-            failedHardware.Add(hardware);
             partialFailure = true;
         }
     }
 
-    private static void AddSelected(
-        List<SensorReading> readings,
-        HashSet<string> seen,
-        IHardware root,
-        List<SensorCandidate> candidates,
-        SensorType sensorType,
-        SensorMetricKind metricKind,
-        string[] preferredNames,
-        string[] excludedNames,
-        bool allowFallback)
+    private static SensorReading CreateReading(SensorCandidate candidate, ref bool partialFailure)
     {
-        SensorCandidate? candidate = SelectSensor(candidates, sensorType, preferredNames, excludedNames, allowFallback);
-        if (candidate.HasValue)
-        {
-            AddReading(readings, seen, root, candidate.Value, metricKind);
-        }
-    }
-
-    private static SensorCandidate? SelectSensor(
-        List<SensorCandidate> candidates,
-        SensorType sensorType,
-        string[] preferredNames,
-        string[] excludedNames,
-        bool allowFallback)
-    {
-        foreach (string preferred in preferredNames)
-        {
-            foreach (SensorCandidate candidate in candidates)
-            {
-                if (candidate.Sensor.SensorType == sensorType &&
-                    candidate.Sensor.Name.Contains(preferred, StringComparison.OrdinalIgnoreCase) &&
-                    !ContainsAny(candidate.Sensor.Name, excludedNames))
-                {
-                    return candidate;
-                }
-            }
-        }
-
-        if (allowFallback)
-        {
-            foreach (SensorCandidate candidate in candidates)
-            {
-                if (candidate.Sensor.SensorType == sensorType &&
-                    !ContainsAny(candidate.Sensor.Name, excludedNames))
-                {
-                    return candidate;
-                }
-            }
-
-            foreach (SensorCandidate candidate in candidates)
-            {
-                if (candidate.Sensor.SensorType == sensorType)
-                {
-                    return candidate;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static bool ContainsAny(string value, string[] candidates)
-    {
-        foreach (string candidate in candidates)
-        {
-            if (value.Contains(candidate, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static void AddReading(
-        List<SensorReading> readings,
-        HashSet<string> seen,
-        IHardware root,
-        SensorCandidate candidate,
-        SensorMetricKind kind)
-    {
-        if (readings.Count >= MaxReadings)
-        {
-            return;
-        }
-
-        string rootIdentity = root.Identifier.ToString();
+        string rootIdentity = candidate.Root.Identifier.ToString();
         string hardwareIdentity = candidate.Hardware.Identifier.ToString();
         string sensorIdentity = candidate.Sensor.Identifier.ToString();
-        string identity = string.Concat(rootIdentity, "|", hardwareIdentity, "|", sensorIdentity, "|", (int)kind);
-        if (!seen.Add(identity))
+        string identity = string.Concat(rootIdentity, "|", hardwareIdentity, "|", sensorIdentity);
+        string sensorLabel = string.Equals(rootIdentity, hardwareIdentity, StringComparison.Ordinal)
+            ? candidate.Sensor.Name
+            : string.Concat(candidate.Hardware.Name, " / ", candidate.Sensor.Name);
+        SensorType sensorType = candidate.Sensor.SensorType;
+        float? sensorValue;
+        try
         {
-            return;
+            sensorValue = candidate.Sensor.Value;
+        }
+        catch
+        {
+            sensorValue = null;
+            partialFailure = true;
         }
 
-        float? sensorValue = candidate.Sensor.Value;
         bool available = sensorValue.HasValue && float.IsFinite(sensorValue.Value);
-        string device = string.Equals(rootIdentity, hardwareIdentity, StringComparison.Ordinal)
-            ? root.Name
-            : string.Concat(root.Name, " / ", candidate.Hardware.Name);
-        string settingKey = "SensorVisible_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
-
-        readings.Add(new SensorReading
+        string groupSettingKey = CreateSettingKey("GroupExpanded_", rootIdentity);
+        return new SensorReading
         {
-            Kind = (int)kind,
+            GroupDefaultExpanded = GetGroupDefaultExpanded(candidate.Root.HardwareType),
             Available = available ? 1 : 0,
             Value = available ? sensorValue!.Value : 0.0f,
-            Identifier = string.Concat(hardwareIdentity, "|", sensorIdentity),
-            Device = device,
-            Label = candidate.Sensor.Name,
-            SettingKey = settingKey
-        });
+            Identifier = identity,
+            GroupIdentifier = rootIdentity,
+            Device = GetGroupTitle(candidate.Root),
+            Label = sensorLabel,
+            SensorType = sensorType.ToString(),
+            Unit = GetUnit(sensorType),
+            SettingKey = CreateSettingKey("SensorVisible_", identity),
+            GroupSettingKey = groupSettingKey
+        };
     }
+
+    private static string CreateSettingKey(string prefix, string identifier) =>
+        prefix + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identifier)));
+
+    private static string GetGroupTitle(IHardware hardware)
+    {
+        string category = hardware.HardwareType switch
+        {
+            HardwareType.Cpu => "CPU",
+            HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel => "GPU",
+            HardwareType.Memory => "Memory",
+            HardwareType.Motherboard or HardwareType.SuperIO => "Motherboard / SuperIO",
+            HardwareType.Battery => "Battery",
+            HardwareType.EmbeddedController => "Controller",
+            HardwareType.Psu or HardwareType.PowerMonitor => "PSU / Power Monitor",
+            _ => hardware.HardwareType.ToString()
+        };
+
+        return string.Concat(category, " — ", hardware.Name);
+    }
+
+    private static int GetGroupDefaultExpanded(HardwareType type) =>
+        type == HardwareType.Cpu || IsGpu(type)
+            ? (int)SensorGroupDefault.Expanded
+            : (int)SensorGroupDefault.Collapsed;
+
+    private static string GetUnit(SensorType type) => type.ToString() switch
+    {
+        "Voltage" => "V",
+        "Current" => "A",
+        "Power" => "W",
+        "Clock" or "Frequency" => "MHz",
+        "Temperature" => "\u00B0C",
+        "Load" or "Control" or "Level" or "Humidity" => "%",
+        "Fan" => "RPM",
+        "Flow" => "L/h",
+        "Factor" => "x",
+        "Data" => "GB",
+        "SmallData" => "MB",
+        "Throughput" => "MB/s",
+        "TimeSpan" => "s",
+        "Timing" => "ms",
+        "Energy" => "mWh",
+        "Noise" => "dB(A)",
+        "Conductivity" => "\u00B5S/cm",
+        _ => string.Empty
+    };
 
     private static bool IsGpu(HardwareType type) =>
         type is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel;
 
-    private static void Publish(SensorReading[] snapshot, SensorServiceStatus status, string message)
+    private static bool IsExcludedHardware(HardwareType type) =>
+        type is HardwareType.Storage or HardwareType.Network;
+
+    private static void Publish(
+        SensorReading[] snapshot,
+        int totalSensorCount,
+        SensorServiceStatus status,
+        string message)
     {
         lock (Gate)
         {
             _snapshot = snapshot;
+            _totalSensorCount = totalSensorCount;
             _status = (int)status;
             _message = message;
         }
@@ -595,5 +595,4 @@ internal static unsafe class NativeExports
             return -1;
         }
     }
-
 }

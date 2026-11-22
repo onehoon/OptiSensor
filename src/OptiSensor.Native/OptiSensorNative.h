@@ -2,22 +2,15 @@
 
 #include <stdint.h>
 
-#define OPTISENSOR_MAX_READINGS 128
+#define OPTISENSOR_MAX_READINGS 512
 #define OPTISENSOR_IDENTIFIER_BYTES 256
+#define OPTISENSOR_GROUP_IDENTIFIER_BYTES 256
 #define OPTISENSOR_DEVICE_BYTES 128
 #define OPTISENSOR_LABEL_BYTES 128
+#define OPTISENSOR_SENSOR_TYPE_BYTES 32
+#define OPTISENSOR_UNIT_BYTES 32
 #define OPTISENSOR_SETTING_KEY_BYTES 80
 #define OPTISENSOR_MESSAGE_BYTES 256
-
-typedef enum OptiSensorMetricKind
-{
-    OptiSensor_CpuUsage = 1,
-    OptiSensor_CpuTemperature = 2,
-    OptiSensor_GpuUsage = 3,
-    OptiSensor_GpuTemperature = 4,
-    OptiSensor_GpuPower = 5,
-    OptiSensor_FanRpm = 6
-} OptiSensorMetricKind;
 
 typedef enum OptiSensorStatus
 {
@@ -30,13 +23,17 @@ typedef enum OptiSensorStatus
 #pragma pack(push, 4)
 typedef struct OptiSensorReading
 {
-    int32_t kind;
+    int32_t groupDefaultExpanded;
     int32_t available;
     float value;
     char identifier[OPTISENSOR_IDENTIFIER_BYTES];
+    char groupIdentifier[OPTISENSOR_GROUP_IDENTIFIER_BYTES];
     char device[OPTISENSOR_DEVICE_BYTES];
     char label[OPTISENSOR_LABEL_BYTES];
+    char sensorType[OPTISENSOR_SENSOR_TYPE_BYTES];
+    char unit[OPTISENSOR_UNIT_BYTES];
     char settingKey[OPTISENSOR_SETTING_KEY_BYTES];
+    char groupSettingKey[OPTISENSOR_SETTING_KEY_BYTES];
 } OptiSensorReading;
 
 typedef struct OptiSensorSnapshotInfo
@@ -62,6 +59,6 @@ int32_t __cdecl OptiSensor_Stop(void);
 #ifdef __cplusplus
 }
 
-static_assert(sizeof(OptiSensorReading) == 604, "OptiSensorReading ABI layout changed");
+static_assert(sizeof(OptiSensorReading) == 1004, "OptiSensorReading ABI layout changed");
 static_assert(sizeof(OptiSensorSnapshotInfo) == 268, "OptiSensorSnapshotInfo ABI layout changed");
 #endif
