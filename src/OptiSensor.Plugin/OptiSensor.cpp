@@ -34,6 +34,12 @@ std::string g_backendError;
 std::string g_snapshotError;
 std::atomic<bool> g_backendInitFinished{false};
 
+bool IsWineOrProton()
+{
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    return ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+}
+
 bool HasRequiredApi(const OptiPluginApi* api)
 {
     return OPTI_API_HAS(api, RegisterTab) &&
@@ -311,6 +317,11 @@ void DrawTab(void*)
 extern "C" __declspec(dllexport) bool OptiPluginInit(const OptiPluginApi* api, OptiPlugin* plugin)
 {
     if (api == nullptr || plugin == nullptr)
+    {
+        return false;
+    }
+
+    if (IsWineOrProton())
     {
         return false;
     }
