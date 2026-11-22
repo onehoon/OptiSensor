@@ -70,9 +70,10 @@ internal static unsafe class SensorWorker
     private static string _message = "Waiting for sensor discovery.";
     private static int _status = (int)SensorServiceStatus.Loading;
     private static int _stopRequested;
+    private static int _gpuMonitoringEnabled = 1;
     private static Thread? _worker;
 
-    public static int Start()
+    public static int Start(int enableGpuMonitoring)
     {
         lock (Gate)
         {
@@ -81,6 +82,7 @@ internal static unsafe class SensorWorker
                 return 1;
             }
 
+            Volatile.Write(ref _gpuMonitoringEnabled, enableGpuMonitoring != 0 ? 1 : 0);
             _stopRequested = 0;
             _snapshot = [];
             _status = (int)SensorServiceStatus.Loading;
@@ -190,7 +192,7 @@ internal static unsafe class SensorWorker
                             IsBatteryEnabled = false,
                             IsControllerEnabled = false,
                             IsCpuEnabled = true,
-                            IsGpuEnabled = true,
+                            IsGpuEnabled = Volatile.Read(ref _gpuMonitoringEnabled) != 0,
                             IsMemoryEnabled = false,
                             IsMotherboardEnabled = true,
                             IsNetworkEnabled = false,
@@ -316,7 +318,7 @@ internal static unsafe class SensorWorker
                 AddSelected(readings, seen, root, candidates, SensorType.Load,
                     SensorMetricKind.CpuUsage, ["Total", "CPU"], ["Core", "Thread", "Memory"], allowFallback: false);
                 AddSelected(readings, seen, root, candidates, SensorType.Temperature,
-                    SensorMetricKind.CpuTemperature, ["Package", "Tctl", "Tdie", "CPU"], ["Core", "CCD"], allowFallback: false);
+                    SensorMetricKind.CpuTemperature, ["Package", "Tctl", "Tdie", "CPU"], ["Core #", "CCD"], allowFallback: false);
             }
             else if (gpu)
             {
@@ -556,11 +558,11 @@ internal static unsafe class SensorWorker
 internal static unsafe class NativeExports
 {
     [UnmanagedCallersOnly(EntryPoint = "OptiSensor_Start", CallConvs = [typeof(CallConvCdecl)])]
-    public static int Start()
+    public static int Start(int enableGpuMonitoring)
     {
         try
         {
-            return SensorWorker.Start();
+            return SensorWorker.Start(enableGpuMonitoring);
         }
         catch
         {

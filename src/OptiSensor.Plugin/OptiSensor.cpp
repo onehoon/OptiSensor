@@ -18,7 +18,7 @@ const OptiPluginApi* g_api = nullptr;
 OptiPlugin* g_plugin = nullptr;
 const char* g_saveStatus = nullptr;
 
-using StartFn = int32_t(__cdecl*)();
+using StartFn = int32_t(__cdecl*)(int32_t);
 using GetSnapshotFn = int32_t(__cdecl*)(OptiSensorReading*, int32_t, OptiSensorSnapshotInfo*);
 using StopFn = int32_t(__cdecl*)();
 
@@ -92,7 +92,7 @@ std::wstring GetPluginDirectory()
     return result;
 }
 
-void InitializeBackend()
+void InitializeBackend(bool enableGpuMonitoring)
 {
     const std::wstring pluginDirectory = GetPluginDirectory();
     if (pluginDirectory.empty())
@@ -119,7 +119,7 @@ void InitializeBackend()
         return;
     }
 
-    const int32_t result = g_start();
+    const int32_t result = g_start(enableGpuMonitoring ? 1 : 0);
     if (result < 0)
     {
         SetBackendError("LibreHardwareMonitor worker could not be started");
@@ -134,7 +134,8 @@ DWORD WINAPI InitializeBackendWorker(LPVOID)
 {
     try
     {
-        InitializeBackend();
+        const bool enableGpuMonitoring = g_api->GetBool(g_plugin, "EnableGpuMonitoring", true);
+        InitializeBackend(enableGpuMonitoring);
     }
     catch (...)
     {
@@ -244,40 +245,47 @@ void DrawGroup(const char* title, int32_t firstKind, int32_t lastKind)
 
 void DrawTab(void*)
 {
+    g_api->Section("OptiSensor");
+    bool enableGpuMonitoring = g_api->GetBool(g_plugin, "EnableGpuMonitoring", true);
+    if (g_api->Checkbox("Enable GPU monitoring", &enableGpuMonitoring))
+    {
+        g_api->SetBool(g_plugin, "EnableGpuMonitoring", enableGpuMonitoring);
+        g_saveStatus = nullptr;
+    }
+    g_api->Text("Save settings and restart the game to apply this setting.");
+
     if (!g_backendInitFinished.load(std::memory_order_acquire))
     {
-        g_api->Section("OptiSensor");
         g_api->Text("Starting sensor backend...");
-        return;
     }
+    else
+    {
+        RefreshSnapshot();
+        if (!g_backendError.empty())
+        {
+            g_api->Text(g_backendError.c_str());
+        }
+        else if (!g_snapshotError.empty())
+        {
+            g_api->Text(g_snapshotError.c_str());
+        }
+        else if (g_snapshotInfo.status == OptiSensor_StatusLoading)
+        {
+            g_api->Text("Discovering sensors...");
+        }
+        else if (g_snapshotInfo.status == OptiSensor_StatusError || g_snapshotInfo.status == OptiSensor_StatusStopped)
+        {
+            g_api->Text(g_snapshotInfo.message);
+        }
+        else if (g_snapshotInfo.message[0] != '\0')
+        {
+            g_api->Text(g_snapshotInfo.message);
+        }
 
-    RefreshSnapshot();
-    g_api->Section("OptiSensor");
-
-    if (!g_backendError.empty())
-    {
-        g_api->Text(g_backendError.c_str());
+        DrawGroup("CPU", OptiSensor_CpuUsage, OptiSensor_CpuTemperature);
+        DrawGroup("GPU", OptiSensor_GpuUsage, OptiSensor_GpuPower);
+        DrawGroup("FAN", OptiSensor_FanRpm, OptiSensor_FanRpm);
     }
-    else if (!g_snapshotError.empty())
-    {
-        g_api->Text(g_snapshotError.c_str());
-    }
-    else if (g_snapshotInfo.status == OptiSensor_StatusLoading)
-    {
-        g_api->Text("Discovering sensors...");
-    }
-    else if (g_snapshotInfo.status == OptiSensor_StatusError || g_snapshotInfo.status == OptiSensor_StatusStopped)
-    {
-        g_api->Text(g_snapshotInfo.message);
-    }
-    else if (g_snapshotInfo.message[0] != '\0')
-    {
-        g_api->Text(g_snapshotInfo.message);
-    }
-
-    DrawGroup("CPU", OptiSensor_CpuUsage, OptiSensor_CpuTemperature);
-    DrawGroup("GPU", OptiSensor_GpuUsage, OptiSensor_GpuPower);
-    DrawGroup("FAN", OptiSensor_FanRpm, OptiSensor_FanRpm);
 
     if (g_api->Button("Save"))
     {
