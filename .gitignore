@@ -14,3 +14,5 @@ TestResults/
 .vs/
 
 *.log
+
+src/OptiSensor.Plugin/OptiSensorBuildInfo.generated.h
