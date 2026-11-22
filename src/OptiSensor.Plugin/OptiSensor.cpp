@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -31,6 +32,7 @@ int32_t g_readingCount = 0;
 ULONGLONG g_lastSnapshotRead = 0;
 std::string g_backendError;
 std::string g_snapshotError;
+std::atomic<bool> g_backendInitFinished{false};
 
 bool HasRequiredApi(const OptiPluginApi* api)
 {
@@ -126,6 +128,21 @@ void InitializeBackend()
 
     g_backendError.clear();
     Log(OptiLog_Info, "LibreHardwareMonitor sensor worker started");
+}
+
+DWORD WINAPI InitializeBackendWorker(LPVOID)
+{
+    try
+    {
+        InitializeBackend();
+    }
+    catch (...)
+    {
+        SetBackendError("Unexpected failure while initializing the sensor backend");
+    }
+
+    g_backendInitFinished.store(true, std::memory_order_release);
+    return 0;
 }
 
 void RefreshSnapshot()
@@ -227,6 +244,13 @@ void DrawGroup(const char* title, int32_t firstKind, int32_t lastKind)
 
 void DrawTab(void*)
 {
+    if (!g_backendInitFinished.load(std::memory_order_acquire))
+    {
+        g_api->Section("OptiSensor");
+        g_api->Text("Starting sensor backend...");
+        return;
+    }
+
     RefreshSnapshot();
     g_api->Section("OptiSensor");
 
@@ -303,7 +327,20 @@ extern "C" __declspec(dllexport) bool OptiPluginInit(const OptiPluginApi* api, O
         return false;
     }
 
-    InitializeBackend();
+    g_backendInitFinished.store(false, std::memory_order_relaxed);
+    // OptiPluginInit may run under DllMain's loader lock; defer nested LoadLibrary and Native AOT startup.
+    HANDLE initThread = CreateThread(nullptr, 0, InitializeBackendWorker, nullptr, 0, nullptr);
+    if (initThread != nullptr)
+    {
+        CloseHandle(initThread);
+    }
+    else
+    {
+        const DWORD error = GetLastError();
+        SetBackendError("Failed to schedule sensor backend initialization (Win32 error " + std::to_string(error) + ")");
+        g_backendInitFinished.store(true, std::memory_order_release);
+    }
+
     Log(OptiLog_Info, "OptiSensor plugin initialized");
     return true;
 }
